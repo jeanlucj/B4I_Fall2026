@@ -9,3 +9,9 @@ analysis/*png
 analysis/*html
 analysis/*_cache
 analysis/site_libs
+
+# Credentials -- T3 BrAPI username/password
+.Renviron
+
+# Word lock files
+~$*
