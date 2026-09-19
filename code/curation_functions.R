@@ -388,8 +388,56 @@ accession_vs_parents <- function(pedigrees, similarity) {
 # phenotype records stay in the analysis under one genotype.
 # ------------------------------------------------------------
 
+# Two clonal families that share a seed parent may not be two things.  If
+# their members correlate with each other as strongly as they do within
+# their own family, the pollen parent recorded against them is making no
+# genetic difference and they are one selfed line under several cross
+# names.  Compare the between-family mean with the weaker of the two
+# within-family means, allowing `tolerance` for noise.
+pool_clonal_families <- function(clonal, members_by_family, similarity,
+                                 tolerance = 0.01) {
+  seeds <- clonal |>
+    dplyr::count(seed_parent, name = "n_families") |>
+    dplyr::filter(n_families > 1, !is.na(seed_parent))
+
+  if (nrow(seeds) == 0) {
+    return(tibble::tibble(family = character(0), pool = character(0),
+                          between_r = numeric(0), within_r = numeric(0)))
+  }
+
+  seeds$seed_parent |>
+    purrr::map(\(sp) {
+      fams <- dplyr::filter(clonal, seed_parent == sp)
+      pairs <- utils::combn(fams$family, 2, simplify = FALSE)
+
+      comparisons <- pairs |>
+        purrr::map(\(pr) {
+          a <- members_by_family[[pr[1]]]
+          b <- members_by_family[[pr[2]]]
+          between <- mean(similarity[a, b, drop = FALSE])
+          within  <- min(fams$mean_r[fams$family %in% pr])
+          tibble::tibble(f1 = pr[1], f2 = pr[2],
+                         between_r = between, within_r = within,
+                         indistinguishable = between >= within - tolerance)
+        }) |>
+        purrr::list_rbind()
+
+      merged <- comparisons |> dplyr::filter(indistinguishable)
+      if (nrow(merged) == 0) return(NULL)
+
+      tibble::tibble(
+        family    = unique(c(merged$f1, merged$f2)),
+        pool      = paste0(sp, "_self"),
+        between_r = mean(merged$between_r),
+        within_r  = min(merged$within_r)
+      )
+    }) |>
+    purrr::list_rbind()
+}
+
 resolve_analysis_names <- function(pedigrees, family_summary, similarity,
-                                   identity_threshold, family_flag) {
+                                   identity_threshold, family_flag,
+                                   pool_tolerance = 0.01) {
   genotyped <- rownames(similarity)
 
   clonal <- dplyr::filter(family_summary, mean_r > family_flag)
@@ -406,6 +454,31 @@ resolve_analysis_names <- function(pedigrees, family_summary, similarity,
       reason = paste0("full-sib family ", family, " has mean pairwise r > ",
                       family_flag, ": it did not segregate")
     )
+
+  # --- rule 1b: pool clonal families that share a seed parent and are not
+  # distinguishable from each other; they are selfs of that female ---
+  members_by_family <- split(no_cross$germplasmName, no_cross$family)
+
+  pooled <- pool_clonal_families(clonal, members_by_family, similarity,
+                                 pool_tolerance)
+
+  if (nrow(pooled) > 0) {
+    no_cross <- no_cross |>
+      dplyr::left_join(pooled, by = "family") |>
+      dplyr::mutate(
+        reason = dplyr::if_else(
+          !is.na(pool),
+          paste0("clonal family ", family, " is not distinguishable from the ",
+                 "other clonal families of ", seed_parent,
+                 " (between-family r = ", round(between_r, 4),
+                 " vs within-family r = ", round(within_r, 4),
+                 "): one selfed line under several cross names"),
+          reason
+        ),
+        analysis_name = dplyr::coalesce(pool, analysis_name)
+      ) |>
+      dplyr::select(-pool, -between_r, -within_r)
+  }
 
   # --- rule 2: matches a no_cross line and shares its seed parent ---
   candidates <- setdiff(ped$germplasmName, no_cross$germplasmName)

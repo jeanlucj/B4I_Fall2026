@@ -35,7 +35,10 @@
 # Accessions in a clonal family are renamed for analysis rather than
 # discarded, so their phenotypes are kept:
 #   <seed>_<pollen>_no_cross  a family that did not segregate
-#   <seed_parent>_self        matches a no_cross line and shares its female
+#   <seed_parent>_self        matches a no_cross line and shares its female,
+#                             or belongs to a set of clonal families of that
+#                             female that are not distinguishable from each
+#                             other
 #   <seed_parent>             confirmed identical to the genotyped parent
 #
 # Outputs: output/oat_pedigrees.csv          seed/pollen parent per accession
@@ -74,6 +77,11 @@ identity_threshold <- 0.99
 # A full-sib family whose mean pairwise correlation exceeds this did not
 # segregate and is flagged as clonal.
 family_mean_r_flag <- 0.985
+
+# Two clonal families of the same female are treated as one selfed line
+# when their between-family correlation is within this much of the weaker
+# within-family correlation.
+pool_tolerance <- 0.01
 
 # Families need at least this many genotyped members to be summarised
 min_family_size <- 2
@@ -288,7 +296,8 @@ curated |>
 analysis_names <- resolve_analysis_names(
   pedigrees, family_summary, similarity,
   identity_threshold = identity_threshold,
-  family_flag        = family_mean_r_flag
+  family_flag        = family_mean_r_flag,
+  pool_tolerance     = pool_tolerance
 )
 
 readr::write_csv(analysis_names, file.path(out_dir, "oat_analysis_names.csv"))
