@@ -46,22 +46,34 @@ here::i_am("code/BGLR_multi_trait_model.R")
 #   germplasmName           (oat accession),
 #   intercropGermplasmName  (pea accession),
 #   oat_yield, pea_yield
-pheno_file <- here::here("data", "B4I_2025_intercrop_pheno.rds")
+pheno_file <- here::here("output", "B4I_intercrop_pheno.rds")
 
 grm_files <- c(
   oat = here::here("output", "GRM_Avena.rds"),
   pea = here::here("output", "GRM_Pisum.rds")
 )
 
+# The curation scripts rename accessions that are genetically one line.
+# The phenotype table already carries those names, so the GRMs have to be
+# collapsed the same way or the two will not join.
+analysis_name_files <- c(
+  oat = here::here("output", "oat_analysis_names.csv"),
+  pea = here::here("output", "pea_analysis_names.csv")
+)
+
 out_dir <- here::here("output")
 
-study_year <- 2025
+study_years <- c(2025L, 2026L)
 
+# Every B4I intercrop trial that recorded both yields (see
+# output/B4I_trials_selected.csv)
 trials <- c(
+  "B4I_2025_AL",
   "B4I_2025_IA",
   "B4I_2025_IL",
   "B4I_2025_ND",
-  "B4I_2025_NY"
+  "B4I_2025_NY",
+  "B4I_2026_IL"
 )
 
 # The first seed gives the fit that is saved; the rest are there to
@@ -73,9 +85,11 @@ burnIn <- 3000
 thin   <- 10
 
 # Fit the specific-combination (SMA / direct x associate) term?  It is
-# estimable only if combinations are replicated -- see the design
-# diagnostics below.
-fit_mix_term <- TRUE
+# estimable only if combinations are replicated.  In the B4I trials about
+# 91% of oat-pea combinations occur in a single plot, so the term would be
+# confounded with the residual and it is left out of this first fit.  The
+# design diagnostics below report the replication either way.
+fit_mix_term <- FALSE
 
 # Placeholder germplasm names used in T3 to record that one component of
 # the intercrop was not sown.  A plot carrying one of these is a
@@ -154,7 +168,7 @@ grainWgt <- pheno |>
     blockNumberF = factor(paste(studyYear, studyName, blockNumber))
   ) |>
   dplyr::filter(
-    as.character(studyYear) == as.character(study_year),
+    studyYear %in% study_years,
     studyName %in% trials,
     !is.na(oatYield), !is.na(peaYield),
     !is.na(oatAcc), !is.na(peaAcc)
@@ -199,9 +213,14 @@ message("distinct oat partners per pea accession: median ",
         stats::median(partners_pea$n_partners),
         ", range ", paste(range(partners_pea$n_partners), collapse = "-"))
 
-if (max(partners_oat$n_partners) == 1 || max(partners_pea$n_partners) == 1) {
-  warning("Some accessions appear with a single partner: producer and ",
-          "associate effects are then aliased for those accessions.",
+n_single_oat <- sum(partners_oat$n_partners == 1)
+n_single_pea <- sum(partners_pea$n_partners == 1)
+
+if (n_single_oat > 0 || n_single_pea > 0) {
+  warning(n_single_oat, " oat and ", n_single_pea,
+          " pea accession(s) appear with a single partner. Their producer and ",
+          "associate effects are aliased and rest on the genomic covariance ",
+          "with better-connected relatives rather than on their own plots.",
           call. = FALSE)
 }
 
@@ -230,8 +249,37 @@ read_grm <- function(path) {
   if (is.list(g) && !is.null(g$G)) g$G else g
 }
 
-G_oat_all <- read_grm(grm_files[["oat"]])
-G_pea_all <- read_grm(grm_files[["pea"]])
+# Accessions that share an analysis name are one genotype, so their GRM
+# rows and columns are averaged into a single row and column.  Averaging
+# the relationships of identical lines is the same as taking the GRM of
+# their averaged marker profiles.
+collapse_grm <- function(G, name_file) {
+  if (!file.exists(name_file)) return(G)
+
+  name_map <- readr::read_csv(name_file, show_col_types = FALSE)
+  if (!all(c("germplasmName", "analysis_name") %in% names(name_map))) return(G)
+
+  new_name <- rownames(G)
+  hit <- match(new_name, name_map$germplasmName)
+  new_name[!is.na(hit)] <- name_map$analysis_name[hit[!is.na(hit)]]
+
+  if (identical(new_name, rownames(G))) return(G)
+
+  f <- factor(new_name, levels = unique(new_name))
+  A <- stats::model.matrix(~ 0 + f)
+  colnames(A) <- levels(f)
+  A <- sweep(A, 2, colSums(A), "/")
+
+  Gc <- t(A) %*% G %*% A
+  dimnames(Gc) <- list(colnames(A), colnames(A))
+
+  message("  collapsed ", nrow(G), " -> ", nrow(Gc), " lines using ",
+          basename(name_file))
+  Gc
+}
+
+G_oat_all <- collapse_grm(read_grm(grm_files[["oat"]]), analysis_name_files[["oat"]])
+G_pea_all <- collapse_grm(read_grm(grm_files[["pea"]]), analysis_name_files[["pea"]])
 
 missing_oat <- setdiff(unique(grainWgt$oatAcc), rownames(G_oat_all))
 missing_pea <- setdiff(unique(grainWgt$peaAcc), rownames(G_pea_all))
@@ -282,8 +330,29 @@ stopifnot(!anyNA(Y))
 incTrials <- stats::model.matrix(~ 0 + trialF, grainWgt)
 colnames(incTrials) <- levels(grainWgt$trialF)
 
+# Blocks are only informative where a trial has more than one of them.
+# A trial with a single block gives a block factor that is constant within
+# that trial and therefore perfectly aliased with its fixed trial effect,
+# so those columns are dropped; plots in single-block trials simply get a
+# zero row and take their trial effect alone.
+blocks_per_trial <- grainWgt |>
+  dplyr::distinct(trialF, blockNumberF) |>
+  dplyr::count(trialF, name = "n_blocks")
+
+informative_blocks <- grainWgt |>
+  dplyr::left_join(blocks_per_trial, by = "trialF") |>
+  dplyr::filter(n_blocks > 1) |>
+  dplyr::pull(blockNumberF) |>
+  unique() |>
+  as.character()
+
 incBlocks <- stats::model.matrix(~ 0 + blockNumberF, grainWgt)
 colnames(incBlocks) <- levels(grainWgt$blockNumberF)
+incBlocks <- incBlocks[, colnames(incBlocks) %in% informative_blocks, drop = FALSE]
+
+message("block effects fitted for ", ncol(incBlocks), " of ",
+        nlevels(grainWgt$blockNumberF),
+        " blocks; the rest are single-block trials, aliased with the trial effect")
 
 # Incidence matrices, with factor levels forced to the GRM row order
 incidence <- function(x, levels) {
@@ -329,10 +398,13 @@ stopifnot(
 
 ETA <- list(
   trial = list(X = incTrials,      model = "FIXED"),
-  block = list(X = incBlocks,      model = "BRR"),
   G_pea = list(X = Z_pea %*% L_pea, model = "BRR"),
   G_oat = list(X = Z_oat %*% L_oat, model = "BRR")
 )
+
+if (ncol(incBlocks) > 0) {
+  ETA <- append(ETA, list(block = list(X = incBlocks, model = "BRR")), after = 1)
+}
 
 if (fit_mix_term) {
   ETA$G_mix <- list(X = Z_mix %*% L_mix, model = "BRR")
