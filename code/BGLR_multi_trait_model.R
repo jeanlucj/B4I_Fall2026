@@ -6,7 +6,7 @@
 #   (y_oat, y_pea)' = (I2 (x) Z_oat)(Pr_oat, As_oat->pea)'
 #                   + (I2 (x) Z_pea)(As_pea->oat, Pr_pea)'
 #                   + (I2 (x) Z_mix)(S_oatxpea->oat, S_peaxoat->pea)'
-#                   + location + block + (e_oat, e_pea)'
+#                   + trial + block + (e_oat, e_pea)'
 #
 #   (Pr_oat, As_oat->pea)' ~ N(0, Sigma_oat (x) G_oat)
 #   (As_pea->oat, Pr_pea)' ~ N(0, Sigma_pea (x) G_pea)
@@ -57,7 +57,7 @@ out_dir <- here::here("output")
 
 study_year <- 2025
 
-locations <- c(
+trials <- c(
   "B4I_2025_IA",
   "B4I_2025_IL",
   "B4I_2025_ND",
@@ -150,22 +150,22 @@ grainWgt <- pheno |>
     oatAcc       = as.character(germplasmName),
     peaAcc       = as.character(intercropGermplasmName),
     mixID        = paste(oatAcc, peaAcc, sep = "::"),
-    locationF    = factor(studyName),
+    trialF       = factor(studyName),
     blockNumberF = factor(paste(studyYear, studyName, blockNumber))
   ) |>
   dplyr::filter(
     as.character(studyYear) == as.character(study_year),
-    studyName %in% locations,
+    studyName %in% trials,
     !is.na(oatYield), !is.na(peaYield),
     !is.na(oatAcc), !is.na(peaAcc)
   ) |>
   dplyr::mutate(
-    locationF    = droplevels(locationF),
+    trialF       = droplevels(trialF),
     blockNumberF = droplevels(blockNumberF)
   )
 
 message("plots: ", nrow(grainWgt),
-        " | locations: ", nlevels(grainWgt$locationF),
+        " | trials: ", nlevels(grainWgt$trialF),
         " | blocks: ", nlevels(grainWgt$blockNumberF),
         " | oat: ", dplyr::n_distinct(grainWgt$oatAcc),
         " | pea: ", dplyr::n_distinct(grainWgt$peaAcc),
@@ -275,12 +275,12 @@ Y <- as.matrix(grainWgt[, c("peaYield", "oatYield")])
 colnames(Y) <- c("peaYield", "oatYield")
 stopifnot(!anyNA(Y))
 
-# Full set of location dummies WITHOUT a separate intercept.  A full
-# dummy set plus an intercept is rank-deficient: BGLR does not error, it
-# samples along the ridge, so neither the intercept nor the location
+# Full set of trial dummies WITHOUT a separate intercept.  A full dummy
+# set plus an intercept is rank-deficient: BGLR does not error, it
+# samples along the ridge, so neither the intercept nor the trial
 # effects mean anything on their own and the chain mixes badly.
-incLocations <- stats::model.matrix(~ 0 + locationF, grainWgt)
-colnames(incLocations) <- levels(grainWgt$locationF)
+incTrials <- stats::model.matrix(~ 0 + trialF, grainWgt)
+colnames(incTrials) <- levels(grainWgt$trialF)
 
 incBlocks <- stats::model.matrix(~ 0 + blockNumberF, grainWgt)
 colnames(incBlocks) <- levels(grainWgt$blockNumberF)
@@ -328,7 +328,7 @@ stopifnot(
 # ------------------------------------------------------------
 
 ETA <- list(
-  loc   = list(X = incLocations,   model = "FIXED"),
+  trial = list(X = incTrials,      model = "FIXED"),
   block = list(X = incBlocks,      model = "BRR"),
   G_pea = list(X = Z_pea %*% L_pea, model = "BRR"),
   G_oat = list(X = Z_oat %*% L_oat, model = "BRR")
