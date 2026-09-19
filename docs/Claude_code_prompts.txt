@@ -1,0 +1,13 @@
+[2026-09-19 09:07:07] 1. The script in the code subfolder (code > BGLR_multi_trait_model.R) is intended to fit the bivariate DGE-IGE model described in docs > B4I_Proposal_Models.docx.  First, look at that model as written to make sure it makes sense.  Then verify that BGLR_multi_trait_model implements it correctly.  If there are issues, please describe them.  2. Write a script that uses the T3GenoTools package to create GRMs for the accessions listed in Acc_B4I_Avena and Acc_B4I_Pisum.  The relevant data should be in T3/Oat.  I have added a .Renviron file with T3_USERNAME and T3_PASSWORD so that you can access this data.
+[2026-09-19 09:37:33] Fix the issues you found in BGLR_multi_trait_model.R
+[2026-09-19 09:39:42] Also add a curation section to the code to drop the NO_OATS_PLANTED and NO_PEAS_PLANTED rows
+[2026-09-19 09:40:13] That is, data from these monoculture plots should not be part of the analysis
+[2026-09-19 09:43:19] Please write a .md with a more detailed explanation about the original critical problem with the BGLR code.  I didn't follow.
+[2026-09-19 12:37:45] commit this
+[2026-09-19 12:39:40] /login
+[2026-09-19 12:41:25] Please push it if you can
+[2026-09-19 12:46:24] Add functions to look for field trials that evaluated the Acc_B4I accessions.  Any trial you choose should have at least 20 accessions.  You need to download at least the grain yield and pea grain yield traits.  But, from those trials, go ahead and download all traits and make a trait availability matrix that shows what traits are available per trial.
+[2026-09-19 14:23:23] Just to confirm, there are 34 trials that have more than 20 B4I accessions with oat grain yield.  Cut down B4I_trials_selected to those 42 (make an absolute filter on the availability of the oat grain yield data).  Reproduce the outputs, I like those.  In BGLR_multi_triat_model, the "locations" should properly be called "trials" so rename that throughout.
+[2026-09-19 15:36:04] commit and push
+[2026-09-19 15:40:39] merge it into main.  In general, I rarely use branches, so don't make a branch unless I ask for it.  thanks!
+[2026-09-19 15:43:18] track and commit the Claude code prompts
