@@ -214,6 +214,12 @@ run_megalmm <- function(MegaLMM_state, burn_rounds = 8, burn_iter = 100,
   }
 
   MegaLMM_state <- MegaLMM::clear_Posterior(MegaLMM_state)
+
+  # sample_iter = 0 returns a burnt-in state with an empty posterior, for a
+  # caller that wants to sample in chunks itself and look at the running
+  # estimate between them
+  if (sample_iter <= 0) return(MegaLMM_state)
+
   message("sampling: ", sample_iter, " iterations")
   MegaLMM_state <- MegaLMM::sample_MegaLMM(MegaLMM_state, sample_iter,
                                            verbose = verbose)

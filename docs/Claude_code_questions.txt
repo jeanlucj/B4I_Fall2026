@@ -1,3 +1,4 @@
 [2026-09-19 15:53:32] I recall from a prior analysis that there were a series of oat accessions that had virtually identical marker profiles.  This arose because accessions came out of what was thought to be a cross but turned out to be a plant in the crossing nursery that self-pollinated.  1. Do we have seed parent and pollen parent pedigrees of the oat accessions?  2. Is there a set of oat accessions that have very similar marker scores?
 [2026-09-21 09:04:02] Is SIMULATION.md all done?
 [2026-09-21 09:26:26] Without running a pilot script to figure this out, about how long will the full sim_run.R take?  Are the outputs that sim_run.R creates described in SIMULATION.md?
+[2026-09-21 10:11:01] It's disappointing to me that missing combinations (sparsity) affects MegaLMM so negatively.  Why is that?  Are there possible fixes?  Are we sure we are using MegaLMM's predictive abilities correctly?

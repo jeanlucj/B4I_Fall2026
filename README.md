@@ -10,6 +10,8 @@ its partner.
 - **Why it works this way (theory + decisions)** → [BACKGROUND.md](BACKGROUND.md).
 - **How accuracy is measured** → [CROSS_VALIDATION.md](CROSS_VALIDATION.md).
 - **When would either framework work?** → [SIMULATION.md](SIMULATION.md).
+- **Using both analysis orientations** → [BOTH_ORIENTATIONS.md](BOTH_ORIENTATIONS.md).
+- **Running the simulation on SciNet** → [code/scinet/README.md](code/scinet/README.md).
 - **Open questions** → [docs/B4I_followups.md](docs/B4I_followups.md).
 
 This is a [workflowr](https://github.com/workflowr/workflowr) project: runnable

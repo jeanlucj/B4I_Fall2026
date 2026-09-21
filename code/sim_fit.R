@@ -151,17 +151,26 @@ fit_dge_ige <- function(train, G_oat, G_pea, with_interaction,
 }
 
 #' MegaLMM on the oat x pea matrix.
+#'
+#' Returns `Eta_mean`, the predicted phenotype, NOT `U`. `U` is a genetic
+#' value and excludes the per-column intercept, which is where MegaLMM keeps
+#' the pea main effect -- so scoring `U` against a truth that contains the pea
+#' effect asks it to predict a component it structurally cannot hold. `U` is
+#' returned alongside for the comparisons where that is the quantity wanted.
+#'
+#' @param n_chunks Split the sampling into this many pieces and score after
+#'   each, giving a convergence trace. 1 disables it.
+#' @param score_fn Called as score_fn(Eta) after each chunk.
 fit_megalmm <- function(train, G_oat, G_pea, runID,
                         K = SIM_MEGALMM_K,
-                        eigen_variance = SIM_EIGEN_VARIANCE) {
+                        eigen_variance = SIM_EIGEN_VARIANCE,
+                        n_chunks = 1L, score_fn = NULL) {
   n_oat <- nrow(G_oat); n_pea <- nrow(G_pea)
 
   Y <- matrix(NA_real_, n_oat, n_pea,
               dimnames = list(rownames(G_oat), rownames(G_pea)))
   Y[cbind(train$oat, train$pea)] <- train$y_std
 
-  # Columns and rows with nothing left cannot be sampled; they keep their
-  # place in the returned surface but are dropped from the fit
   keep_col <- colSums(!is.na(Y)) > 0
   keep_row <- rowSums(!is.na(Y)) > 0
   Y_fit <- Y[keep_row, keep_col, drop = FALSE]
@@ -180,16 +189,38 @@ fit_megalmm <- function(train, G_oat, G_pea, runID,
                   newEnv = character(0)),
     runID = runID, K = K
   )
-  state <- run_megalmm(state, burn_rounds = SIM_MEGALMM_BURN_ROUND,
-                       burn_iter = SIM_MEGALMM_BURN_ITER,
-                       sample_iter = SIM_MEGALMM_SAMPLE,
-                       fit_X_from = SIM_MEGALMM_FIT_X_FROM)
+
+  place <- function(M) {
+    out <- matrix(0, n_oat, n_pea,
+                  dimnames = list(rownames(G_oat), rownames(G_pea)))
+    out[keep_row, keep_col] <- M
+    out
+  }
+
+  trace <- NULL
+  if (n_chunks > 1L && !is.null(score_fn)) {
+    state <- run_megalmm(state, burn_rounds = SIM_MEGALMM_BURN_ROUND,
+                         burn_iter = SIM_MEGALMM_BURN_ITER,
+                         sample_iter = 0, fit_X_from = SIM_MEGALMM_FIT_X_FROM)
+    per <- ceiling(SIM_MEGALMM_SAMPLE / n_chunks)
+    trace <- purrr::map(seq_len(n_chunks), \(k) {
+      state <<- MegaLMM::sample_MegaLMM(state, per, verbose = FALSE)
+      state <<- MegaLMM::save_posterior_chunk(state)
+      Eta <- MegaLMM::get_posterior_mean(
+        MegaLMM::load_posterior_param(state, "Eta_mean"))
+      tibble::tibble(iterations = k * per, score_fn(place(Eta)))
+    }) |> purrr::list_rbind()
+  } else {
+    state <- run_megalmm(state, burn_rounds = SIM_MEGALMM_BURN_ROUND,
+                         burn_iter = SIM_MEGALMM_BURN_ITER,
+                         sample_iter = SIM_MEGALMM_SAMPLE,
+                         fit_X_from = SIM_MEGALMM_FIT_X_FROM)
+  }
+
   post <- megalmm_posterior(state, accessions = accNames$germplasmName)
 
-  total <- matrix(0, n_oat, n_pea,
-                  dimnames = list(rownames(G_oat), rownames(G_pea)))
-  total[keep_row, keep_col] <- post$U
-  list(total = total, interaction = NULL)
+  list(total = place(post$Eta_mean), U = place(post$U),
+       interaction = NULL, trace = trace)
 }
 
 # ------------------------------------------------------------
@@ -247,49 +278,70 @@ baseline_predictions <- function(train, n_oat, n_pea) {
 }
 
 # ------------------------------------------------------------
-# One scenario, end to end
+# One scenario, in two halves
+#
+# The BGLR models depend only on the simulated data; MegaLMM additionally
+# depends on K and on how many pea eigenvectors it is offered. Sweeping those
+# two would refit the expensive BGLR half six times over for no reason, so the
+# halves are run and cached separately and joined afterwards.
 # ------------------------------------------------------------
 
-run_scenario <- function(sim, cv_fraction = SIM_CV_FRACTION,
-                         run_dir = tempdir(), seed = 1L,
-                         models = c("additive", "dge_ige", "megalmm")) {
+#' The train/held split, derived from the seed so both halves see the same one.
+split_observations <- function(sim, cv_fraction = SIM_CV_FRACTION, seed = 1L) {
   set.seed(seed)
-
   obs <- sim$obs |> standardize_within_env() |> mask_observations(cv_fraction)
-  train <- dplyr::filter(obs, !held)
-  held  <- dplyr::filter(obs, held)
+  list(train = dplyr::filter(obs, !held), held = dplyr::filter(obs, held))
+}
 
+run_scenario_bglr <- function(sim, cv_fraction = SIM_CV_FRACTION, seed = 1L) {
+  sp <- split_observations(sim, cv_fraction, seed)
   n_oat <- nrow(sim$G_oat); n_pea <- nrow(sim$G_pea)
 
-  preds <- list()
-  timing <- list()
+  t0 <- Sys.time()
+  add <- fit_dge_ige(sp$train, sim$G_oat, sim$G_pea, FALSE)
+  t_add <- as.numeric(difftime(Sys.time(), t0, units = "s"))
 
-  if ("additive" %in% models) {
-    t0 <- Sys.time()
-    preds$additive <- fit_dge_ige(train, sim$G_oat, sim$G_pea, FALSE)
-    timing$additive <- as.numeric(difftime(Sys.time(), t0, units = "s"))
-  }
-  if ("dge_ige" %in% models) {
-    t0 <- Sys.time()
-    preds$dge_ige <- fit_dge_ige(train, sim$G_oat, sim$G_pea, TRUE)
-    timing$dge_ige <- as.numeric(difftime(Sys.time(), t0, units = "s"))
-  }
-  if ("megalmm" %in% models) {
-    t0 <- Sys.time()
-    preds$megalmm <- fit_megalmm(train, sim$G_oat, sim$G_pea,
-                                 runID = file.path(run_dir, "megalmm"))
-    timing$megalmm <- as.numeric(difftime(Sys.time(), t0, units = "s"))
-  }
+  t0 <- Sys.time()
+  dge <- fit_dge_ige(sp$train, sim$G_oat, sim$G_pea, TRUE)
+  t_dge <- as.numeric(difftime(Sys.time(), t0, units = "s"))
 
-  preds <- c(preds, baseline_predictions(train, n_oat, n_pea))
+  preds <- c(list(additive = add, dge_ige = dge),
+             baseline_predictions(sp$train, n_oat, n_pea))
 
-  scores <- purrr::imap(preds, \(p, nm) score_predictions(p, sim, held, nm)) |>
-    purrr::list_rbind()
-
-  scores |>
+  purrr::imap(preds, \(p, nm) score_predictions(p, sim, sp$held, nm)) |>
+    purrr::list_rbind() |>
     dplyr::mutate(
-      seconds = unlist(timing)[model] |> unname(),
-      n_train = nrow(train), n_held = nrow(held),
-      .after = model
+      seconds = c(t_add, t_dge, NA_real_, NA_real_),
+      n_train = nrow(sp$train), n_held = nrow(sp$held), .after = model
     )
+}
+
+run_scenario_megalmm <- function(sim, K, eigen_variance,
+                                 cv_fraction = SIM_CV_FRACTION, seed = 1L,
+                                 run_dir = tempdir(), n_chunks = 1L) {
+  sp <- split_observations(sim, cv_fraction, seed)
+
+  score_fn <- if (n_chunks > 1L) {
+    function(Eta) {
+      score_predictions(list(total = Eta), sim, sp$held, "megalmm") |>
+        dplyr::select(-model)
+    }
+  } else NULL
+
+  t0 <- Sys.time()
+  mm <- fit_megalmm(sp$train, sim$G_oat, sim$G_pea,
+                    runID = file.path(run_dir, "megalmm"),
+                    K = K, eigen_variance = eigen_variance,
+                    n_chunks = n_chunks, score_fn = score_fn)
+  t_mm <- as.numeric(difftime(Sys.time(), t0, units = "s"))
+
+  scores <- dplyr::bind_rows(
+    score_predictions(mm, sim, sp$held, "megalmm"),
+    score_predictions(list(total = mm$U), sim, sp$held, "megalmm_U")
+  ) |>
+    dplyr::mutate(seconds = c(t_mm, NA_real_),
+                  n_train = nrow(sp$train), n_held = nrow(sp$held),
+                  K = K, eigen_variance = eigen_variance, .after = model)
+
+  list(scores = scores, trace = mm$trace)
 }

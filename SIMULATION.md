@@ -118,9 +118,41 @@ Three models, all shown identical data and scored on identical held-out cells:
 |---|---|
 | `additive` | none — producer + associate only. The model used on the real B4I data, and the floor the others must clear. |
 | `dge_ige` | the specific-combination term, covariance `G_oat ⊗ G_pea`. The proposal's Eqn 2 in full. |
-| `megalmm` | factors, with pea GRM eigenvectors as environmental covariates. |
+| `megalmm` | factors, with pea GRM eigenvectors as environmental covariates. Scored on `Eta_mean`, the predicted phenotype. |
+| `megalmm_U` | the same fit scored on `U` instead, for comparison. |
 
 plus `oat_mean` and `oat_plus_pea` as margin-only baselines.
+
+### Score `Eta_mean`, not `U`
+
+`U = U_F %*% Lambda + U_R` is a genetic value and **excludes the per-column
+intercept**, which is where MegaLMM keeps the pea main effect. Scoring `U`
+against a truth containing that effect asks it to predict a component it
+structurally cannot hold — worth about 16% of the total variance here. An
+earlier version of this framework did exactly that, and MegaLMM's `r_total`
+was correspondingly understated; `megalmm_U` is retained as a row so the size
+of the difference stays visible.
+
+`r_interaction` is unaffected either way, because row and column means are
+stripped from prediction and truth alike.
+
+### MegaLMM settings are swept, and cached apart
+
+`K` (5, 10) and `eigen_variance` (0.20, 0.50, 0.80) are crossed with the data
+design, giving 360 fits. Both are claims MegaLMM makes about itself — that the
+ARD prior makes surplus factors and irrelevant covariates cheap — so the sweep
+tests those claims as much as it tunes anything.
+
+Neither changes the simulated experiment, so refitting the BGLR half for each
+would waste five sixths of the compute. The two halves are cached separately:
+`<scenario>_rep<k>_bglr.rds` and `<scenario>_rep<k>_mm_K<K>_ev<pct>.rds`.
+
+K matters more than the shrinkage argument suggests, at least at low density.
+The binding constraint is **observations per pea column relative to K**: a
+column's K loadings are estimated from that column's data, and at 5% observed
+with 200 oats there are 10 observations per column. The crossover reported
+below at 15% observed is 30 per column, which is 3 x K at K = 10 — so it is
+better read as a statement about that ratio than about density as such.
 
 ### The Kronecker term is low-rank by necessity
 
@@ -159,7 +191,13 @@ Rscript code/sim_run.R --reps 5                         # replicated
 Rscript code/sim_run.R --extended                       # finer sparsity axis
 Rscript code/sim_run.R --filter "n_acc == 200 & n_envs == 1"
 Rscript code/sim_run.R --refresh                        # ignore the cache
+Rscript code/sim_run.R --trace                          # record a convergence trace
+Rscript code/sim_run.R --task 3 --ntasks 20             # one slice, for a job array
+Rscript code/sim_run.R --combine                        # rebuild the CSV from the cache
 ```
+
+On a cluster the grid runs as a SLURM job array; see
+[code/scinet/README.md](code/scinet/README.md).
 
 ### What it writes
 
@@ -203,6 +241,21 @@ design matrix is 72,000 × 900 — 518 MB, with two temporaries of that size
 built before they are multiplied. If the full grid fails anywhere it will be
 there, on memory rather than time. Halving `SIM_KRON_RANK` to 20 cuts that
 term to 400 columns.
+
+### Convergence: checked, not swept
+
+`--trace` splits the sampling into `SIM_TRACE_CHUNKS` pieces and scores after
+each, so a single run reports whether accuracy was still moving when the chain
+stopped — no chain-length axis needed.
+
+**Caveat: the trace is not yet trustworthy.** Its values do not reconcile with
+the final posterior mean from the same run (one case: −0.116 at the last chunk
+against 0.087 scored at the end). That points at how `save_posterior_chunk()`
+and `load_posterior_param()` accumulate a `posteriorMean` parameter across
+chunks — plausibly each chunk's mean rather than the running mean — which
+would make the trace a sequence of chunk estimates rather than a convergence
+curve. Useful for spotting drift, not for reading off a final number, and it
+needs verifying before either use.
 
 ### `--check` exists for a reason
 
@@ -257,6 +310,12 @@ Things to look for, given what the pilot already shows:
   it, and with a tenth of the combinations each, that estimate is noisy.
 
 ## Results so far
+
+**These numbers predate the `Eta_mean` fix and the K sweep**, and were produced
+with MegaLMM scored on `U` at a fixed K = 10. They are kept because the
+interaction comparison is unaffected, but `r_total` for MegaLMM is understated
+throughout and the crossover location is conditional on K = 10. Re-running the
+grid will replace them.
 
 The 200 × 200 single-environment slice, one replicate per cell
 (`--filter "n_acc == 200 & n_envs == 1"`). The full grid adds the panel-size
@@ -350,6 +409,13 @@ change the bivariate model needs for `σ_PrAs`.
 - Environments carry variance heterogeneity only. Genuine genotype ×
   environment rank changes would be a second kind of interaction and would
   confound the axis the simulation is built around.
+- The convergence trace does not reconcile with the final posterior (above).
+- Only the oat orientation is fitted. MegaLMM gives the oat axis a relationship
+  matrix and the pea axis only a per-column intercept and factor loadings, so
+  the pea side is structurally under-specified relative to the DGE-IGE model,
+  which shrinks both species through their GRMs. Part of MegaLMM's deficit on
+  `r_total` is that asymmetry rather than the method.
+  [BOTH_ORIENTATIONS.md](BOTH_ORIENTATIONS.md) sets out what to do about it.
 - Only oat yield is simulated. The bivariate model's producer–associate
   covariance, which is what the real analysis is ultimately after, is not in
   this framework at all.

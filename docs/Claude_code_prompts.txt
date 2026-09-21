@@ -43,3 +43,14 @@
 <summary>Background command "Run 200x200 single-environment slice at new sparsity levels" completed (exit code 0)</summary>
 </task-notification>
 [2026-09-21 09:29:41] yes, add both to Running it
+[2026-09-21 09:52:44] A couple things I didn't fully understand:
+
+You explain this one briefly in SIMULATION.md but a fuller explanation would be useful to me.  Sometimes simulating using the model that the statistical analysis actually looks for can be useful: if the analysis still doesn't find it on this favorable terrain, you know you have a problem. 
+The interaction is generated so that a single factor has covariance exactly G_oat[i,i'] × G_pea[j,j']. As rank grows the truth converges on DGE-IGE's assumption; at rank 1 it's MegaLMM's home ground. Without that, simulating interaction as a factor model and reporting that the factor model wins would have been circular.
+
+For this one: which part of the code limits the Kronecker term?
+- The Kronecker term is rank-limited (30 eigenvectors per species) for tractability — so dge_ige isn't fitting the exact model it claims, and that handicaps it in precisely the comparison it's winning least. Worth a sensitivity check at small sizes where the exact kernel fits.
+
+For this one: "single replicate per cell" means that you do one simulation per scenario, where scenario is a combination of panel size, sparsity, interaction rank, etc.?
+- Single replicate per cell, so individual numbers carry sampling noise; the pattern is consistent enough to trust, the third digit isn't. --reps 5 fixes that.
+[2026-09-21 10:36:48] 1. Score Eta_mean; 2. MegaLMM advertises that because it shrinks the effects of the factors, parameterizing with too many factors should not be too deleterious.  I think it's worth doing the sweep, as you propose, but erring on the side of too many factors.  In practice, I set 5 as the maximum number of factors to simulate because I have a hard time imagining we would ever be able to detect more than that in practice.  I'm rambling here, but ultimately I don't think it makes sense to try with more than K=10.  So sweep with K=5 or 10.  3. Longer chains sounds good.  Do we have to sweep that or can you check the accuracy as you go along? 4. Again, MegaLMM advertises that because the covariate effects are shrunken, having irrelevant covariates should not be too deleterious.  But fine, test that with either 20%, 50%, or 80%. 5. Fit both orientations makes sense.  What is unclear to me is how to use the the one analysis to inform the other.  Can you run one analysis then use the scores it extracts as covariates for the other analysis, analogous to an EM approach (i.e., you could iterate the orientations until nothing changes).  Don't script 5 yet.  Create a document BOTH_ORIENTATIONS that presents ideas about it.  Do script something that I can run on USDA SciNet Ceres.  Lots of examples of how to do that in T3Predictathon2026 > optimization.

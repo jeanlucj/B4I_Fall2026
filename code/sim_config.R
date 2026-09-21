@@ -42,6 +42,24 @@ SIM_LEVELS <- list(
   n_envs = c(1, 10)
 )
 
+# MegaLMM settings swept separately from the data-generating design, because
+# they change nothing about the simulated experiment and so must not cause the
+# expensive BGLR fits to be repeated. sim_run.R crosses these with SIM_LEVELS
+# and caches the two halves apart.
+#
+# K: MegaLMM shrinks surplus factors through the ARD prior, so erring high is
+# meant to be cheap. Five is about the most one could hope to detect in a real
+# intercrop experiment and ten is past the point of usefulness, so the sweep
+# brackets the practical range rather than exploring beyond it.
+#
+# eigen_variance: how much pea genetic variance the covariates offered to
+# Lambda should span. Irrelevant covariates are likewise meant to be shrunk
+# away, so this tests that claim as much as it tunes anything.
+SIM_MEGALMM_LEVELS <- list(
+  K = c(5, 10),
+  eigen_variance = c(0.20, 0.50, 0.80)
+)
+
 #' The design grid, with the redundant no-interaction cells collapsed.
 #'
 #' With `n_factors = 0` there is no interaction, so `interaction_pct` has
@@ -155,7 +173,7 @@ SIM_FLOOR_OBS <- 2
 SIM_MIN_PER_ACC <- 3L
 
 # MegaLMM
-SIM_MEGALMM_K          <- 10
+SIM_MEGALMM_K          <- 10   # default when not swept
 SIM_MEGALMM_BURN_ROUND <- 5
 SIM_MEGALMM_BURN_ITER  <- 60
 SIM_MEGALMM_SAMPLE     <- 250
@@ -163,7 +181,12 @@ SIM_MEGALMM_FIT_X_FROM <- 4
 
 # Share of pea genetic variance covered by the eigenvectors offered to
 # MegaLMM as environmental covariates
-SIM_EIGEN_VARIANCE <- 0.80
+SIM_EIGEN_VARIANCE <- 0.80   # default when not swept
+
+# Split the MegaLMM sampling into this many chunks and score after each, to
+# see whether accuracy is still climbing when the chain stops. Answers the
+# chain-length question without a sweep: one run reports its own trace.
+SIM_TRACE_CHUNKS <- 5L
 
 # BGLR
 SIM_BGLR_NITER  <- 6000
