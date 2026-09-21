@@ -2,7 +2,8 @@
 
 What this project is and how it is put together. For usage see
 [README.md](README.md); for the reasoning behind the methods see
-[BACKGROUND.md](BACKGROUND.md); for the open questions see
+[BACKGROUND.md](BACKGROUND.md); for how accuracy is measured see
+[CROSS_VALIDATION.md](CROSS_VALIDATION.md); for the open questions see
 [docs/B4I_followups.md](docs/B4I_followups.md).
 
 ## Purpose

@@ -190,3 +190,23 @@ partner. The pooled counts of 99 oat and 84 pea are accessions that appear only 
       T3 with accessions attached and will connect the 2026 entries.
 - [ ] Consider fitting 2025 alone as a sensitivity check; it is a well-connected design and would
       show how much the 2026 singletons are dragging on the Pr–As estimates.
+
+## 7. The bivariate model is not cross-validated
+
+`code/BGLR_multi_trait_model.R` reports variance components, per-accession
+effects and credible intervals, but nothing out of sample. The four-chain rank
+agreement it prints is a convergence diagnostic, not an accuracy estimate.
+
+Sub-objective 1.4 asks for cross-validated accuracy of intercrop-related
+breeding values per crop, which needs whole **accessions** held out, not cells.
+
+- [ ] Implement accession-wise cross-validation for the bivariate model.
+- [ ] Score producer and associate effects separately; they differ in accuracy
+      and the associate effect is the harder one.
+- [ ] Fold by family rather than at random, so clonal groups and full-sib
+      families do not leak across folds and flatter the accuracy.
+- [ ] Report the 99 oat and 84 pea single-partner accessions separately; their
+      producer and associate effects are aliased and will predict badly whatever
+      the model does.
+
+The design is sketched in [CROSS_VALIDATION.md](../CROSS_VALIDATION.md#what-a-cross-validation-of-it-would-look-like).

@@ -8,6 +8,7 @@ its partner.
 - **How to run it** → this file.
 - **What it is and how it fits together** → [DESIGN.md](DESIGN.md).
 - **Why it works this way (theory + decisions)** → [BACKGROUND.md](BACKGROUND.md).
+- **How accuracy is measured** → [CROSS_VALIDATION.md](CROSS_VALIDATION.md).
 - **Open questions** → [docs/B4I_followups.md](docs/B4I_followups.md).
 
 This is a [workflowr](https://github.com/workflowr/workflowr) project: runnable

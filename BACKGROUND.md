@@ -1,7 +1,8 @@
 # BACKGROUND
 
 The theory behind the methods and the reasoning behind the decisions. For usage
-see [README.md](README.md); for structure see [DESIGN.md](DESIGN.md); for what is
+see [README.md](README.md); for structure see [DESIGN.md](DESIGN.md); for how
+accuracy is measured see [CROSS_VALIDATION.md](CROSS_VALIDATION.md); for what is
 still open see [docs/B4I_followups.md](docs/B4I_followups.md).
 
 ## The breeding question

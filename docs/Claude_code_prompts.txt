@@ -25,3 +25,4 @@
 <status>completed</status>
 <summary>Background command "Final MegaLMM run in background" completed (exit code 0)</summary>
 </task-notification>
+[2026-09-20 20:24:01] Was the cross-validation done with a script?  I would like that.  I would also like for the cross validation approach in both cases to be documented.  Maybe a CROSS_VALIDATION.md document if that makes sense.  Unless it's already in either DESIGN or BACKGROUND.  Thanks.
