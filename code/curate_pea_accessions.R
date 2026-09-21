@@ -139,6 +139,23 @@ analysis_names <- curated |>
 
 readr::write_csv(analysis_names, file.path(out_dir, "pea_analysis_names.csv"))
 
+saveRDS(
+  list(
+    species = "pea", protocol_id = protocol_id,
+    identity_threshold = identity_threshold,
+    family_mean_r_flag = family_mean_r_flag,
+    min_family_size = min_family_size,
+    min_modal_seed_fraction = min_modal_seed_fraction,
+    have_pedigrees = have_pedigrees,
+    n_requested = length(pea_names),
+    n_genotyped = length(acc_genotyped),
+    genotyped_names = acc_genotyped,
+    ungenotyped = ungenotyped,
+    run_at = Sys.time()
+  ),
+  file.path(out_dir, "pea_curation_settings.rds")
+)
+
 cat("\n=== Near-identical marker profiles ===\n")
 pairwise <- similarity_acc[upper.tri(similarity_acc)]
 cat("genotyped pea accessions: ", nrow(similarity_acc), "\n", sep = "")

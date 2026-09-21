@@ -302,6 +302,24 @@ analysis_names <- resolve_analysis_names(
 
 readr::write_csv(analysis_names, file.path(out_dir, "oat_analysis_names.csv"))
 
+saveRDS(
+  list(
+    species = "oat", protocol_id = protocol_id,
+    identity_threshold = identity_threshold,
+    family_mean_r_flag = family_mean_r_flag,
+    pool_tolerance = pool_tolerance,
+    min_family_size = min_family_size,
+    min_modal_seed_fraction = min_modal_seed_fraction,
+    n_verify = n_verify,
+    n_requested = length(oat_names),
+    n_genotyped = length(acc_genotyped),
+    genotyped_names = acc_genotyped,
+    ungenotyped = ungenotyped,
+    run_at = Sys.time()
+  ),
+  file.path(out_dir, "oat_curation_settings.rds")
+)
+
 cat("\n=== Accessions renamed for analysis ===\n")
 cat("renamed: ", nrow(analysis_names), " of ", length(acc_genotyped),
     " genotyped accessions\n", sep = "")
