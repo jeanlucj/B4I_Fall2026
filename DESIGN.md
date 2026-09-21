@@ -51,7 +51,7 @@ Two independent chains that meet at the phenotype table. Every step writes to
      +-> oat_analysis_names.csv    +-> pea_analysis_names.csv
      +-> *_curation_settings.rds   (the thresholds each run used)
                          |
-            curation_report.R -> output/CURATION.md
+            curation_report.R -> CURATION.md
                          |
                          v
             assemble_B4I_phenotypes.R
@@ -81,7 +81,7 @@ Two independent chains that meet at the phenotype table. Every step writes to
 | `curation_functions.R` | shared curation: protocol check, dosages, correlations, families, analysis names |
 | `curate_oat_accessions.R` | oat: pedigrees, parents, clonal families, renaming |
 | `curate_pea_accessions.R` | pea: the same, minus the pedigree half (there are no pea pedigrees) |
-| `curation_report.R` | writes `output/CURATION.md` from what the curation runs recorded |
+| `curation_report.R` | writes `CURATION.md` from what the curation runs recorded |
 | `assemble_B4I_phenotypes.R` | plot-level table for the models |
 | `BGLR_multi_trait_model.R` | bivariate DGE-IGE fit |
 | `megalmm_build_inputs.R` | oat x pea matrix and pea environmental covariates |

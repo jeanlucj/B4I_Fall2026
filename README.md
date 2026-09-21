@@ -12,6 +12,7 @@ its partner.
 - **When would either framework work?** → [SIMULATION.md](SIMULATION.md).
 - **Using both analysis orientations** → [BOTH_ORIENTATIONS.md](BOTH_ORIENTATIONS.md).
 - **Running the simulation on SciNet** → [code/scinet/README.md](code/scinet/README.md).
+- **What was collapsed, and why** → [CURATION.md](CURATION.md).
 - **Open questions** → [docs/B4I_followups.md](docs/B4I_followups.md).
 
 This is a [workflowr](https://github.com/workflowr/workflowr) project: runnable
@@ -56,7 +57,7 @@ Rscript code/create_GRMs_T3.R                   # ~5 min first time, seconds aft
 Rscript code/find_trials_with_B4I_accessions.R  # ~10 min first time
 Rscript code/curate_oat_accessions.R            # ~2 min
 Rscript code/curate_pea_accessions.R            # ~2 min
-Rscript code/curation_report.R                  # seconds; writes output/CURATION.md
+Rscript code/curation_report.R                  # seconds; writes CURATION.md
 Rscript code/assemble_B4I_phenotypes.R          # ~1 min
 Rscript code/BGLR_multi_trait_model.R           # ~4 min
 Rscript code/megalmm_build_inputs.R             # ~1 min
@@ -82,7 +83,7 @@ pick up a settings change except the specific cache a setting feeds.
 | `create_GRMs_T3.R` | `GRM_Avena.rds` (508×508, Oat 3K), `GRM_Pisum.rds` (435×435, GenoPea 13K) |
 | `find_trials_with_B4I_accessions.R` | 34 selected trials, `B4I_trait_availability.csv` (34×38), 139,604 observations |
 | `curate_*_accessions.R` | `*_analysis_names.csv` — which accessions are really one genotype |
-| `curation_report.R` | `output/CURATION.md` — thresholds used and every accession collapsed |
+| `curation_report.R` | `CURATION.md` — thresholds used and every accession collapsed |
 | `assemble_B4I_phenotypes.R` | `B4I_intercrop_pheno.rds` — 2,371 plots, both yields |
 | `BGLR_multi_trait_model.R` | `BGLR_variance_components.csv`, per-accession producer/associate effects |
 | `megalmm_build_inputs.R` | `megalmm_inputs_{raw,centered,standardized}.rds` |

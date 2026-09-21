@@ -58,3 +58,4 @@ For this one: "single replicate per cell" means that you do one simulation per s
 [2026-09-21 11:59:36] commit and push now
 [2026-09-21 12:01:19] I would like an output file for the curation that was done.  What thresholds were used for collapsing accessions based on their genotypes and what accessions were ultimately collapsed.  Did you write that up already?  Else output/CURATION.md
 [2026-09-21 12:16:54] please commit and push
+[2026-09-21 12:18:49] Sorry, yeah, let's move it to root with the other .md files
