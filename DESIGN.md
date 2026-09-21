@@ -3,7 +3,8 @@
 What this project is and how it is put together. For usage see
 [README.md](README.md); for the reasoning behind the methods see
 [BACKGROUND.md](BACKGROUND.md); for how accuracy is measured see
-[CROSS_VALIDATION.md](CROSS_VALIDATION.md); for the open questions see
+[CROSS_VALIDATION.md](CROSS_VALIDATION.md); for the simulation framework see
+[SIMULATION.md](SIMULATION.md); for the open questions see
 [docs/B4I_followups.md](docs/B4I_followups.md).
 
 ## Purpose
@@ -82,6 +83,10 @@ Two independent chains that meet at the phenotype table. Every step writes to
 | `megalmm_build_inputs.R` | oat x pea matrix and pea environmental covariates |
 | `megalmm_setup.R` | MegaLMM model construction, sampling, posterior extraction |
 | `megalmm_oat_pea.R` | cross-validation sweep and final MegaLMM fit |
+| `sim_config.R` | the simulation factorial and its parameters, grounded in the B4I data |
+| `sim_generate.R` | simulates one experiment under a known truth |
+| `sim_fit.R` | fits both frameworks to a simulated experiment and scores them |
+| `sim_run.R` | drives the simulation grid, with per-scenario caching |
 
 ## Conventions
 
@@ -90,8 +95,9 @@ Two independent chains that meet at the phenotype table. Every step writes to
 - Every script starts with `library(tidyverse)` and `here::i_am(...)`; other
   packages are called as `package::function()`.
 - `output/` is gitignored apart from its README: everything in it regenerates.
-- `output/trial_cache/` and `output/megalmm_runs/` are caches and run state,
-  regenerable and never committed.
+- `output/trial_cache/`, `output/megalmm_runs/`, `output/simulation/` and
+  `output/simulation_runs/` are caches and run state, regenerable and never
+  committed.
 - Credentials live only in `.Renviron`, which is gitignored.
 
 ## Caching

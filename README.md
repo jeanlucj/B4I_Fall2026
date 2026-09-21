@@ -9,6 +9,7 @@ its partner.
 - **What it is and how it fits together** → [DESIGN.md](DESIGN.md).
 - **Why it works this way (theory + decisions)** → [BACKGROUND.md](BACKGROUND.md).
 - **How accuracy is measured** → [CROSS_VALIDATION.md](CROSS_VALIDATION.md).
+- **When would either framework work?** → [SIMULATION.md](SIMULATION.md).
 - **Open questions** → [docs/B4I_followups.md](docs/B4I_followups.md).
 
 This is a [workflowr](https://github.com/workflowr/workflowr) project: runnable
@@ -59,6 +60,14 @@ Rscript code/megalmm_build_inputs.R             # ~1 min
 Rscript code/megalmm_oat_pea.R                  # ~20 min
 ```
 
+The simulation framework is separate from the pipeline and answers a different
+question — when either framework *would* work. See [SIMULATION.md](SIMULATION.md):
+
+```bash
+Rscript code/sim_run.R --check                  # sanity check; run this first
+Rscript code/sim_run.R                          # the 60-scenario grid
+```
+
 First runs download VCFs and phenotypes; later runs hit caches (see
 [DESIGN.md](DESIGN.md#caching)) and are much faster. Nothing needs deleting to
 pick up a settings change except the specific cache a setting feeds.
@@ -74,6 +83,7 @@ pick up a settings change except the specific cache a setting feeds.
 | `BGLR_multi_trait_model.R` | `BGLR_variance_components.csv`, per-accession producer/associate effects |
 | `megalmm_build_inputs.R` | `megalmm_inputs_{raw,centered,standardized}.rds` |
 | `megalmm_oat_pea.R` | `megalmm_cv_results.csv`, `megalmm_fit_centered.rds` |
+| `sim_run.R` | `simulation_results.csv`, `simulation_summary.png` |
 
 ## 4. Settings worth knowing
 

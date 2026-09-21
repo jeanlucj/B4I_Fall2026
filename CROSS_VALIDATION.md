@@ -3,7 +3,8 @@
 How predictive accuracy is measured here, what the numbers mean, and what is
 not yet validated. For usage see [README.md](README.md); for structure see
 [DESIGN.md](DESIGN.md); for the reasoning behind the models see
-[BACKGROUND.md](BACKGROUND.md).
+[BACKGROUND.md](BACKGROUND.md); for the simulated comparison of the two
+frameworks see [SIMULATION.md](SIMULATION.md).
 
 ## Status, in one table
 
