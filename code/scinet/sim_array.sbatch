@@ -20,7 +20,7 @@
 #SBATCH --job-name=b4i_sim
 #SBATCH --array=1-20
 #SBATCH --cpus-per-task=4
-#SBATCH --mem-per-cpu=8G
+#SBATCH --mem-per-cpu=16G
 #SBATCH --time=12:00:00
 #SBATCH --partition=ceres
 #SBATCH --output=logs/sim_%A_%a.out
