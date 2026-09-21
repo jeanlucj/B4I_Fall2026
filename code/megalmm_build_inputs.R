@@ -34,13 +34,13 @@ here::i_am("code/megalmm_build_inputs.R")
 # ------------------------------------------------------------
 
 pheno_file <- here::here("output", "B4I_intercrop_pheno.rds")
-obs_file   <- here::here("output", "B4I_observations.rds")
+obs_file   <- here::here("data", "B4I_observations.rds")
 cache_dir  <- here::here("output", "trial_cache")
 out_dir    <- here::here("output")
 
 grm_files <- c(
-  oat = here::here("output", "GRM_Avena.rds"),
-  pea = here::here("output", "GRM_Pisum.rds")
+  oat = here::here("data", "GRM_Avena.rds"),
+  pea = here::here("data", "GRM_Pisum.rds")
 )
 
 analysis_name_files <- c(

@@ -51,7 +51,7 @@ from `output/`, which is gitignored, so copy those two files across:
 
 ```bash
 # from the laptop
-scp output/GRM_Avena.rds output/GRM_Pisum.rds \
+scp data/GRM_Avena.rds data/GRM_Pisum.rds \
     <first.last>@ceres.scinet.usda.gov:/project/<account>/B4I_Fall2026/output/
 ```
 

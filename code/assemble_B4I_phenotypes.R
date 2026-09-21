@@ -37,7 +37,7 @@ db_name <- "T3/Oat"
 out_dir <- here::here("output")
 
 trials_file <- here::here("output", "B4I_trials_selected.csv")
-obs_file    <- here::here("output", "B4I_observations.rds")
+obs_file    <- here::here("data", "B4I_observations.rds")
 
 oat_names_file <- here::here("output", "oat_analysis_names.csv")
 pea_names_file <- here::here("output", "pea_analysis_names.csv")

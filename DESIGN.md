@@ -39,7 +39,7 @@ Two independent chains that meet at the phenotype table. Every step writes to
            |          |
            |          +-> B4I_trial_search.csv, B4I_trials_selected.csv
            |          +-> B4I_trait_availability.csv/.png   (34 x 38)
-           |          +-> B4I_observations.rds/.csv.gz      (139604 rows)
+           |          +-> data/B4I_observations.rds/.csv.gz (139604 rows)
            |          +-> trial_cache/obs_*.rds, units_*.rds
            v
   curation_functions.R  (shared)
@@ -95,6 +95,10 @@ Two independent chains that meet at the phenotype table. Every step writes to
 - Every script starts with `library(tidyverse)` and `here::i_am(...)`; other
   packages are called as `package::function()`.
 - `output/` is gitignored apart from its README: everything in it regenerates.
+- Two derived things live in `data/` instead, and are versioned: the GRMs and
+  the downloaded observations. They are inputs to everything downstream, they
+  take hours to rebuild from T3, and having them in the repository means a
+  clone can run the models and the simulation without a T3 login.
 - `output/trial_cache/`, `output/megalmm_runs/`, `output/simulation/` and
   `output/simulation_runs/` are caches and run state, regenerable and never
   committed.

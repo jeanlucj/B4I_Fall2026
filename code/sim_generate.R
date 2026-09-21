@@ -219,8 +219,8 @@ simulate_experiment <- function(G_oat, G_pea, sparsity, n_factors,
 #' Accessions are taken at random so a panel is not systematically the most
 #' or least related part of the collection.
 sim_grms <- function(n_acc,
-                     oat_file = here::here("output", "GRM_Avena.rds"),
-                     pea_file = here::here("output", "GRM_Pisum.rds"),
+                     oat_file = here::here("data", "GRM_Avena.rds"),
+                     pea_file = here::here("data", "GRM_Pisum.rds"),
                      seed = 1L) {
   read_grm <- function(p) {
     g <- readRDS(p)

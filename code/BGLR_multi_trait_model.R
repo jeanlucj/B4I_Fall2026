@@ -25,7 +25,7 @@
 # carries no accession identity at all.)
 #
 # Inputs : a plot-level phenotype table (see `pheno_file` below)
-#          output/GRM_Avena.rds, output/GRM_Pisum.rds from
+#          data/GRM_Avena.rds, data/GRM_Pisum.rds from
 #          code/create_GRMs_T3.R
 # Outputs: output/BGLR_multitrait_*.rds  (fitted model)
 #          output/BGLR_{oat,pea}_effects_all_seeds.csv
@@ -49,8 +49,8 @@ here::i_am("code/BGLR_multi_trait_model.R")
 pheno_file <- here::here("output", "B4I_intercrop_pheno.rds")
 
 grm_files <- c(
-  oat = here::here("output", "GRM_Avena.rds"),
-  pea = here::here("output", "GRM_Pisum.rds")
+  oat = here::here("data", "GRM_Avena.rds"),
+  pea = here::here("data", "GRM_Pisum.rds")
 )
 
 # The curation scripts rename accessions that are genetically one line.

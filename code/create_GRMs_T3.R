@@ -3,8 +3,8 @@
 # pea accession lists, using T3GenoTools against the T3/Oat
 # Breedbase instance.
 #
-#   data/Acc_B4I_Avena.txt  -> output/GRM_Avena.rds
-#   data/Acc_B4I_Pisum.txt  -> output/GRM_Pisum.rds
+#   data/Acc_B4I_Avena.txt  -> data/GRM_Avena.rds
+#   data/Acc_B4I_Pisum.txt  -> data/GRM_Pisum.rds
 #
 # Both species live on the T3/Oat database (the B4I intercrop
 # trials are hosted there), so one connection and one geno_config()
@@ -35,9 +35,12 @@ acc_files <- c(
   Pisum = here::here("data", "Acc_B4I_Pisum.txt")
 )
 
+# The GRMs are an INPUT to every model downstream and take hours to rebuild
+# from scratch, so they live in data/ and are versioned, unlike the derived
+# results in output/ which is gitignored.
 out_files <- c(
-  Avena = here::here("output", "GRM_Avena.rds"),
-  Pisum = here::here("output", "GRM_Pisum.rds")
+  Avena = here::here("data", "GRM_Avena.rds"),
+  Pisum = here::here("data", "GRM_Pisum.rds")
 )
 
 # Set to TRUE to ignore every cached tier and rebuild from scratch

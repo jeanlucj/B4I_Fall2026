@@ -48,7 +48,7 @@ protocol_id <- "67"
 
 monoculture_labels <- c("NO_OATS_PLANTED", "NO_PEAS_PLANTED")
 
-observations_file <- here::here("output", "B4I_observations.rds")
+observations_file <- here::here("data", "B4I_observations.rds")
 
 # ============================================================
 # Driver

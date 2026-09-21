@@ -26,8 +26,8 @@
 #          output/B4I_trials_selected.csv     the trials kept, with metadata
 #          output/B4I_trait_availability.csv  trial x trait matrix
 #          output/B4I_trait_availability.png  the same, as a heatmap
-#          output/B4I_observations.rds        all observations, long
-#          output/B4I_observations.csv.gz     the same, as text
+#          data/B4I_observations.rds          all observations, long
+#          data/B4I_observations.csv.gz       the same, as text
 # ============================================================
 
 library(tidyverse)
@@ -50,6 +50,11 @@ acc_files <- c(
 
 out_dir   <- here::here("output")
 cache_dir <- here::here("output", "trial_cache")
+
+# The downloaded observations are an INPUT to everything downstream and are
+# expensive to re-fetch, so they live in data/ and are versioned, unlike the
+# derived results in output/ which is gitignored.
+data_dir  <- here::here("data")
 
 # A trial is kept only if it evaluated at least this many B4I accessions
 min_b4i_accessions <- 20
@@ -382,8 +387,8 @@ message("observations: ", nrow(observations),
         " on ", dplyr::n_distinct(observations$germplasmName), " accessions, ",
         dplyr::n_distinct(observations$observationVariableName), " traits")
 
-saveRDS(observations, file.path(out_dir, "B4I_observations.rds"))
-readr::write_csv(observations, file.path(out_dir, "B4I_observations.csv.gz"))
+saveRDS(observations, file.path(data_dir, "B4I_observations.rds"))
+readr::write_csv(observations, file.path(data_dir, "B4I_observations.csv.gz"))
 
 # --- trait availability ---
 availability <- trait_availability(observations, trials = selected)
@@ -480,8 +485,9 @@ ggplot2::ggsave(
 )
 
 message("\nwrote:\n  ",
-        paste(file.path("output", c(
+        paste(c(file.path("output", c(
           "B4I_trial_search.csv", "B4I_trials_selected.csv",
-          "B4I_trait_availability.csv", "B4I_trait_availability.png",
-          "B4I_observations.rds", "B4I_observations.csv.gz"
-        )), collapse = "\n  "))
+          "B4I_trait_availability.csv", "B4I_trait_availability.png")),
+          file.path("data", c("B4I_observations.rds",
+                              "B4I_observations.csv.gz"))),
+          collapse = "\n  "))

@@ -106,7 +106,7 @@ monoculture_labels <- c("NO_OATS_PLANTED", "NO_PEAS_PLANTED")
 
 # Phenotype counts break ties when choosing which accession in a group
 # to keep.  Optional: alphabetical order is used if it is absent.
-observations_file <- here::here("output", "B4I_observations.rds")
+observations_file <- here::here("data", "B4I_observations.rds")
 
 # ============================================================
 # Driver
