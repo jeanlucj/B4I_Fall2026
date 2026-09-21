@@ -27,6 +27,8 @@ here::i_am("code/assemble_B4I_phenotypes.R")
 
 library(httr)
 
+source(here::here("code", "t3_functions.R"))
+
 source(here::here("code", "curation_functions.R"))
 
 # ------------------------------------------------------------
@@ -58,64 +60,6 @@ monoculture_labels <- c("NO_OATS_PLANTED", "NO_PEAS_PLANTED")
 # ------------------------------------------------------------
 # Observation units
 # ------------------------------------------------------------
-
-# A plot's pea partner and its rep/block live on the observation unit, not
-# on the observation.  Plot-level units only: the subplot units carry the
-# repeated-measure traits and have no yield.
-fetch_observation_units <- function(conn, trial_id, cache_dir = NULL,
-                                    page_size = 5000, refresh = FALSE) {
-  cache_file <- if (!is.null(cache_dir)) {
-    file.path(cache_dir, paste0("units_", trial_id, ".rds"))
-  } else NULL
-
-  if (!is.null(cache_file) && file.exists(cache_file) && !refresh) {
-    return(readRDS(cache_file))
-  }
-
-  res <- conn$search(
-    "observationunits",
-    body     = list(studyDbIds = list(as.character(trial_id))),
-    pageSize = page_size
-  )
-
-  level_code <- function(u, want) {
-    rel <- u$observationUnitPosition$observationLevelRelationships
-    if (is.null(rel)) return(NA_character_)
-    hit <- purrr::keep(rel, \(r) identical(r$levelName, want))
-    if (length(hit) == 0) NA_character_ else as.character(hit[[1]]$levelCode)
-  }
-
-  units <- res$combined_data |>
-    purrr::keep(\(u) identical(u$observationUnitPosition$observationLevel$levelName,
-                               "plot")) |>
-    purrr::map(\(u) {
-      inter <- u$additionalInfo$intercropGermplasm
-      tibble::tibble(
-        trialDbId              = as.character(u$studyDbId),
-        studyName              = as.character(u$studyName %||% NA),
-        observationUnitDbId    = as.character(u$observationUnitDbId),
-        observationUnitName    = as.character(u$observationUnitName %||% NA),
-        germplasmName          = as.character(u$germplasmName %||% NA),
-        intercropGermplasmName = if (is.null(inter) || length(inter) == 0) {
-          NA_character_
-        } else {
-          as.character(inter[[1]]$germplasmName)
-        },
-        repNumber   = level_code(u, "rep"),
-        blockNumber = level_code(u, "block")
-      )
-    }) |>
-    purrr::list_rbind() |>
-    # Some trials return a plot-level record once per subplot, so the same
-    # observationUnitDbId comes back several times
-    dplyr::distinct(observationUnitDbId, .keep_all = TRUE)
-
-  if (!is.null(cache_file)) {
-    dir.create(dirname(cache_file), showWarnings = FALSE, recursive = TRUE)
-    saveRDS(units, cache_file)
-  }
-  units
-}
 
 # ------------------------------------------------------------
 # Driver

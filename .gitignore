@@ -26,3 +26,6 @@ output/BGLR_seed_*.dat
 # Simulation caches and MegaLMM run state
 output/simulation/
 output/simulation_runs/
+
+# Pilot BGLR MCMC sample files
+output/pilot/pilot_seed_*.dat

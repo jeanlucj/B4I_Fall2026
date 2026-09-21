@@ -37,6 +37,8 @@ here::i_am("code/find_trials_with_B4I_accessions.R")
 # BrAPI.R calls httr::timeout() unqualified, so httr must be attached
 library(httr)
 
+source(here::here("code", "t3_functions.R"))
+
 # ------------------------------------------------------------
 # Settings
 # ------------------------------------------------------------
@@ -192,79 +194,6 @@ trial_metadata <- function(conn, trial_ids) {
 # ------------------------------------------------------------
 # Observations
 # ------------------------------------------------------------
-
-# A BrAPI record holds NULLs and nested lists; pull one scalar safely
-pluck_chr <- function(rec, field) {
-  v <- rec[[field]]
-  if (is.null(v) || length(v) == 0) NA_character_ else as.character(v)[1]
-}
-
-download_trial_observations <- function(conn, trial_id,
-                                        cache_dir = NULL,
-                                        page_size = 10000,
-                                        refresh = FALSE) {
-  cache_file <- if (!is.null(cache_dir)) {
-    file.path(cache_dir, paste0("obs_", trial_id, ".rds"))
-  } else {
-    NULL
-  }
-
-  if (!is.null(cache_file) && file.exists(cache_file) && !refresh) {
-    return(readRDS(cache_file))
-  }
-
-  res <- conn$search(
-    "observations",
-    body     = list(studyDbIds = list(as.character(trial_id))),
-    pageSize = page_size
-  )
-
-  records <- res$combined_data
-
-  obs <- if (length(records) == 0) {
-    tibble::tibble(
-      trialDbId = character(0), observationUnitDbId = character(0),
-      observationUnitName = character(0), germplasmDbId = character(0),
-      germplasmName = character(0), observationVariableDbId = character(0),
-      observationVariableName = character(0), value = character(0),
-      season = character(0), observationTimeStamp = character(0)
-    )
-  } else {
-    tibble::tibble(
-      trialDbId               = as.character(trial_id),
-      observationUnitDbId     = purrr::map_chr(records, pluck_chr, "observationUnitDbId"),
-      observationUnitName     = purrr::map_chr(records, pluck_chr, "observationUnitName"),
-      germplasmDbId           = purrr::map_chr(records, pluck_chr, "germplasmDbId"),
-      germplasmName           = purrr::map_chr(records, pluck_chr, "germplasmName"),
-      observationVariableDbId = purrr::map_chr(records, pluck_chr, "observationVariableDbId"),
-      observationVariableName = purrr::map_chr(records, pluck_chr, "observationVariableName"),
-      value                   = purrr::map_chr(records, pluck_chr, "value"),
-      season                  = purrr::map_chr(records, \(r) {
-                                  s <- r$season
-                                  if (is.null(s)) NA_character_
-                                  else as.character(s$year %||% s$season %||% NA)
-                                }),
-      observationTimeStamp    = purrr::map_chr(records, pluck_chr, "observationTimeStamp")
-    )
-  }
-
-  if (!is.null(cache_file)) {
-    dir.create(dirname(cache_file), showWarnings = FALSE, recursive = TRUE)
-    saveRDS(obs, cache_file)
-  }
-
-  obs
-}
-
-download_observations <- function(conn, trial_ids,
-                                  cache_dir = NULL,
-                                  page_size = 10000,
-                                  refresh = FALSE) {
-  trial_ids |>
-    purrr::map(\(id) download_trial_observations(conn, id, cache_dir, page_size, refresh),
-               .progress = "Downloading observations") |>
-    purrr::list_rbind()
-}
 
 # ------------------------------------------------------------
 # Trait availability

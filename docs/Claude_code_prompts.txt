@@ -60,3 +60,5 @@ For this one: "single replicate per cell" means that you do one simulation per s
 [2026-09-21 12:16:54] please commit and push
 [2026-09-21 12:18:49] Sorry, yeah, let's move it to root with the other .md files
 [2026-09-21 12:20:37] commit and push
+[2026-09-21 12:45:17] Before running the big B4I experiment, we did a pilot experiment.  The trials are listed in data > Trial_PilotOatPea.txt.  I would like you to essentially run the DGE-IGE analysis on this trial data.  Hopefully, there are functions within the bigger B4I analysis that can be re-used.  So as not to get the pilot analysis confused with the bigger B4I analysis, put it all in code > pilot.
+[2026-09-21 14:15:20] commit and push.

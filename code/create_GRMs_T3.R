@@ -24,6 +24,8 @@ here::i_am("code/create_GRMs_T3.R")
 # BrAPI.R calls httr::timeout() unqualified, so httr must be attached
 library(httr)
 
+source(here::here("code", "t3_functions.R"))
+
 # ------------------------------------------------------------
 # Settings
 # ------------------------------------------------------------
@@ -177,46 +179,9 @@ print(cfg)
 # germplasmName.
 # ------------------------------------------------------------
 
-build_species_grm <- function(species, accessions, cfg,
-                              min_coverage = 0, refresh = FALSE) {
-  message("\n=== ", species, ": building GRM from ", cfg$db_name, " ===")
-
-  train <- dplyr::select(accessions$accessions, germplasmDbId, germplasmName)
-
-  # Which protocols cover these accessions, and how well
-  protocols <- T3GenoTools::find_geno_sources(
-    conn, unique(train$germplasmDbId), cfg, "protocol", refresh
-  )
-  print(as.data.frame(protocols))
-
-  use_ids <- protocols |>
-    dplyr::filter(n_covered >= min_coverage * nrow(train)) |>
-    dplyr::pull(dbId)
-
-  if (length(use_ids) == 0) {
-    stop(species, ": no protocol covers at least ", min_coverage * 100,
-         "% of the accessions; lower min_protocol_coverage", call. = FALSE)
-  }
-  message(species, ": using protocol(s) ", paste(use_ids, collapse = ", "),
-          " of ", nrow(protocols), " covering protocol(s)")
-
-  grm <- T3GenoTools::build_grm(
-    conn             = conn,
-    train_accessions = train,
-    cfg              = cfg,
-    protocol_id      = use_ids,
-    refresh          = refresh
-  )
-
-  message(species, ": G is ", nrow(grm$G), " x ", ncol(grm$G),
-          " from ", length(grm$protocol_ids), " protocol(s)")
-
-  grm
-}
-
 grms <- accessions |>
   purrr::imap(\(a, sp) build_species_grm(
-    sp, a, cfg,
+    conn, sp, a, cfg,
     min_coverage = min_protocol_coverage,
     refresh      = refresh
   ))
