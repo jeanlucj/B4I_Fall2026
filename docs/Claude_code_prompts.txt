@@ -42,3 +42,4 @@
 <status>completed</status>
 <summary>Background command "Run 200x200 single-environment slice at new sparsity levels" completed (exit code 0)</summary>
 </task-notification>
+[2026-09-21 09:29:41] yes, add both to Running it

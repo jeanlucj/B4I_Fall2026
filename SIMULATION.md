@@ -161,9 +161,48 @@ Rscript code/sim_run.R --filter "n_acc == 200 & n_envs == 1"
 Rscript code/sim_run.R --refresh                        # ignore the cache
 ```
 
-Each scenario caches to `output/simulation/<scenario>_rep<k>.rds`, so the grid
-can be run in pieces, interrupted and resumed. Results combine into
-`output/simulation_results.csv` and `output/simulation_summary.png`.
+### What it writes
+
+| path | what it is |
+|---|---|
+| `output/simulation/<scenario>_rep<k>.rds` | one scenario's scores: a tibble with one row per model, the same shape as a slice of the combined CSV. This is the cache — the presence of this file is what lets a scenario be skipped. |
+| `output/simulation_results.csv` | every scenario run so far, combined. Columns as described under [Reading the results](#reading-the-results). |
+| `output/simulation_summary.png` | interaction accuracy against sparsity, faceted by panel size and interaction rank. |
+| `output/simulation_runs/` | scratch. MegaLMM needs its run state on disk, so each scenario gets a subdirectory here and it is deleted as soon as the scenario's scores are cached. The parent directory stays behind; nothing in it is worth keeping. |
+
+Everything under `output/` is gitignored, and everything here regenerates.
+
+Because the cache is per scenario, the grid can be run in pieces, interrupted
+and resumed. Re-running picks up where it stopped; `--refresh` ignores the
+cache and refits.
+
+### How long it takes
+
+Measured at 200 × 200, mean seconds per scenario over all three fits:
+
+| observed | observations | additive | dge_ige | megalmm | per scenario |
+|---|---|---|---|---|---|
+| 5% | 2,000 | 2.8 | 10.0 | 10.2 | 23 s |
+| 15% | 6,000 | 7.3 | 28.6 | 10.0 | 46 s |
+| 45% | 18,000 | 20.4 | 70.6 | 9.8 | 101 s |
+
+The thirty 200 × 200 scenarios take about half an hour; `n_envs` does not
+change the amount of data, only how the standardisation is grouped, so it
+costs nothing. The thirty at 400 × 400 carry four times the observations at a
+given sparsity and should take around two and a half hours, putting **one
+replicate of the full grid at roughly three hours**. That figure is
+extrapolated from the 200 × 200 timings rather than measured, so treat it as
+give or take half.
+
+Note that `megalmm` is flat across sparsity while the two BGLR models are not:
+MegaLMM's cost is driven by the size of the matrix and `K`, not by how much of
+it is filled.
+
+The cell most likely to give trouble is 400 × 400 at 45%, where the Kronecker
+design matrix is 72,000 × 900 — 518 MB, with two temporaries of that size
+built before they are multiplied. If the full grid fails anywhere it will be
+there, on memory rather than time. Halving `SIM_KRON_RANK` to 20 cuts that
+term to 400 columns.
 
 ### `--check` exists for a reason
 
