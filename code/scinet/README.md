@@ -41,22 +41,71 @@ Then install, on a compute node rather than the login node:
 ```bash
 salloc -N1 -n8 --mem=32G -t 2:00:00 -A <account>
 module load r/4.5.3
-Rscript -e 'install.packages(c("tidyverse","here","BGLR","withr","patchwork"))'
+
+# the library directory must exist before R will use it
+mkdir -p /project/<account>/R_packages/4.5
+
+Rscript -e 'install.packages(c("remotes","tidyverse","here","BGLR","withr","patchwork"), repos = "https://cloud.r-project.org")'
 Rscript -e 'remotes::install_github("deruncie/MegaLMM")'
 ```
 
-The simulation needs `BGLR`, `MegaLMM`, `tidyverse`, `here` and `withr`. It
-does **not** need `BrAPI.R`, `T3GenoTools` or a T3 login — it reads the GRMs
-from `output/`, which is gitignored, so copy those two files across:
+**Pass `repos=` explicitly.** Without it a batch `Rscript -e
+install.packages(...)` has no mirror to look in and reports
+`packages ... are not available for this version of R`, which reads like an
+R-version incompatibility and is not one — see
+[below](#if-installpackages-says-a-package-is-not-available). `remotes` is in
+the list because the next line needs it.
 
-```bash
-# from the laptop
-scp data/GRM_Avena.rds data/GRM_Pisum.rds \
-    <first.last>@ceres.scinet.usda.gov:/project/<account>/B4I_Fall2026/output/
+The simulation needs `BGLR`, `MegaLMM`, `tidyverse`, `here` and `withr`. It
+does **not** need `BrAPI.R`, `T3GenoTools` or a T3 login: the GRMs live in
+`data/` and are versioned, so `git clone` brings them and there is nothing to
+copy across. Only `code/create_GRMs_T3.R` and
+`code/find_trials_with_B4I_accessions.R` need credentials, and only to refresh
+what the repository already holds.
+
+### If install.packages says a package is "not available"
+
+```
+Warning: packages 'tidyverse', 'BGLR' are not available for this version of R
 ```
 
-Alternatively regenerate them there with `code/create_GRMs_T3.R`, which does
-need the T3 credentials.
+Nearly always this means R could not see a repository holding them, not that
+they are incompatible with R 4.5.3. Diagnose in this order:
+
+```r
+R.version.string            # 4.5.3 after module load
+getOption("repos")          # "@CRAN@" unresolved, or empty => this is the cause
+nrow(available.packages())  # 0, or an error => no usable mirror
+```
+
+`@CRAN@` is a placeholder that an interactive session resolves by asking which
+mirror to use. A batch session has nobody to ask, so it stays unresolved and
+every package looks missing. Fixes, in increasing permanence:
+
+```r
+install.packages("BGLR", repos = "https://cloud.r-project.org")   # per call
+options(repos = c(CRAN = "https://cloud.r-project.org"))          # per session
+```
+
+For something permanent, put that `options()` line in an `.Rprofile`. But note
+the same one-file-only rule that bites with `.Renviron` above: R reads the
+working directory's `.Rprofile` if there is one and `$HOME`'s otherwise, never
+both — and **this repository has its own**, from workflowr. So a line in
+`~/.Rprofile` will be ignored whenever you run from the repository. Put it in
+the repository's `.Rprofile`, or pass `repos=` on the command line, which
+always works.
+
+Other causes, once the repository is definitely set:
+
+- **The name is wrong.** Case matters: `MegaLMM`, not `megalmm`.
+- **It is not on CRAN.** `MegaLMM`, `BrAPI.R`, `T3GenoTools` and
+  `T3BrapiHelpers` are GitHub-only and need `remotes::install_github()`.
+- **It failed to compile and the warning names a dependency.** `MegaLMM` builds
+  C++ via `Rcpp` and `RcppEigen`. Read the log for the first error, not the last
+  warning.
+- **`R_LIBS_USER` points somewhere that does not exist**, so R silently falls
+  back to the default library inside your 30 GB home. Check with
+  `Sys.getenv("R_LIBS_USER")` and `.libPaths()`.
 
 ## 2. Shake it out first
 
@@ -104,7 +153,42 @@ This refits nothing. It reads `output/simulation/*.rds` and writes
 `output/simulation_results.csv` and `output/simulation_summary.png`. It is
 also safe to run while tasks are still going, to see partial results.
 
-## 5. What to watch
+## 5. When a job produces no output
+
+The commonest confusion, and it is a reading problem rather than a failure:
+
+**R writes almost everything to stderr.** `message()`, warnings, errors and the
+package startup banners all go there; only `cat()` and `print()` go to stdout.
+So a job that dies during the fit leaves a stdout file containing nothing but
+the shell's own `echo` lines, and the entire explanation somewhere else.
+
+Older versions of `sim_array.sbatch` split the streams into `.out` and `.err`.
+It now merges both into `logs/sim_<jobid>_<task>.log`. If you are looking at a
+run from before that change:
+
+```bash
+cat logs/sim_*.err        # this is where R actually spoke
+```
+
+Then find out how the job ended, which distinguishes an R error from the two
+things SLURM does on its own:
+
+```bash
+sacct -j <jobid> --format=JobID,State,ExitCode,Elapsed,MaxRSS,ReqMem
+```
+
+| State | means |
+|---|---|
+| `FAILED` with `ExitCode 1:0` | R errored — read the log |
+| `TIMEOUT` | wall clock; `--qos=debug` gives only 30 minutes |
+| `OUT_OF_MEMORY`, or `FAILED` with `ExitCode 0:125` | exceeded `--mem-per-cpu`; Ceres kills rather than throttles |
+| `COMPLETED` but no results | check that the array slice had scenarios to run |
+
+The script now reports R's exit status explicitly. Under `set -e` a bare
+`Rscript` failure ends the job with nothing written about it, which is the
+other half of why an empty log is easy to produce.
+
+## 6. What to watch
 
 - **Memory, not time, is the likely failure.** Ceres kills a job that exceeds
   its allocation rather than throttling it. The 400 × 400 scenarios at 45%
@@ -118,7 +202,7 @@ also safe to run while tasks are still going, to see partial results.
 - **`sacct -j <jobid> --format=JobID,State,Elapsed,MaxRSS`** after the fact
   tells you what the array actually used, which is how to size the next one.
 
-## 6. Bringing results back
+## 7. Bringing results back
 
 ```bash
 # from the laptop

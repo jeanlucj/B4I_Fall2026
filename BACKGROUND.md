@@ -83,9 +83,28 @@ two families correlate 0.983 between and 0.985 within — the recorded pollen
 parent is making no genetic difference and they are one selfed line, named
 `<female>_self`.
 
-**Naming duplicates.** A released cultivar and its experimental designation are
-one line under two names. This is the only thing the pea side turns up:
-`ND VICTORY` and `NDP170084G`, one pair in 415 genotyped accessions.
+**Duplicate entries.** Two names can be one genotype. This is the only thing
+the pea side turns up: `ND VICTORY` and `NDP170084G` correlate at **r =
+0.9996** across 6,164 markers, against 0.824 for the next-closest line and
+0.701 for the closest of the other 49 `NDP17*` entries. So they are the same
+line, not sibs.
+
+**Why they are the same line is not known.** An earlier version of this
+document called `NDP170084G` ND Victory's experimental designation. That was an
+inference, not a reading of any record, and it is wrong: the cultivar
+registration gives the designation as `NDP100144G`
+([Plant Registrations 2023](https://acsess.onlinelibrary.wiley.com/doi/10.1002/plr2.20266)),
+and `NDP100144G` is not in T3/Oat at all. T3 records no synonym linking
+`NDP170084G` to `ND VICTORY` either — the only synonym on `ND VICTORY` is the
+case variant `ND Victory`.
+
+What the markers establish is that one of these two entries is not what its
+name says. A seed or sample mix-up at genotyping, a maintenance reselection
+issued under a new number, or a mislabelled T3 entry would all produce this,
+and the marker data cannot tell them apart. The collapse is still right —
+they are one genotype and belong in the model once — but which name is the
+correct one is unresolved, and picking `ND VICTORY` as the representative was
+a phenotype-count decision, not an identification.
 
 Such accessions are **renamed, not dropped**. Dropping discards their phenotype
 records; renaming keeps every plot and enters the genotype once, which is both

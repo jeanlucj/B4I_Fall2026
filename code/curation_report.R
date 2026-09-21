@@ -177,7 +177,7 @@ header <- paste0(
   "| `<seed>_<pollen>_no_cross` | a full-sib family that did not segregate |\n",
   "| `<seed_parent>_self` | matches such a family and shares its female, or a set of that female's clonal families that cannot be told apart |\n",
   "| `<seed_parent>` | confirmed identical to its genotyped parent |\n",
-  "| an existing accession name | same line under two names, collapsed onto the better-phenotyped one |\n\n",
+  "| an existing accession name | one genotype under two names, collapsed onto the better-phenotyped one; which name is correct is not something markers can say |\n\n",
   "---\n\n"
 )
 

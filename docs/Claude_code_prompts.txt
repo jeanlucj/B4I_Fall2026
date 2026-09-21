@@ -62,3 +62,6 @@ For this one: "single replicate per cell" means that you do one simulation per s
 [2026-09-21 12:20:37] commit and push
 [2026-09-21 12:45:17] Before running the big B4I experiment, we did a pilot experiment.  The trials are listed in data > Trial_PilotOatPea.txt.  I would like you to essentially run the DGE-IGE analysis on this trial data.  Hopefully, there are functions within the bigger B4I analysis that can be re-used.  So as not to get the pilot analysis confused with the bigger B4I analysis, put it all in code > pilot.
 [2026-09-21 14:15:20] commit and push.
+[2026-09-21 14:59:18] I ran the debug check on Ceres.  The log only says "task 1 of 1 started Mon ..."  Nothing else though the submission is now out of squeue
+[2026-09-21 16:45:56] Could not find function "run_scenario"
+[2026-09-21 16:54:30] commit and push

@@ -133,8 +133,11 @@ analysis_names <- curated |>
   dplyr::transmute(
     germplasmName,
     analysis_name = representative,
-    reason = paste0("marker profile identical (r > ", identity_threshold,
-                    ") to ", representative, ": same line under two names")
+    # State the observation, not a story about its cause. Which of two names
+    # is the correct one is not something markers can say.
+    reason = paste0("marker profile indistinguishable from ", representative,
+                    " (r > ", identity_threshold, "): one genotype under two ",
+                    "names, cause not determined")
   )
 
 readr::write_csv(analysis_names, file.path(out_dir, "pea_analysis_names.csv"))

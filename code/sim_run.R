@@ -78,13 +78,20 @@ if (check) {
   sim <- simulate_experiment(grms$G_oat, grms$G_pea,
                              sparsity = 0.50, n_factors = 1,
                              interaction_pct = 0.20, n_envs = 1)
-  scores <- run_scenario(sim, run_dir = file.path(run_dir, "check"), seed = 7)
+  dir.create(run_dir, showWarnings = FALSE, recursive = TRUE)
+
+  scores <- dplyr::bind_rows(
+    run_scenario_bglr(sim, seed = 7),
+    run_scenario_megalmm(sim, K = SIM_MEGALMM_K,
+                         eigen_variance = SIM_EIGEN_VARIANCE, seed = 7,
+                         run_dir = file.path(run_dir, "check"))$scores
+  )
   print(as.data.frame(scores), row.names = FALSE, digits = 3)
 
   mm <- scores$r_total[scores$model == "megalmm"]
   ad <- scores$r_total[scores$model == "additive"]
   if (is.na(mm) || mm < 0.5) {
-    stop("MegaLMM reached r = ", round(mm, 3), " on a dense, strongly ",
+    stop("MegaLMM reached r_total = ", round(mm, 3), " on a dense, strongly ",
          "structured matrix where it should exceed 0.5. The pipeline is ",
          "broken, not the method.", call. = FALSE)
   }

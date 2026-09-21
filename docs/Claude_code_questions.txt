@@ -2,3 +2,4 @@
 [2026-09-21 09:04:02] Is SIMULATION.md all done?
 [2026-09-21 09:26:26] Without running a pilot script to figure this out, about how long will the full sim_run.R take?  Are the outputs that sim_run.R creates described in SIMULATION.md?
 [2026-09-21 10:11:01] It's disappointing to me that missing combinations (sparsity) affects MegaLMM so negatively.  Why is that?  Are there possible fixes?  Are we sure we are using MegaLMM's predictive abilities correctly?
+[2026-09-21 14:19:55] So, it turns out ND Victory experimental designation was NDP100144G, not the 084G line you had identified.  See https://acsess.onlinelibrary.wiley.com/doi/10.1002/plr2.20266  I don't know what went wrong.  Google agrees with you so there must be we data saying it was NDP170084G but where?  In other news, trying to install packages on Ceres, I get "Warning: packages ... are not available for this version of R"  What to do with that?

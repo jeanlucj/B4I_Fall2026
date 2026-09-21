@@ -23,8 +23,11 @@
 #SBATCH --mem-per-cpu=16G
 #SBATCH --time=12:00:00
 #SBATCH --partition=ceres
-#SBATCH --output=logs/sim_%A_%a.out
-#SBATCH --error=logs/sim_%A_%a.err
+# One file, not two. R sends message(), warnings and errors to stderr and only
+# cat()/print() to stdout, so splitting the streams puts most of what this
+# pipeline says -- including why it died -- in the file nobody reads, and
+# interleaves nothing. Omitting --error makes SLURM merge both into --output.
+#SBATCH --output=logs/sim_%A_%a.log
 
 set -euo pipefail
 
@@ -44,6 +47,17 @@ task="${SLURM_ARRAY_TASK_ID:-1}"
 
 echo "host $(hostname)  task ${task} of ${ntasks}  started $(date)"
 
+# Report R's own exit status rather than letting set -e swallow it silently:
+# a bare `Rscript` failure under `set -e` ends the script with no explanation
+# in the log at all.
+set +e
 Rscript code/sim_run.R --task "${task}" --ntasks "${ntasks}" "$@"
+status=$?
+set -e
+
+if [ "${status}" -ne 0 ]; then
+  echo "task ${task} FAILED with exit status ${status} at $(date)"
+  exit "${status}"
+fi
 
 echo "task ${task} finished $(date)"
