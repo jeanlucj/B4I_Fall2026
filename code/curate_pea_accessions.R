@@ -20,6 +20,7 @@
 #          output/pea_identity_groups.csv    near-identical groups
 #          output/pea_curation_keep_drop.csv one representative per group
 #          output/pea_analysis_names.csv     original -> analysis name
+#          output/pea_top_marker_pairs.csv   the most similar pairs
 #          output/pea_identity_similarity.png distribution of correlations
 #          output/pea_identity_largest_group.png
 # ============================================================
@@ -49,6 +50,9 @@ protocol_id <- "67"
 monoculture_labels <- c("NO_OATS_PLANTED", "NO_PEAS_PLANTED")
 
 observations_file <- here::here("data", "B4I_observations.rds")
+
+# How many of the most-similar pairs to report
+n_top_pairs <- 20L
 
 # ============================================================
 # Driver
@@ -158,6 +162,31 @@ saveRDS(
   ),
   file.path(out_dir, "pea_curation_settings.rds")
 )
+
+# The most-alike pairs, whether or not they clear the identity threshold.
+# Useful on its own: a pair just under the cut is worth a look even though
+# the curation leaves it alone.
+top_pairs <- {
+  keep <- upper.tri(similarity_acc)
+  tibble::tibble(
+    accession_1 = rownames(similarity_acc)[row(similarity_acc)[keep]],
+    accession_2 = colnames(similarity_acc)[col(similarity_acc)[keep]],
+    r = similarity_acc[keep]
+  ) |>
+    dplyr::arrange(dplyr::desc(r)) |>
+    dplyr::mutate(
+      rank = dplyr::row_number(),
+      collapsed = r > identity_threshold,
+      .before = 1
+    )
+}
+
+readr::write_csv(utils::head(top_pairs, n_top_pairs),
+                 file.path(out_dir, "pea_top_marker_pairs.csv"))
+
+cat("\n=== Most similar pairs of pea accessions ===\n")
+print(as.data.frame(utils::head(top_pairs, n_top_pairs)), row.names = FALSE,
+      digits = 4)
 
 cat("\n=== Near-identical marker profiles ===\n")
 pairwise <- similarity_acc[upper.tri(similarity_acc)]
