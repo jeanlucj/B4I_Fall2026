@@ -113,3 +113,5 @@ If both hold, you have one model that behaves like DGE-IGE when the matrix is sp
 [2026-09-22 12:12:18] If you are confident that the fixed factor change is working as advertised, merge the branch with main, commit, and push
 [2026-09-22 14:04:38] Minor thing.  Quick csv report on the pairs of pea accessions that had very high marker correlations.  Maybe give me the top 20.  There are three pairs that look to have correlations above .98
 [2026-09-22 14:15:53] Commit and push
+[2026-09-22 14:18:09] Please add to curate oat accessions.  Given how many accessions are already collapsed, we probably need a longer report.  Top 100 or so.
+[2026-09-22 14:26:48] Commit and push

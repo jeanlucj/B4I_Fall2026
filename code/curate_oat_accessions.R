@@ -45,6 +45,7 @@
 #          output/oat_parent_genotypes.csv   which parents have Oat 3K data
 #          output/oat_accession_vs_parents.csv  r to seed and pollen parent
 #          output/oat_analysis_names.csv     original -> analysis name + reason
+#          output/oat_top_marker_pairs.csv   the most similar pairs
 #          output/oat_family_correlations.csv  per full-sib family
 #          output/oat_family_pairs.csv       every within-family pair
 #          output/oat_identity_groups.csv    the near-identical groups
@@ -107,6 +108,11 @@ monoculture_labels <- c("NO_OATS_PLANTED", "NO_PEAS_PLANTED")
 # Phenotype counts break ties when choosing which accession in a group
 # to keep.  Optional: alphabetical order is used if it is absent.
 observations_file <- here::here("data", "B4I_observations.rds")
+
+# How many of the most-similar pairs to report. Longer than the pea list
+# because far more oat accessions are collapsed, so the interesting cases --
+# pairs that are close but were NOT merged -- are further down.
+n_top_pairs <- 100L
 
 # ============================================================
 # Driver
@@ -301,6 +307,75 @@ analysis_names <- resolve_analysis_names(
 )
 
 readr::write_csv(analysis_names, file.path(out_dir, "oat_analysis_names.csv"))
+
+# ------------------------------------------------------------
+# The most similar pairs, merged or not
+#
+# The counts above say how many pairs cleared a threshold; they do not show
+# which pairs came close and were left alone. Those are the ones worth a
+# human look, so each pair is reported with whether curation actually merged
+# it and what the pedigrees say about it -- a pair that is nearly identical
+# and shares no parent is a different problem from one that is a pair of
+# full sibs.
+# ------------------------------------------------------------
+
+final_name <- stats::setNames(rownames(similarity_acc), rownames(similarity_acc))
+hit <- match(names(final_name), analysis_names$germplasmName)
+final_name[!is.na(hit)] <- analysis_names$analysis_name[hit[!is.na(hit)]]
+
+seed_of   <- stats::setNames(pedigrees$seed_parent,   pedigrees$germplasmName)
+pollen_of <- stats::setNames(pedigrees$pollen_parent, pedigrees$germplasmName)
+
+pedigree_link <- function(a, b) {
+  sa <- seed_of[a]; sb <- seed_of[b]
+  pa <- pollen_of[a]; pb <- pollen_of[b]
+  dplyr::case_when(
+    is.na(sa) & is.na(pa) | is.na(sb) & is.na(pb) ~ "no pedigree",
+    !is.na(sa) & !is.na(sb) & sa == sb & !is.na(pa) & !is.na(pb) & pa == pb ~ "same cross",
+    !is.na(sa) & !is.na(sb) & sa == sb ~ "shared seed parent",
+    !is.na(pa) & !is.na(pb) & pa == pb ~ "shared pollen parent",
+    TRUE ~ "no parent in common"
+  )
+}
+
+top_pairs <- {
+  keep <- upper.tri(similarity_acc)
+  a <- rownames(similarity_acc)[row(similarity_acc)[keep]]
+  b <- colnames(similarity_acc)[col(similarity_acc)[keep]]
+  tibble::tibble(accession_1 = a, accession_2 = b, r = similarity_acc[keep]) |>
+    dplyr::arrange(dplyr::desc(r)) |>
+    utils::head(n_top_pairs) |>
+    dplyr::mutate(
+      rank = dplyr::row_number(),
+      above_threshold = r > identity_threshold,
+      # Curation merges whole clonal families, so a pair can end up with one
+      # name without its own correlation clearing the threshold
+      merged = final_name[accession_1] == final_name[accession_2],
+      analysis_name = dplyr::if_else(merged, final_name[accession_1], NA_character_),
+      pedigree_link = pedigree_link(accession_1, accession_2),
+      .before = 1
+    )
+}
+
+readr::write_csv(top_pairs, file.path(out_dir, "oat_top_marker_pairs.csv"))
+
+cat("\n=== Most similar pairs of oat accessions (top ", n_top_pairs,
+    ") ===\n", sep = "")
+print(as.data.frame(utils::head(top_pairs, 15)), row.names = FALSE, digits = 4)
+
+cat("\nof the top ", nrow(top_pairs), ": ", sum(top_pairs$merged),
+    " merged by curation, ", sum(!top_pairs$merged), " left separate\n", sep = "")
+cat("pedigree relationship among them:\n")
+print(as.data.frame(dplyr::count(top_pairs, pedigree_link, merged,
+                                 name = "pairs")), row.names = FALSE)
+
+cat("\nclosest pairs curation did NOT merge:\n")
+top_pairs |>
+  dplyr::filter(!merged) |>
+  utils::head(10) |>
+  dplyr::select(rank, accession_1, accession_2, r, pedigree_link) |>
+  as.data.frame() |>
+  print(row.names = FALSE, digits = 4)
 
 saveRDS(
   list(
