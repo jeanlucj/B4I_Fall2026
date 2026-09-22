@@ -65,3 +65,49 @@ For this one: "single replicate per cell" means that you do one simulation per s
 [2026-09-21 14:59:18] I ran the debug check on Ceres.  The log only says "task 1 of 1 started Mon ..."  Nothing else though the submission is now out of squeue
 [2026-09-21 16:45:56] Could not find function "run_scenario"
 [2026-09-21 16:54:30] commit and push
+[2026-09-21 17:17:28] You have established that MegaLMM does poorly when data is too sparse.  You have given me reasons that are now buried in other output.  Nevertheless, I don't find it intuitive.  I understand that sparsity will make estimating loadings on the pea "environments" challenging.  I don't see why it would make MegaLMM underperform for oat predictions relative to even a simple average (not even the DGE-IGE model).  So, write a document for me seeking to make this understandable in docs > MegaLMM_sparsity_challenge.md
+[2026-09-21 20:48:57] I asked Claude App if there was a way to force one factor with loadings all equal to 1 in MegaLMM.  Here's what it said pasted below.  I suggest in this case making a branch to test this out since it is a big departure in the MegaLMM modeling.
+There's already a fixed_factors mechanism and a Lambda_mean in the sampler. Let me see how they're set up.Good news first: MegaLMM already has this feature. I cloned the current source from GitHub and read the sampler code. There's an undocumented-in-vignettes argument, Lambda_fixed, that does exactly what you want. So the job is mainly configuration and validation, not modifying the package. 
+The default setting has a detail that matters for your problem. The horseshoe's global scale is set from prop_0 = 0.1, a prior expectation that about 10% of loadings in a factor are nonzero. A main-effect factor has every loading nonzero, which is the densest possible factor, and the default prior is tuned against exactly that. This is a fourth reason, alongside Code's three mechanisms, why MegaLMM struggles to reconstruct the oat main effect. A fixed factor sidesteps it entirely.
+How Lambda_fixed works
+The feature is threaded through the sampler as follows:
+Setup. setup_model_MegaLMM(..., Lambda_fixed = ...) takes a matrix of the first k rows of Λ. It builds a fixed_factors logical vector and sets Kr = K − k as the number of free factors.
+Initialization. initialize_variables_MegaLMM writes the fixed rows into Λ.
+Loadings update. sample_latent_traits subtracts F[, fixed]Λ[fixed, ] from the data before sampling. It then updates only Lambda[!fixed_factors, ], so the fixed rows are never touched.
+Factor scores. Scores are sampled against the full Λ, fixed rows included, so f₁ is estimated from all of each oat's observations across every pea column. That is exactly the row-pooling you want.
+Shrinkage priors. Both the horseshoe and ARD samplers compute precisions only for the Kr free rows. The fixed factor is exempt from shrinkage.
+Reordering. reorder_factors keeps fixed factors first and reorders only the free ones.
+The fixed factor still gets the level-2 model: f₁ = U_F1 + E_F1, with its own sampled h². So you get an oat main effect with kinship borrowing plus an iid non-genetic part. That is essentially DGE-IGE's Pr_i ~ N(0, G_oat σ²), with free factors layered on top for interaction.
+The fallback also changes in the right direction. When the free factors shrink away, predictions collapse to μ_j + f₁ᵢ + U_R[i,j], the correct margin, instead of μ_j + U_R[i,j].
+Three things to get right
+1. Which API Code is using. Lambda_fixed exists only in the classic setup_model_MegaLMM() pipeline, which both vignettes use. The newer modular setup (MegaLMM_F(), MegaLMM_add_trait_matrix() in new_MegaLMM_setup.R) has the fixed-factor block commented out. If Code built on the new API, it would need to switch or port that block.
+2. scale_Y. Fixed loadings apply on the scale the sampler works in. With the default scale_Y = TRUE, each pea column is standardized, so loadings of 1 mean "equal effect in each column's SD units." At 10 observations per column those SDs are noisy.
+The better option is scale_Y = FALSE, after dividing all of Y by one global SD yourself. The other priors assume roughly unit scale.
+3. The prior on the factor's variance. This is the one most likely to bite. With loadings fixed at 1, the oat main-effect variance equals var(f₁), which is controlled by tot_F_prec. Its default prior is tot_F_var = list(V = 18/20, nu = 20), an inverse gamma concentrated near 1. For free factors that's harmless, because scale trades off against Λ. For your fixed factor, it would pin the main-effect variance near 0.9 of the unit scale regardless of the data.
+The code accepts length-K vectors here, so you can loosen the prior for factor 1 only.
+A sketch of the setup (I've written n_fac to avoid a clash with the kinship K; adapt the formula to your data):
+p <- ncol(Y); n_fac <- 6
+Y_s <- Y / sd(Y, na.rm = TRUE)          # one global scale, not per column
+
+run_parameters <- MegaLMM_control(scale_Y = FALSE, K = n_fac, ...)
+state <- setup_model_MegaLMM(
+  Y_s, formula = ~ 1 + (1 | Oat), data = oat_data,
+  relmat = list(Oat = K_oat),
+  Lambda_fixed = matrix(1, nrow = 1, ncol = p),
+  run_parameters = run_parameters, run_ID = "fixed_main_effect")
+
+priors <- MegaLMM_priors(
+  tot_F_var = list(V  = c(0.5, rep(18/20, n_fac - 1)),
+                   nu = c(3,   rep(20,    n_fac - 1))))
+state <- set_priors_MegaLMM(state, priors)
+
+A cosmetic quirk: when posterior samples are saved, remove_nuisance_parameters rescales Λ by √var(F) so that factors have unit variance. Factor 1's saved loadings will therefore all equal the main-effect SD rather than 1. That's expected, not a bug.
+Validate before trusting it
+I couldn't run it here: there's no R in my sandbox and CRAN is outside its network allowlist. The code path also looks lightly exercised. The vignettes never use it, and there's a 2022 comment in the sampler noting that the line subtracting the fixed-factor contribution "was missing" until then.
+Before relying on it, I'd have Code rerun the existing simulation grid with one fixed factor and check two things:
+At 5% and 1.1% density, f₁'s posterior mean should correlate with the true producer effect at least as well as the row average does. It should track DGE-IGE if the free factors shrink away.
+At 45%, accuracy for the interaction term shouldn't drop relative to the unconstrained fit. That would tell you the fixed factor isn't crowding out real structure.
+If both hold, you have one model that behaves like DGE-IGE when the matrix is sparse and like MegaLMM when it's dense. If something misbehaves, the bookkeeping to debug is confined to sample_latent_traits.R and the two Lambda_prec samplers, a few hundred lines of R.
+[2026-09-21 20:53:58] Please resume work on coding a factor with fixed loadings
+[2026-09-21 22:30:04] Please resume work on coding a factor with fixed loadings
+[2026-09-22 12:12:18] If you are confident that the fixed factor change is working as advertised, merge the branch with main, commit, and push

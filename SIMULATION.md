@@ -294,7 +294,9 @@ Things to look for, given what the pilot already shows:
 
 - **Sparsity should dominate everything.** Find the density at which
   `r_interaction` for MegaLMM lifts off zero; that is the number a redesign
-  has to hit.
+  has to hit. Why it dominates, and why MegaLMM loses to a row average rather
+  than merely tying with it, is worked through in
+  [docs/MegaLMM_sparsity_challenge.md](docs/MegaLMM_sparsity_challenge.md).
 - **Rank should decide the winner.** At 1 factor MegaLMM should win the
   interaction comfortably; at 5 it should narrow as the truth approaches the
   Kronecker structure DGE-IGE assumes.

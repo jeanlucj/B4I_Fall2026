@@ -164,7 +164,8 @@ fit_dge_ige <- function(train, G_oat, G_pea, with_interaction,
 fit_megalmm <- function(train, G_oat, G_pea, runID,
                         K = SIM_MEGALMM_K,
                         eigen_variance = SIM_EIGEN_VARIANCE,
-                        n_chunks = 1L, score_fn = NULL) {
+                        n_chunks = 1L, score_fn = NULL,
+                        fixed_main_effect = FALSE) {
   n_oat <- nrow(G_oat); n_pea <- nrow(G_pea)
 
   Y <- matrix(NA_real_, n_oat, n_pea,
@@ -174,6 +175,12 @@ fit_megalmm <- function(train, G_oat, G_pea, runID,
   keep_col <- colSums(!is.na(Y)) > 0
   keep_row <- rowSums(!is.na(Y)) > 0
   Y_fit <- Y[keep_row, keep_col, drop = FALSE]
+
+  # With a fixed factor MegaLMM's own per-column scaling is switched off, so Y
+  # is put on a sensible scale here instead -- once, globally, not per column.
+  if (fixed_main_effect) {
+    Y_fit <- Y_fit / stats::sd(Y_fit, na.rm = TRUE)
+  }
 
   eig <- grm_basis(G_pea[keep_col, keep_col, drop = FALSE],
                    variance = eigen_variance)
@@ -187,7 +194,7 @@ fit_megalmm <- function(train, G_oat, G_pea, runID,
     kinMat = G_oat[keep_row, keep_row, drop = FALSE],
     envCov = list(X_Env = X_Env, X_Env_groups = X_Env_groups,
                   newEnv = character(0)),
-    runID = runID, K = K
+    runID = runID, K = K, fixed_main_effect = fixed_main_effect
   )
 
   place <- function(M) {
@@ -219,8 +226,22 @@ fit_megalmm <- function(train, G_oat, G_pea, runID,
 
   post <- megalmm_posterior(state, accessions = accNames$germplasmName)
 
+  # The fixed factor's loadings should be constant across columns. Checked
+  # rather than assumed: the feature is lightly exercised upstream, and a
+  # silent failure here would look like the unconstrained model.
+  fixed_ok <- NA
+  if (fixed_main_effect && !is.null(post$Lambda)) {
+    fixed_ok <- stats::sd(post$Lambda[1, ]) < 1e-8
+    if (!fixed_ok) {
+      warning("the first factor's loadings are not constant (sd = ",
+              signif(stats::sd(post$Lambda[1, ]), 3),
+              "); Lambda_fixed did not hold", call. = FALSE)
+    }
+  }
+
   list(total = place(post$Eta_mean), U = place(post$U),
-       interaction = NULL, trace = trace)
+       interaction = NULL, trace = trace,
+       Lambda = post$Lambda, U_F = post$U_F, fixed_ok = fixed_ok)
 }
 
 # ------------------------------------------------------------
@@ -318,7 +339,8 @@ run_scenario_bglr <- function(sim, cv_fraction = SIM_CV_FRACTION, seed = 1L) {
 
 run_scenario_megalmm <- function(sim, K, eigen_variance,
                                  cv_fraction = SIM_CV_FRACTION, seed = 1L,
-                                 run_dir = tempdir(), n_chunks = 1L) {
+                                 run_dir = tempdir(), n_chunks = 1L,
+                                 fixed_main_effect = FALSE) {
   sp <- split_observations(sim, cv_fraction, seed)
 
   score_fn <- if (n_chunks > 1L) {
@@ -332,7 +354,8 @@ run_scenario_megalmm <- function(sim, K, eigen_variance,
   mm <- fit_megalmm(sp$train, sim$G_oat, sim$G_pea,
                     runID = file.path(run_dir, "megalmm"),
                     K = K, eigen_variance = eigen_variance,
-                    n_chunks = n_chunks, score_fn = score_fn)
+                    n_chunks = n_chunks, score_fn = score_fn,
+                    fixed_main_effect = fixed_main_effect)
   t_mm <- as.numeric(difftime(Sys.time(), t0, units = "s"))
 
   scores <- dplyr::bind_rows(
@@ -341,7 +364,23 @@ run_scenario_megalmm <- function(sim, K, eigen_variance,
   ) |>
     dplyr::mutate(seconds = c(t_mm, NA_real_),
                   n_train = nrow(sp$train), n_held = nrow(sp$held),
-                  K = K, eigen_variance = eigen_variance, .after = model)
+                  K = K, eigen_variance = eigen_variance,
+                  fixed_main_effect = fixed_main_effect,
+                  .after = model)
 
-  list(scores = scores, trace = mm$trace)
+  # How well does the model recover the oat main effect? This is the quantity
+  # the fixed factor exists to rescue, and the row average is the bar it has
+  # to clear, so both are recorded alongside the held-out accuracy.
+  row_mean <- tapply(sp$train$y_std, sp$train$oat, mean)
+  oats <- as.integer(names(row_mean))
+  main_effect <- tibble::tibble(
+    r_mainfactor_truePr = if (!is.null(mm$U_F)) {
+      stats::cor(mm$U_F[, 1], sim$truth$producer[seq_len(nrow(mm$U_F))])
+    } else NA_real_,
+    r_rowmean_truePr = stats::cor(row_mean, sim$truth$producer[oats]),
+    fixed_ok = mm$fixed_ok
+  )
+
+  list(scores = dplyr::bind_cols(scores, main_effect[rep(1, nrow(scores)), ]),
+       trace = mm$trace)
 }

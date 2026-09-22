@@ -42,9 +42,13 @@ suppressPackageStartupMessages({
 #' @param runID Folder for MegaLMM's run state (regeneratable; gitignored).
 #' @param K Number of factors.
 #' @param whichNAmap Which candidate missing-data map to use; NULL = the last.
+#' @param fixed_main_effect TRUE adds a first factor whose loadings are fixed
+#'   at 1 across every column, giving the model an explicit oat main effect.
+#'   See the block comment below for why that matters and what it changes.
 setup_megalmm_state <- function(accNames, wideData, kinMat = NULL,
                                 envCov = NULL, runID = "megalmm_run",
-                                K = 15, whichNAmap = NULL, verbose = FALSE) {
+                                K = 15, whichNAmap = NULL, verbose = FALSE,
+                                fixed_main_effect = FALSE) {
   stopifnot(nrow(accNames) == nrow(wideData))
 
   if (is.null(kinMat)) {
@@ -65,14 +69,57 @@ setup_megalmm_state <- function(accNames, wideData, kinMat = NULL,
     predict_new_env <- length(newEnv) > 0
   }
 
+  # ------------------------------------------------------------
+  # A factor with loadings fixed at 1
+  #
+  # MegaLMM has a per-column intercept but no per-ROW one, so "this oat is
+  # simply better everywhere" has no term of its own: it has to be
+  # reconstructed as a latent factor with near-constant loadings, which needs
+  # pea columns to share oats. Expected overlap between two columns goes as
+  # the square of the density, so in a sparse matrix that reconstruction
+  # fails, and when the factors shrink away the model falls back on the
+  # column mean -- the margin with no oat information in it. That is why it
+  # loses to a row average; see docs/MegaLMM_sparsity_challenge.md.
+  #
+  # Fixing the first factor's loadings at 1 gives the oat main effect a term.
+  # Its score f_1 is then estimated from every observation of an oat across
+  # every column, which is the row pooling a row average does, and it keeps
+  # the level-2 model f_1 = U_F1 + E_F1 with its own h2 -- so it is an oat
+  # main effect WITH kinship borrowing, much like DGE-IGE's Pr_i. The
+  # fallback when the free factors shrink becomes mu_j + f_1i, the right
+  # margin.
+  #
+  # Three details, all of which matter:
+  #   * scale_Y must be FALSE. Fixed loadings apply on the scale the sampler
+  #     works in; with per-column standardisation "1" would mean "equal in
+  #     each column's SD units", and those SDs are themselves noisy when a
+  #     column holds ten observations. Y is scaled once, globally, by the
+  #     caller instead.
+  #   * tot_F_var needs loosening for factor 1. With loadings pinned at 1 the
+  #     main-effect variance IS var(f_1), so the default prior -- inverse
+  #     gamma concentrated near 1 -- would pin it near the unit scale
+  #     whatever the data says. For free factors this is harmless because
+  #     scale trades off against Lambda; here there is no Lambda to absorb it.
+  #   * the saved Lambda row 1 will be constant but not equal to 1.
+  #     remove_nuisance_parameters rescales Lambda by sqrt(var(F)) so factors
+  #     have unit variance, so row 1 comes back at the main-effect SD. That
+  #     is expected. The test of the mechanism is that its sd ACROSS COLUMNS
+  #     is zero.
+  # ------------------------------------------------------------
+  if (fixed_main_effect && K < 2) {
+    stop("fixed_main_effect needs K >= 2: one fixed factor and at least one ",
+         "free factor", call. = FALSE)
+  }
+
   run_parameters <- do.call(MegaLMM::MegaLMM_control, list(
     h2_divisions = 20,
     burn = 0,          # burn-in is done manually in run_megalmm()
     thin = 2,
-    K = K
+    K = K,
+    scale_Y = !fixed_main_effect
   ))
 
-  MegaLMM_state <- MegaLMM::setup_model_MegaLMM(
+  setup_args <- list(
     Y        = wideData,
     formula  = ~ (1 | germplasmName),
     data     = accNames,
@@ -80,6 +127,12 @@ setup_megalmm_state <- function(accNames, wideData, kinMat = NULL,
     run_parameters = run_parameters,
     run_ID   = runID
   )
+  # Built after any held-out columns have been dropped, so it matches ncol(Y)
+  if (fixed_main_effect) {
+    setup_args$Lambda_fixed <- matrix(1, nrow = 1, ncol = ncol(wideData))
+  }
+
+  MegaLMM_state <- do.call(MegaLMM::setup_model_MegaLMM, setup_args)
 
   Lambda_prior <- list(
     sampler   = MegaLMM::sample_Lambda_prec_ARD,
@@ -101,9 +154,16 @@ setup_megalmm_state <- function(accNames, wideData, kinMat = NULL,
     ))
   }
 
+  # Loosen the variance prior on the fixed factor only; see above
+  tot_F_var <- if (fixed_main_effect) {
+    list(V = c(0.5, rep(18 / 20, K - 1)), nu = c(3, rep(20, K - 1)))
+  } else {
+    list(V = 18 / 20, nu = 20)
+  }
+
   priors <- do.call(MegaLMM::MegaLMM_priors, list(
     tot_Y_var = list(V = 0.5, nu = 5),
-    tot_F_var = list(V = 18 / 20, nu = 20),
+    tot_F_var = tot_F_var,
     h2_priors_resids_fun  = function(h2s, n) 1,
     h2_priors_factors_fun = function(h2s, n) 1,
     Lambda_prior = Lambda_prior
@@ -243,6 +303,12 @@ megalmm_posterior <- function(MegaLMM_state, accessions = NULL) {
     G_cor = stats::cov2cor(G)
   )
   if ("U_CV0" %in% have) out$U_CV0 <- .pm("U_CV0")
+
+  # U_F is the factor scores. Only saved when covariates are in play, and
+  # needed to look at a fixed factor's score directly.
+  if ("U_F" %in% MegaLMM_state$Posterior$posteriorSample_params) {
+    out$U_F <- tryCatch(.pm("U_F"), error = function(e) NULL)
+  }
 
   out$U       <- .undecorate_rows(out$U, accessions)
   out$U_noU_R <- .undecorate_rows(out$U_noU_R, accessions)

@@ -217,6 +217,15 @@ extended MegaLMM doing what it is supposed to. But the model does not come close
 to a row mean. A factor model that cannot beat "this oat is a good oat" has not
 found genotype-by-genotype structure, whatever its internal fit looks like.
 
+Why the failure is this severe — why the factor model loses to a row average
+rather than collapsing to one — is set out in
+[docs/MegaLMM_sparsity_challenge.md](docs/MegaLMM_sparsity_challenge.md). The
+short version: MegaLMM has no oat main effect term, so it must reconstruct one
+from latent factors; that reconstruction needs pea environments to share oats,
+and the expected overlap between two peas goes as the square of the density;
+and when the factors are shrunk away the model falls back on the pea column
+mean, which carries no oat information at all.
+
 That conclusion agrees with what the bivariate model already said from a
 completely different direction: with 91% of oat–pea combinations appearing in
 one plot, specific-combination effects are not estimable in this design. Two

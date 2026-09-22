@@ -55,9 +55,19 @@ SIM_LEVELS <- list(
 # eigen_variance: how much pea genetic variance the covariates offered to
 # Lambda should span. Irrelevant covariates are likewise meant to be shrunk
 # away, so this tests that claim as much as it tunes anything.
+# fixed_main_effect: give MegaLMM a first factor with loadings pinned at 1,
+# so the oat main effect has a term of its own instead of having to be
+# reconstructed from latent factors. See docs/MegaLMM_sparsity_challenge.md
+# for why that is the obvious thing to try, and setup_megalmm_state() for the
+# three settings it drags along with it.
+#
+# Crossing all three doubles the MegaLMM half to 12 settings and the whole
+# grid to 720 fits. The BGLR half is cached apart and is not refitted, so the
+# added cost is 6 MegaLMM fits per scenario at roughly 10-40 s each.
 SIM_MEGALMM_LEVELS <- list(
   K = c(5, 10),
-  eigen_variance = c(0.20, 0.50, 0.80)
+  eigen_variance = c(0.20, 0.50, 0.80),
+  fixed_main_effect = c(FALSE, TRUE)
 )
 
 #' The design grid, with the redundant no-interaction cells collapsed.

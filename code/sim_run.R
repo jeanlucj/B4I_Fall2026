@@ -153,8 +153,10 @@ run_one <- function(scenario, seed, n_acc, sparsity, n_factors,
                            interaction_pct = interaction_pct, n_envs = n_envs)
 
   bglr_file <- cache_path(scenario, rep, "bglr")
-  mm_files <- purrr::pmap_chr(mm_grid, \(K, eigen_variance)
-    cache_path(scenario, rep, sprintf("mm_K%d_ev%02d", K, round(eigen_variance * 100))))
+  mm_files <- purrr::pmap_chr(mm_grid, \(K, eigen_variance, fixed_main_effect)
+    cache_path(scenario, rep, sprintf("mm_K%d_ev%02d_fx%d", K,
+                                      round(eigen_variance * 100),
+                                      as.integer(fixed_main_effect))))
 
   if (!refresh && file.exists(bglr_file) && all(file.exists(mm_files))) {
     message("  cached: ", scenario, " rep ", rep)
@@ -184,24 +186,30 @@ run_one <- function(scenario, seed, n_acc, sparsity, n_factors,
   }
 
   # --- MegaLMM half, once per setting ---
-  mm <- purrr::pmap(mm_grid, function(K, eigen_variance) {
-    f <- cache_path(scenario, rep, sprintf("mm_K%d_ev%02d", K, round(eigen_variance * 100)))
+  mm <- purrr::pmap(mm_grid, function(K, eigen_variance, fixed_main_effect) {
+    f <- cache_path(scenario, rep, sprintf("mm_K%d_ev%02d_fx%d", K,
+                                           round(eigen_variance * 100),
+                                           as.integer(fixed_main_effect)))
     if (!refresh && file.exists(f)) return(readRDS(f))
 
-    message("  megalmm K = ", K, ", eigenvectors to ", eigen_variance)
-    d <- file.path(run_dir, paste0(scenario, "_rep", rep, "_K", K))
+    message("  megalmm K = ", K, ", eigenvectors to ", eigen_variance,
+            ", fixed main effect = ", fixed_main_effect)
+    d <- file.path(run_dir, paste0(scenario, "_rep", rep, "_K", K,
+                                   "_fx", as.integer(fixed_main_effect)))
     dir.create(d, showWarnings = FALSE, recursive = TRUE)
 
     res <- run_scenario_megalmm(
       sim, K = K, eigen_variance = eigen_variance, seed = seed,
-      run_dir = d, n_chunks = if (trace) SIM_TRACE_CHUNKS else 1L
+      run_dir = d, n_chunks = if (trace) SIM_TRACE_CHUNKS else 1L,
+      fixed_main_effect = fixed_main_effect
     )
     unlink(d, recursive = TRUE)
 
     out <- dplyr::bind_cols(res$scores, design[rep(1, nrow(res$scores)), ])
     if (!is.null(res$trace)) {
       saveRDS(dplyr::bind_cols(res$trace, design[rep(1, nrow(res$trace)), ],
-                               tibble::tibble(K = K, eigen_variance = eigen_variance)),
+                               tibble::tibble(K = K, eigen_variance = eigen_variance,
+                                              fixed_main_effect = fixed_main_effect)),
               sub("\\.rds$", "_trace.rds", f))
     }
     saveRDS(out, f)
@@ -220,7 +228,7 @@ if (!combine_only) {
 
 # Always rebuild the combined table from the cache rather than from this run:
 # with a job array, no single process sees every scenario.
-results <- list.files(cache_dir, pattern = "_(bglr|mm_K[0-9]+_ev[0-9]+)\\.rds$",
+results <- list.files(cache_dir, pattern = "_(bglr|mm_K[0-9]+_ev[0-9]+_fx[01])\\.rds$",
                       full.names = TRUE) |>
   purrr::map(readRDS) |>
   purrr::list_rbind()
@@ -249,7 +257,7 @@ results_best <- dplyr::bind_rows(dplyr::filter(results, model != "megalmm"), bes
 cat("\n=== MegaLMM settings, averaged over the design ===\n")
 results |>
   dplyr::filter(model == "megalmm") |>
-  dplyr::group_by(K, eigen_variance) |>
+  dplyr::group_by(K, eigen_variance, fixed_main_effect) |>
   dplyr::summarise(r_total = mean(r_total),
                    r_interaction = mean(r_interaction, na.rm = TRUE),
                    seconds = mean(seconds, na.rm = TRUE), .groups = "drop") |>
