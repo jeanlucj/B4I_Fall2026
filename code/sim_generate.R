@@ -29,19 +29,14 @@
 # failed site is taken into account, and it keeps the environment axis from
 # quietly introducing a second kind of interaction.
 #
+# grm_factor() and read_grm() come from code/dge_ige_functions.R, which
+# code/sim_run.R sources: the simulation draws effects with the same
+# decomposition the DGE-IGE model fits with.
+#
 # Sourced, not run.
 # ============================================================
 
 suppressPackageStartupMessages(library(tidyverse))
-
-#' Square-root factor of a relationship matrix, dropping null directions.
-grm_factor <- function(G, tol = 1e-8) {
-  e <- eigen(G, symmetric = TRUE)
-  keep <- e$values > tol * max(e$values)
-  L <- sweep(e$vectors[, keep, drop = FALSE], 2, sqrt(e$values[keep]), "*")
-  rownames(L) <- rownames(G)
-  L
-}
 
 #' Draw a vector with covariance G, scaled to variance `target_var`.
 #'
@@ -222,10 +217,6 @@ sim_grms <- function(n_acc,
                      oat_file = here::here("data", "GRM_Avena.rds"),
                      pea_file = here::here("data", "GRM_Pisum.rds"),
                      seed = 1L) {
-  read_grm <- function(p) {
-    g <- readRDS(p)
-    if (is.list(g) && !is.null(g$G)) g$G else g
-  }
   G_oat <- read_grm(oat_file)
   G_pea <- read_grm(pea_file)
 

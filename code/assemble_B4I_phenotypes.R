@@ -27,9 +27,7 @@ here::i_am("code/assemble_B4I_phenotypes.R")
 
 library(httr)
 
-source(here::here("code", "t3_functions.R"))
-
-source(here::here("code", "curation_functions.R"))
+source(here::here("code", "t3_functions.R"))   # connect_t3, observation units
 
 # ------------------------------------------------------------
 # Settings

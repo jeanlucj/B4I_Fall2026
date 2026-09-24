@@ -25,6 +25,7 @@ library(tidyverse)
 
 here::i_am("code/sim_run.R")
 
+source(here::here("code", "dge_ige_functions.R"))   # read_grm, grm_factor
 source(here::here("code", "sim_config.R"))
 source(here::here("code", "sim_generate.R"))
 source(here::here("code", "sim_fit.R"))

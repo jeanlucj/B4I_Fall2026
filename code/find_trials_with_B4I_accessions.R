@@ -85,26 +85,6 @@ monoculture_labels <- c("NO_OATS_PLANTED", "NO_PEAS_PLANTED")
 refresh <- FALSE
 
 # ------------------------------------------------------------
-# Connection
-# ------------------------------------------------------------
-
-connect_t3 <- function(db_name) {
-  readRenviron(here::here(".Renviron"))
-
-  if (!nzchar(Sys.getenv("T3_USERNAME")) || !nzchar(Sys.getenv("T3_PASSWORD"))) {
-    stop("T3_USERNAME / T3_PASSWORD not found: check .Renviron in the project root",
-         call. = FALSE)
-  }
-
-  conn <- BrAPI::getBrAPIConnection(db_name)
-  conn$login(
-    username = Sys.getenv("T3_USERNAME"),
-    password = Sys.getenv("T3_PASSWORD")
-  )
-  conn
-}
-
-# ------------------------------------------------------------
 # Accessions
 # ------------------------------------------------------------
 

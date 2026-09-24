@@ -2,11 +2,14 @@
 # SHARED FUNCTIONS FOR ACCESSION CURATION
 #
 # Species-agnostic helpers used by code/curate_oat_accessions.R and
-# code/curate_pea_accessions.R: connect, read an accession list, confirm
+# code/curate_pea_accessions.R: read an accession list, confirm
 # that one genotyping protocol supplies every marker, fetch dosages,
 # correlate marker profiles, group near-identical accessions, and -- where
 # pedigrees exist -- summarise full-sib families and resolve the analysis
 # names of clonal lines.
+#
+# connect_t3() is NOT here: it lives in code/t3_functions.R, which every
+# script that talks to T3 sources.  One connection function for the project.
 #
 # Sourced, not run.  Each caller supplies its own settings.
 # ============================================================
@@ -16,26 +19,6 @@ suppressPackageStartupMessages({
   # BrAPI.R calls httr::timeout() unqualified, so httr must be attached
   library(httr)
 })
-
-# ------------------------------------------------------------
-# Connection
-# ------------------------------------------------------------
-
-connect_t3 <- function(db_name) {
-  readRenviron(here::here(".Renviron"))
-
-  if (!nzchar(Sys.getenv("T3_USERNAME")) || !nzchar(Sys.getenv("T3_PASSWORD"))) {
-    stop("T3_USERNAME / T3_PASSWORD not found: check .Renviron in the project root",
-         call. = FALSE)
-  }
-
-  conn <- BrAPI::getBrAPIConnection(db_name)
-  conn$login(
-    username = Sys.getenv("T3_USERNAME"),
-    password = Sys.getenv("T3_PASSWORD")
-  )
-  conn
-}
 
 read_accessions <- function(path,
                             drop = c("NO_OATS_PLANTED", "NO_PEAS_PLANTED")) {

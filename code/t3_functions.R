@@ -6,6 +6,9 @@
 # pipeline and by code/pilot/, which asks the same questions of the earlier
 # pilot trials.
 #
+# This is also the one place the project opens a connection: connect_t3() lives
+# here, and every script that talks to T3 sources this file for it.
+#
 # Two things about Breedbase that these functions exist to encapsulate:
 #
 #   * BrAPI's default pageSize is 10 records, which turns one trial into more
@@ -24,6 +27,29 @@ suppressPackageStartupMessages({
   # BrAPI.R calls httr::timeout() unqualified, so httr must be attached
   library(httr)
 })
+
+# ------------------------------------------------------------
+# Connection
+#
+# readRenviron() on the project's own .Renviron, so the credentials are found
+# whatever directory R started in -- including inside wflow_build().
+# ------------------------------------------------------------
+
+connect_t3 <- function(db_name) {
+  readRenviron(here::here(".Renviron"))
+
+  if (!nzchar(Sys.getenv("T3_USERNAME")) || !nzchar(Sys.getenv("T3_PASSWORD"))) {
+    stop("T3_USERNAME / T3_PASSWORD not found: check .Renviron in the project root",
+         call. = FALSE)
+  }
+
+  conn <- BrAPI::getBrAPIConnection(db_name)
+  conn$login(
+    username = Sys.getenv("T3_USERNAME"),
+    password = Sys.getenv("T3_PASSWORD")
+  )
+  conn
+}
 
 # A BrAPI record holds NULLs and nested lists; pull one scalar safely
 pluck_chr <- function(rec, field) {

@@ -29,6 +29,10 @@ library(tidyverse)
 
 here::i_am("code/megalmm_build_inputs.R")
 
+# read_grm() and collapse_grm(): the same pair the BGLR model uses, so the two
+# analyses collapse the GRM through one piece of code rather than two copies.
+source(here::here("code", "dge_ige_functions.R"))
+
 # ------------------------------------------------------------
 # Settings
 # ------------------------------------------------------------
@@ -238,28 +242,6 @@ grm_eigenvectors <- function(G, variance) {
           "pea genetic variance (PC1 alone is ",
           round(100 * vals[1] / sum(vals), 1), "%)")
   V
-}
-
-# Collapse a GRM onto the analysis names, as the model script does
-collapse_grm <- function(G, name_file) {
-  if (!file.exists(name_file)) return(G)
-  nm <- readr::read_csv(name_file, show_col_types = FALSE)
-  new_name <- rownames(G)
-  hit <- match(new_name, nm$germplasmName)
-  new_name[!is.na(hit)] <- nm$analysis_name[hit[!is.na(hit)]]
-  if (identical(new_name, rownames(G))) return(G)
-  f <- factor(new_name, levels = unique(new_name))
-  A <- stats::model.matrix(~ 0 + f)
-  colnames(A) <- levels(f)
-  A <- sweep(A, 2, colSums(A), "/")
-  Gc <- t(A) %*% G %*% A
-  dimnames(Gc) <- list(colnames(A), colnames(A))
-  Gc
-}
-
-read_grm <- function(path) {
-  g <- readRDS(path)
-  if (is.list(g) && !is.null(g$G)) g$G else g
 }
 
 # ------------------------------------------------------------

@@ -29,6 +29,7 @@ library(tidyverse)
 
 here::i_am("code/curate_pea_accessions.R")
 
+source(here::here("code", "t3_functions.R"))        # connect_t3
 source(here::here("code", "curation_functions.R"))
 
 # ------------------------------------------------------------

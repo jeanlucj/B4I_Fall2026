@@ -21,8 +21,7 @@ here::i_am("code/pilot/pilot_assemble.R")
 
 library(httr)
 
-source(here::here("code", "curation_functions.R"))   # connect_t3
-source(here::here("code", "t3_functions.R"))         # downloads, GRMs
+source(here::here("code", "t3_functions.R"))         # connect_t3, downloads, GRMs
 
 # ------------------------------------------------------------
 # Settings
