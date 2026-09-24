@@ -91,6 +91,11 @@ Two independent chains that meet at the phenotype table. Every step writes to
 | `sim_generate.R` | simulates one experiment under a known truth |
 | `sim_fit.R` | fits both frameworks to a simulated experiment and scores them |
 | `sim_run.R` | drives the simulation grid, with per-scenario caching |
+| `validation_functions.R` | shared machinery for the validation trial: pool construction, the field design, power. Sourced, not run |
+| `validate_pool_selection.R` | builds the As+ / As- pools and diffs them against the previous vintage |
+| `validate_power.R` | analytic and simulation power, plus the false-positive check |
+| `validate_design.R` | field book for the validation trial, with balance checks |
+| `evaluation.R` | console tooling for [EVALUATION.md](EVALUATION.md): `arm_evaluation()`, `peek()`, `eval_load()`, the independent checks. Sourced by hand, never by a pipeline script |
 
 ## Conventions
 

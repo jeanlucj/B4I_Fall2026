@@ -14,6 +14,11 @@ its partner.
 - **Using both analysis orientations** → [BOTH_ORIENTATIONS.md](BOTH_ORIENTATIONS.md).
 - **Running the simulation on SciNet** → [code/scinet/README.md](code/scinet/README.md).
 - **What was collapsed, and why** → [CURATION.md](CURATION.md).
+- **Validating the producer/associate effects** → [VALIDATION_DESIGN.md](VALIDATION_DESIGN.md).
+- **Checking that it does what it says** → [EVALUATION.md](EVALUATION.md)
+  and [EVALUATION_SIMULATION.md](EVALUATION_SIMULATION.md), with
+  [their](EVALUATION_CHECKLIST.md)
+  [checklists](EVALUATION_SIMULATION_CHECKLIST.md).
 - **Open questions** → [docs/B4I_followups.md](docs/B4I_followups.md).
 
 This is a [workflowr](https://github.com/workflowr/workflowr) project: runnable
