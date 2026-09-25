@@ -129,3 +129,5 @@ Can you use the data that we have to estimate the power of the validation experi
 </pasted_content id="663e">
 [2026-09-24 14:44:21] Please carry on with the crossval.  If you "publish the design document" where does it in fact go?  But yes, I want that design document.
 [2026-09-24 15:13:26] Commit and push all of this work
+[2026-09-25 09:52:51] Thanks.  I do want to preserve this explanation as specific-combination_kronecker.md
+[2026-09-25 09:57:51] commit and push
