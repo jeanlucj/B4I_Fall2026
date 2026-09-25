@@ -167,6 +167,12 @@ what makes predicting every cell cheap.
 This is an approximation, and it is the DGE-IGE model's handicap in the
 comparison — worth remembering when reading a result where it loses.
 
+The basis and the reshape are derived from scratch, with a worked example, in
+[docs/specific-combination_kronecker.md](docs/specific-combination_kronecker.md).
+Read it before editing either `grm_basis()` or `kron_basis()`: the index
+arithmetic fails silently, and the check that catches it is level S6 of
+[EVALUATION_SIMULATION.md](EVALUATION_SIMULATION.md).
+
 ## How accuracy is measured
 
 20% of observations held out, with the floor above. Three correlations:

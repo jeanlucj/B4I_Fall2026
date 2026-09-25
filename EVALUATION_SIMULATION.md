@@ -297,6 +297,12 @@ reshaped into a full surface. The reshape is index arithmetic, it is not
 checked anywhere in the code, and getting it wrong transposes the interaction
 without changing any dimension.
 
+**If the basis and the reshape are not obvious to you, read
+[docs/specific-combination_kronecker.md](docs/specific-combination_kronecker.md)
+first** — it derives both from scratch with a worked 3-oat × 4-pea example, and
+shows what the wrong reshape looks like (no error, right shape, r = 0.983
+against the truth). This level is the check; that document is the explanation.
+
 ```r
 arm_evaluation("sim_basis")
 A <- grm_basis(panel$G_oat, rank = 5)

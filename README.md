@@ -11,6 +11,7 @@ its partner.
 - **How accuracy is measured** → [CROSS_VALIDATION.md](CROSS_VALIDATION.md).
 - **When would either framework work?** → [SIMULATION.md](SIMULATION.md).
 - **Why sparsity hurts MegaLMM so much** → [docs/MegaLMM_sparsity_challenge.md](docs/MegaLMM_sparsity_challenge.md).
+- **How the specific-combination term is built** → [docs/specific-combination_kronecker.md](docs/specific-combination_kronecker.md).
 - **Using both analysis orientations** → [BOTH_ORIENTATIONS.md](BOTH_ORIENTATIONS.md).
 - **Running the simulation on SciNet** → [code/scinet/README.md](code/scinet/README.md).
 - **What was collapsed, and why** → [CURATION.md](CURATION.md).
