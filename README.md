@@ -76,7 +76,7 @@ question — when either framework *would* work. See [SIMULATION.md](SIMULATION.
 
 ```bash
 Rscript code/sim_run.R --check                  # sanity check; run this first
-Rscript code/sim_run.R                          # the 60-scenario grid
+Rscript code/sim_run.R                          # the 120-scenario grid
 ```
 
 First runs download VCFs and phenotypes; later runs hit caches (see

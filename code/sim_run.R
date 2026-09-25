@@ -142,20 +142,28 @@ if (!is.na(task) && !is.na(ntasks)) {
 # Run
 # ------------------------------------------------------------
 
-cache_path <- function(scenario, rep, suffix) {
-  file.path(cache_dir, paste0(scenario, "_rep", rep, "_", suffix, ".rds"))
+# The seed is part of the key, not just of the contents. `seed` is
+# SIM_BASE_SEED + the row number over the WHOLE grid, so adding a level to any
+# axis renumbers every row and changes every seed -- while the scenario name,
+# which encodes only the design, stays the same. Without the seed here a
+# changed grid silently reuses results generated under a seed it would never
+# have chosen. With it, those files simply miss and are recomputed.
+cache_path <- function(scenario, rep, seed, suffix) {
+  file.path(cache_dir,
+            paste0(scenario, "_rep", rep, "_s", seed, "_", suffix, ".rds"))
 }
 
 run_one <- function(scenario, seed, n_acc, sparsity, n_factors,
-                    interaction_pct, n_envs, rep) {
+                    interaction_pct, n_envs, gxe_cor, rep) {
 
   design <- tibble::tibble(scenario = scenario, rep = rep, n_acc = n_acc,
                            sparsity = sparsity, n_factors = n_factors,
-                           interaction_pct = interaction_pct, n_envs = n_envs)
+                           interaction_pct = interaction_pct, n_envs = n_envs,
+                           gxe_cor = gxe_cor)
 
-  bglr_file <- cache_path(scenario, rep, "bglr")
+  bglr_file <- cache_path(scenario, rep, seed, "bglr")
   mm_files <- purrr::pmap_chr(mm_grid, \(K, eigen_variance, fixed_main_effect)
-    cache_path(scenario, rep, sprintf("mm_K%d_ev%02d_fx%d", K,
+    cache_path(scenario, rep, seed, sprintf("mm_K%d_ev%02d_fx%d", K,
                                       round(eigen_variance * 100),
                                       as.integer(fixed_main_effect))))
 
@@ -172,7 +180,7 @@ run_one <- function(scenario, seed, n_acc, sparsity, n_factors,
   sim <- simulate_experiment(
     G_oat = grms$G_oat, G_pea = grms$G_pea,
     sparsity = sparsity, n_factors = n_factors,
-    interaction_pct = interaction_pct, n_envs = n_envs
+    interaction_pct = interaction_pct, n_envs = n_envs, gxe_cor = gxe_cor
   )
   message("  ", nrow(sim$obs), " observations over ", n_acc, " x ", n_acc,
           " cells (", round(nrow(sim$obs) / n_acc, 1), " per pea column)")
@@ -188,7 +196,7 @@ run_one <- function(scenario, seed, n_acc, sparsity, n_factors,
 
   # --- MegaLMM half, once per setting ---
   mm <- purrr::pmap(mm_grid, function(K, eigen_variance, fixed_main_effect) {
-    f <- cache_path(scenario, rep, sprintf("mm_K%d_ev%02d_fx%d", K,
+    f <- cache_path(scenario, rep, seed, sprintf("mm_K%d_ev%02d_fx%d", K,
                                            round(eigen_variance * 100),
                                            as.integer(fixed_main_effect)))
     if (!refresh && file.exists(f)) return(readRDS(f))
@@ -223,7 +231,7 @@ run_one <- function(scenario, seed, n_acc, sparsity, n_factors,
 if (!combine_only) {
   invisible(grid |>
     dplyr::select(scenario, seed, n_acc, sparsity, n_factors, interaction_pct,
-                  n_envs, rep) |>
+                  n_envs, gxe_cor, rep) |>
     purrr::pmap(run_one))
 }
 
@@ -260,14 +268,17 @@ results |>
   dplyr::filter(model == "megalmm") |>
   dplyr::group_by(K, eigen_variance, fixed_main_effect) |>
   dplyr::summarise(r_total = mean(r_total),
+                   r_gma = mean(r_gma, na.rm = TRUE),
                    r_interaction = mean(r_interaction, na.rm = TRUE),
+                   r_oat_prod = mean(r_oat_prod, na.rm = TRUE),
                    seconds = mean(seconds, na.rm = TRUE), .groups = "drop") |>
   as.data.frame() |>
   print(row.names = FALSE, digits = 3)
 
 cat("\n=== Accuracy for the true total genetic value ===\n")
 results_best |>
-  dplyr::group_by(n_factors, interaction_pct, sparsity, n_acc, n_envs, model) |>
+  dplyr::group_by(n_factors, interaction_pct, sparsity, n_acc, n_envs, gxe_cor,
+                  model) |>
   dplyr::summarise(r = mean(r_total), .groups = "drop") |>
   tidyr::pivot_wider(names_from = model, values_from = r) |>
   as.data.frame() |>
@@ -276,7 +287,8 @@ results_best |>
 cat("\n=== Accuracy for the interaction alone ===\n")
 results_best |>
   dplyr::filter(n_factors > 0) |>
-  dplyr::group_by(n_factors, interaction_pct, sparsity, n_acc, n_envs, model) |>
+  dplyr::group_by(n_factors, interaction_pct, sparsity, n_acc, n_envs, gxe_cor,
+                  model) |>
   dplyr::summarise(r = mean(r_interaction), .groups = "drop") |>
   tidyr::pivot_wider(names_from = model, values_from = r) |>
   as.data.frame() |>
@@ -286,7 +298,7 @@ results_best |>
 head_to_head <- results_best |>
   dplyr::filter(model %in% c("dge_ige", "megalmm")) |>
   dplyr::select(scenario, rep, n_acc, sparsity, n_factors, interaction_pct,
-                n_envs, model, r_total, r_interaction) |>
+                n_envs, gxe_cor, model, r_total, r_interaction) |>
   tidyr::pivot_wider(names_from = model,
                      values_from = c(r_total, r_interaction)) |>
   dplyr::mutate(
@@ -296,7 +308,7 @@ head_to_head <- results_best |>
 
 cat("\n=== MegaLMM minus DGE-IGE (positive = MegaLMM ahead) ===\n")
 head_to_head |>
-  dplyr::group_by(n_factors, sparsity, n_acc) |>
+  dplyr::group_by(n_factors, sparsity, n_acc, gxe_cor) |>
   dplyr::summarise(total_gain = mean(total_gain),
                    int_gain = mean(int_gain, na.rm = TRUE), .groups = "drop") |>
   as.data.frame() |>

@@ -27,48 +27,77 @@ interaction, and the axis that should decide whether either works at all is
 
 ## The design
 
-Five factors, in `SIM_LEVELS` in `code/sim_config.R`:
+Six factors, in `SIM_LEVELS` in `code/sim_config.R`:
 
 | factor | levels | why |
 |---|---|---|
 | panel size | 200×200, 400×400 | more accessions means a bigger matrix but not more data per cell |
-| sparsity | 5%, 15%, 45% observed | see below — these are not the levels first proposed |
+| sparsity | 1.6%, 4.8%, 16%, 48% observed | see below |
 | interaction rank | 0, 1, 5 factors | 0 = no interaction; 1 = MegaLMM's home ground; 5 = heading towards Kronecker |
 | interaction variance | 10%, 20% of total | is there enough signal to find |
 | environments | 1, 10 | one site, or ten each holding a tenth of the combinations |
+| `gxe_cor` | 1.0, 0.6 | ordinary GxE: does an effect estimated here survive into another environment |
 
-`2 × 3 × 3 × 2 × 2 = 72`, less the twelve cells where `n_factors = 0` would be
-run twice at two interaction variances that scale nothing: **60 scenarios**.
+`2 × 4 × 3 × 2 × 2 × 2 = 192`, less the cells where a level scales nothing —
+`interaction_pct` at `n_factors = 0`, and `gxe_cor` at `n_envs = 1`:
+**120 scenarios**.
 
-### Why 5 / 15 / 45% and not 3 / 6 / 12%
+### Why 1.6 / 4.8 / 16 / 48%
 
-The first pass used 3 / 6 / 12%, bracketing where the B4I experiment actually
-sits (1.1% raw, 3.2% after trimming). A pilot showed all three are deep inside
-the region where the factor model has nothing to work with. At 100×100:
+Two pairs of the same digits a decade apart, and the low end is deliberate.
+
+The first pass used 3 / 6 / 12%, bracketing where the B4I experiment sits
+(1.1% raw, 3.2% after trimming). A pilot showed all three are deep inside the
+region where the factor model has nothing to work with. At 100×100:
 
 | observed | MegaLMM, total genetic value | additive DGE-IGE |
 |---|---|---|
 | 50% | 0.79 | 0.76 |
 | 20% | 0.51 | 0.74 |
 
-The crossover is somewhere between. Three levels that straddle it say more than
-three that agree it has not happened yet, so the default is now 5 / 15 / 45%,
-with 5% still bracketing the real experiment. `--extended` resolves the axis
-more finely (3, 5, 10, 15, 25, 45, 60%) for locating the crossover precisely.
+so the levels moved up to 5 / 15 / 45% to straddle that crossover. The low end
+came back for a different reason: the **fixed-loading main-effect factor** is
+meant to help most exactly where the matrix is thinnest, because that is where
+reconstructing a main effect from free factors fails. Testing it only at
+densities where it is not needed answers the wrong question.
+
+**1.6% is the lowest level worth using.** `SIM_MIN_PER_ACC = 3` puts the hard
+floor at 1.50% for a 200 panel (0.75% for 400), and hugging that floor makes
+`sample_combinations()` overrun the request — every cell is then forced by the
+minimum-per-accession matching with none drawn at random, so the achieved
+density exceeds the label and the design is more regular than at other levels.
+1.6% leaves enough slack that all four levels return **exactly** the number of
+observations asked for, which `sample_combinations()` now asserts.
+
+`--extended` resolves the axis more finely (1.6, 3.2, 4.8, 8, 16, 32, 48, 60%).
 
 ## What is simulated
 
 For oat *i* with pea *j* in environment *k*:
 
 ```
-y_ijk = mu_k + s_k * ( Pr_i + As_j + I_ij + e_ijk )
+y_ijk = mu_k + s_k * ( Pr_i + As_j + I_ij + Pr_ik + As_jk + e_ijk )
 
-Pr  ~ N(0, G_oat * V_Pr)          producer: what the oat does for itself
-As  ~ N(0, G_pea * V_As)          associate: what the pea does to the oat
+Pr  ~ N(0, G_oat * V_Pr * rho)    producer: what the oat does for itself
+As  ~ N(0, G_pea * V_As * rho)    associate: what the PEA does to the oat
 I   = sum_f u_if * lam_jf         interaction, rank n_factors
         u_.f ~ N(0, G_oat),  lam_.f ~ N(0, G_pea)
+Pr_ik ~ N(0, G_oat * V_Pr * (1-rho))   environment-specific, one draw per env
+As_jk ~ N(0, G_pea * V_As * (1-rho))
 e   ~ N(0, V_e)
 ```
+
+**The response is oat yield, and only oat yield.** That is worth stating
+plainly because it decides what the simulation can and cannot speak to: `Pr` is
+the **oat's** producer effect and `As` is the **pea's** associate effect on the
+oat. The oat's own associate effect — its effect on pea yield — and the pea's
+producer effect are not simulated, because pea yield never appears. See the
+caveats at the end.
+
+`rho` (`gxe_cor`) is the across-environment genetic correlation, and splits each
+effect into a stable share and an environment-specific one so the total producer
+and associate variances are unchanged. At `rho = 1` there is no GxE and the
+generator reduces exactly to the pre-GxE version.
 
 ### The interaction is built to be fair to both frameworks
 
@@ -92,13 +121,21 @@ correct answer is that neither should find anything.
 - **Relationship matrices** — the real `GRM_Avena.rds` and `GRM_Pisum.rds`,
   subsampled to the panel size, so the relatedness structure and its
   unevenness are real rather than idealised.
-- **Environment heterogeneity** — environments differ in mean and in spread
-  only, so genetic correlations across them stay 1. Scale factors are
-  log-normal with SD 0.669, the observed SD of log within-trial SD across the
-  six B4I trials. That figure is driven by `B4I_2025_AL`, a near-total crop
-  failure (mean 8.3 g/m² against 127–383 elsewhere); excluding it gives 0.167.
-  The default is the honest "as observed" value. Set `SIM_ENV_LOG_SD <- 0.167`
-  to ask what happens in a season where nothing fails.
+- **Environment heterogeneity** — two separable things. Mean and spread differ
+  by environment: scale factors are log-normal with SD 0.669, the observed SD of
+  log within-trial SD across the six B4I trials. That figure is driven by
+  `B4I_2025_AL`, a near-total crop failure (mean 8.3 g/m² against 127–383
+  elsewhere); excluding it gives 0.167. The default is the honest "as observed"
+  value; set `SIM_ENV_LOG_SD <- 0.167` to ask what happens in a season where
+  nothing fails. On its own this changes only the spread — no accession changes
+  rank.
+- **Genotype × environment** — controlled separately by `gxe_cor`, swept at
+  1.0 and 0.6. This is the attenuation the validation trial turns on: an effect
+  estimated in one set of environments is worth having only if it survives into
+  another. `code/validate_crossval.R` measures it on the real trials by
+  leave-one-trial-out and found the across-fold spread of the calibration slope
+  to be 0.57–0.69 of its mean, which is roughly where 0.6 sits. Unidentifiable
+  with one environment, so those cells are pinned at 1.0.
 
 ### Design constraints that are not cosmetic
 
@@ -175,10 +212,24 @@ arithmetic fails silently, and the check that catches it is level S6 of
 
 ## How accuracy is measured
 
-20% of observations held out, with the floor above. Three correlations:
+20% of observations held out, with the floor above.
+
+Every model returns a full oat × pea prediction **surface**, which is what makes
+the metrics comparable: any surface splits exactly into an additive part and an
+interaction part, and both halves are taken the same way from every model.
+
+```
+M  =  additive_part(M)  +  interaction_part(M)
+additive_part(M) = outer(rowMeans(M), colMeans(M), "+") - mean(M)
+```
+
+**Scored against the truth at the held-out cells:**
 
 - **`r_total`** — against the true genetic value `Pr + As + I`. What a breeder
   ranking on predicted performance would care about.
+- **`r_gma`** — against `Pr + As`, the interaction removed from prediction and
+  truth alike. General mixing ability: the quantity that matters when specific
+  combinations are not going to be chosen, only good general partners.
 - **`r_interaction`** — against the true interaction alone. **The metric the
   comparison turns on.** Neither framework returns an "interaction" on the same
   terms — DGE-IGE has an explicit term, MegaLMM's factors carry main effects
@@ -188,11 +239,36 @@ arithmetic fails silently, and the check that catches it is level S6 of
 - **`r_observed`** — against the held-out observation, noise included. The
   ceiling any model faces in practice.
 
+**Effect recovery, from the margins of the surface rather than from any one
+model's internals:**
+
+- **`r_oat_prod`** — `cor(rowMeans(surface), true producer effect)`. The oat's
+  producer effect is the row margin by definition, so this asks every framework
+  the same question in the same way.
+- **`r_pea_assoc`** — `cor(colMeans(surface), true associate effect)`. Note
+  which effect this is: in the single-trait framing the response is **oat
+  yield**, so the column margin is the **pea's** effect on the oat. The oat's
+  own associate effect, which acts on pea yield, is not in this simulation at
+  all — see the caveats.
+
+**Two diagnostics of the fixed-loading factor**, not estimates of a main
+effect:
+
+- **`r_mainfactor_truePr`** — the pinned factor's scores against the true
+  producer effect. Says whether `fixed_main_effect` is doing its job. It equals
+  the main effect only if every other factor has zero mean loading, which
+  nothing enforces, so `r_oat_prod` is the estimate to quote. Reported as `|r|`
+  when the factor is free, because a free factor's sign is arbitrary.
+- **`r_rowmean_truePr`** — the bar: a plain average of the training rows.
+- **`fixed_ok`** — `sd(Lambda[1, ]) < 1e-8`, i.e. the pinned loadings really
+  are constant across columns. They come back at the main-effect SD rather than
+  at 1, because `remove_nuisance_parameters` rescales `Lambda`.
+
 ## Running it
 
 ```bash
 Rscript code/sim_run.R --check                          # sanity check, always first
-Rscript code/sim_run.R                                  # the 60-scenario grid
+Rscript code/sim_run.R                                  # the 120-scenario grid
 Rscript code/sim_run.R --reps 5                         # replicated
 Rscript code/sim_run.R --extended                       # finer sparsity axis
 Rscript code/sim_run.R --filter "n_acc == 200 & n_envs == 1"
@@ -230,13 +306,19 @@ Measured at 200 × 200, mean seconds per scenario over all three fits:
 | 15% | 6,000 | 7.3 | 28.6 | 10.0 | 46 s |
 | 45% | 18,000 | 20.4 | 70.6 | 9.8 | 101 s |
 
-The thirty 200 × 200 scenarios take about half an hour; `n_envs` does not
-change the amount of data, only how the standardisation is grouped, so it
-costs nothing. The thirty at 400 × 400 carry four times the observations at a
-given sparsity and should take around two and a half hours, putting **one
-replicate of the full grid at roughly three hours**. That figure is
-extrapolated from the 200 × 200 timings rather than measured, so treat it as
-give or take half.
+(measured at the old 5 / 15 / 45% levels; 1.6 / 4.8 / 16 / 48% brackets them)
+
+Those timings predate the current levels and the GxE axis. Scaling them:
+`n_envs` and `gxe_cor` do not change the amount of data, only how the
+standardisation is grouped and how the effects are drawn, so they cost nothing.
+The two new low-sparsity levels are the **cheapest** cells in the grid — the
+BGLR models scale with the number of observations and 1.6% at 200 × 200 is 640
+of them — so doubling the grid from 60 to 120 scenarios costs much less than
+double. **Budget 4–6 hours for one replicate** rather than the previous three,
+extrapolated rather than measured, so treat it as give or take half.
+
+The most expensive cell is 48% at 400 × 400: 76,800 observations, against the
+72,000 of the old 45% level. Time that one alone before launching the full grid.
 
 Note that `megalmm` is flat across sparsity while the two BGLR models are not:
 MegaLMM's cost is driven by the size of the matrix and `K`, not by how much of
@@ -414,9 +496,10 @@ change the bivariate model needs for `σ_PrAs`.
 - The Kronecker term is rank-limited (see above), so `dge_ige` is not fitting
   the exact model it claims. `SIM_KRON_RANK` controls this and is worth a
   sensitivity check at small sizes where the exact kernel is tractable.
-- Environments carry variance heterogeneity only. Genuine genotype ×
-  environment rank changes would be a second kind of interaction and would
-  confound the axis the simulation is built around.
+- Genotype × environment is now an axis (`gxe_cor`) rather than an absent
+  feature, but it enters as independent per-environment deviations on the
+  producer and associate effects — a single correlation parameter, not a
+  structured G×E. Nothing crosses over in a patterned way.
 - The convergence trace does not reconcile with the final posterior (above).
 - Only the oat orientation is fitted. MegaLMM gives the oat axis a relationship
   matrix and the pea axis only a per-column intercept and factor loadings, so
@@ -424,6 +507,26 @@ change the bivariate model needs for `σ_PrAs`.
   which shrinks both species through their GRMs. Part of MegaLMM's deficit on
   `r_total` is that asymmetry rather than the method.
   [BOTH_ORIENTATIONS.md](BOTH_ORIENTATIONS.md) sets out what to do about it.
-- Only oat yield is simulated. The bivariate model's producer–associate
-  covariance, which is what the real analysis is ultimately after, is not in
-  this framework at all.
+- **Only oat yield is simulated, and this is the framework's biggest
+  limitation.** `Pr` is the oat's producer effect and `As` is the *pea's*
+  associate effect on the oat. The oat's own associate effect — its effect on
+  pea yield — and the pea's producer effect do not exist here, because pea
+  yield never appears. Consequences: the within-species producer–associate
+  covariance that motivates the bivariate model is absent; `dge_ige` is fitted
+  with univariate `BGLR::BGLR` rather than the `Multitrait` model the project
+  actually runs, so it cannot borrow across the two yields; and of the two
+  contrasts the validation trial will test, only the pea one has a simulation
+  behind it. The oat side is symmetric by construction, so the conclusions
+  probably transfer — "probably" being the operative word.
+- **The correlation between the two interaction surfaces is not known.** Fitting
+  the real bivariate model *with* the specific-combination term
+  (`fit_producer_associate(..., fit_mix_term = TRUE)`) gives var(I on oat yield)
+  ≈ 202, var(I on pea yield) ≈ 73 and a correlation of **+0.20**, stable to
+  three digits across two seeds. But 1,869 of the 2,059 combinations occur in a
+  single plot and only 10 block levels are fitted, so **plot quality is a live
+  alternative explanation for the positive sign** — a fertile plot lifts both
+  yields, and a singleton combination's effect absorbs it. Consistent with that
+  reading, adding the term pushes the residual correlation *more* negative
+  (−0.122 → −0.159), as if positive plot covariance had been drawn out of it and
+  competition left behind. Until replicated combinations settle it, the
+  simulation treats the two surfaces as independent.

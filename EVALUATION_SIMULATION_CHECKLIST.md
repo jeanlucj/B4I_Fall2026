@@ -25,20 +25,27 @@ loading the analysis alongside it is now harmless.
 
 ## The generator — does it produce the truth it advertises?
 
-- [ ] **S1 `sim_design`** — 60 scenarios, 60 distinct names; the 12
-      `n_factors == 0` cells collapsed to `interaction_pct = 0`; `mm_grid` 12
-      rows → 720 MegaLMM fits. **Seeds differ between the standard and extended
-      grids for all 60 shared scenarios while the cache filenames do not.**
+- [ ] **S1 `sim_design`** — **120** scenarios, 120 distinct names; the cells
+      where a level scales nothing collapsed (`interaction_pct` at
+      `n_factors == 0`, `gxe_cor` at `n_envs == 1`); `mm_grid` 12 rows → 1440
+      MegaLMM fits. The **seed is now part of the cache key**, so a changed grid
+      recomputes instead of silently reusing files from a different seed.
 - [ ] **S2 `sim_panel`** — `tcrossprod(L)` reproduces `G` to ~1e-15;
       `draw_effect()` hits its target variance exactly with mean 0; count the
       prior-only rows that came along from the real GRM.
 - [ ] **S3 `sim_cells`** — `nrow(cl)` equals `round(sparsity * n_acc^2)`
-      **exactly**, at the lowest sparsity you use; every accession has at least
-      `SIM_MIN_PER_ACC`; an impossible sparsity stops rather than thinning.
-- [ ] **S4 `sim_truth`** — `sum(truth$V) == 1`; realised variances equal their
-      targets; `qr(truth$interaction)$rank == n_factors`; genetic correlation
-      across environments is 1 by construction (no rank-changing G×E);
-      `sim$obs$y` has sd ≈ 1, so it is not a yield.
+      **exactly** at all four levels on both panel sizes, now asserted in
+      `sample_combinations()`; every accession has at least `SIM_MIN_PER_ACC`.
+      Confirm the assertion fires by asking for 0.015 at `n_acc = 200`, which
+      hugs the floor and used to overshoot to 601–607.
+- [ ] **S4 `sim_truth`** — `sum(truth$V) == 1` (now six components, two of them
+      zero at `gxe_cor = 1`); realised variances equal their targets;
+      `qr(truth$interaction)$rank == n_factors`; `sim$obs$y` has sd ≈ 1, so it is
+      not a yield.
+- [ ] **S4 GxE** — `gxe_cor = 1` reproduces the pre-GxE generator **bit for
+      bit** at both `n_envs` values (the check that the axis is an extension,
+      not a rewrite); at `gxe_cor = 0.6`, `truth$realised_gxe_cor` ≈ 0.6 and
+      `r_total` falls.
 
 ## The scorer — does it measure what it names?
 
@@ -49,10 +56,11 @@ loading the analysis alongside it is now harmless.
       `kron_basis(A,B,i,j) %*% as.vector(t(Beta))` equals
       `(A %*% Beta %*% t(B))[cbind(i,j)]`. Re-run after touching either
       function.
-- [ ] **S9 `sim_score`** — `interaction_part()` leaves row and column means at
-      zero, and residualises a purely additive surface to zero; know which of
-      `r_total` / `r_interaction` / `r_observed` you are quoting; count the
-      `NA`s feeding each mean.
+- [ ] **S9 `sim_score`** — `M == additive_part(M) + interaction_part(M)` to
+      machine precision; `interaction_part()` residualises a purely additive
+      surface to zero; know which of `r_total` / `r_gma` / `r_interaction` /
+      `r_observed` you are quoting, and that `r_pea_assoc` is the **pea's**
+      effect on oat yield; count the `NA`s feeding each mean.
 
 ## The models
 

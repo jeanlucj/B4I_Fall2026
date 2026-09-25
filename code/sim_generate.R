@@ -23,11 +23,21 @@
 # therefore slides smoothly between the two frameworks' home ground instead
 # of favouring one by construction.
 #
-# Environments carry mean and variance heterogeneity only: s_k scales the
-# whole signal, so genetic correlations between environments stay 1 and the
-# only GxE is in the spread. That is what the B4I trials show once the
-# failed site is taken into account, and it keeps the environment axis from
-# quietly introducing a second kind of interaction.
+# Environments carry two separable things.
+#
+#   * Mean and variance heterogeneity: mu_k and s_k. s_k scales the whole
+#     signal, so on its own it changes the spread and nothing else -- no
+#     accession changes rank.
+#   * Genotype x environment, controlled by `gxe_cor`. Each producer and
+#     associate effect splits into a stable share and an environment-specific
+#     one, so an accession's effect correlates `gxe_cor` with itself in
+#     another environment. At gxe_cor = 1 there is none, which is what this
+#     generator did before the argument existed.
+#
+# Keeping them apart matters: the first is a nuisance the analysis removes by
+# standardising within environment, the second is the attenuation that decides
+# whether an effect estimated here means anything there. The leave-one-trial-
+# out work in code/validate_crossval.R measures the second on the real data.
 #
 # grm_factor() and read_grm() come from code/dge_ige_functions.R, which
 # code/sim_run.R sources: the simulation draws effects with the same
@@ -109,6 +119,18 @@ sample_combinations <- function(n_oat, n_pea, sparsity,
   extra <- sample(remaining, max(0, n_obs - length(cells)))
   cells <- sort(c(cells, extra))
 
+  # The guaranteed minimum can overrun the request when sparsity sits on the
+  # floor: `extra` is then empty and there is nothing to trim against, so the
+  # achieved sparsity quietly exceeds the one in the scenario's name. Every
+  # level in SIM_LEVELS clears the floor with slack, so this should never fire
+  # -- which is exactly why it is worth asserting rather than recording.
+  if (length(cells) != n_obs) {
+    stop("sparsity ", sparsity, " asked for ", n_obs, " observations but the ",
+         "minimum of ", min_per_acc, " per accession forces ", length(cells),
+         ". The scenario would be mislabelled; raise sparsity or lower ",
+         "min_per_acc.", call. = FALSE)
+  }
+
   tibble::tibble(
     cell = cells,
     oat  = ((cells - 1L) %% n_oat) + 1L,
@@ -123,16 +145,26 @@ sample_combinations <- function(n_oat, n_pea, sparsity,
 #' @param n_factors Rank of the interaction; 0 for none.
 #' @param interaction_pct Interaction variance as a share of the total.
 #' @param n_envs Physical environments; combinations are split evenly.
+#' @param gxe_cor Genetic correlation of an accession's producer and associate
+#'   effects between two environments. 1 makes every effect perfectly stable,
+#'   which is what this function did before the argument existed; 0.6 puts 40%
+#'   of each effect's variance into environment-specific deviations. Ignored
+#'   when `n_envs == 1`, where it is unidentifiable.
 #' @param var_shares Producer / associate / residual shares of the remainder.
 #' @param env_log_sd SD of log environment scale factor.
 #' @param env_mean_log_sd SD of log environment mean.
 #' @return list(obs, truth, G_oat, G_pea, settings)
 simulate_experiment <- function(G_oat, G_pea, sparsity, n_factors,
-                                interaction_pct, n_envs,
+                                interaction_pct, n_envs, gxe_cor = 1,
                                 var_shares = SIM_VAR_SHARES,
                                 env_log_sd = SIM_ENV_LOG_SD,
                                 env_mean_log_sd = SIM_ENV_MEAN_LOG_SD,
                                 grand_mean = SIM_GRAND_MEAN) {
+  if (gxe_cor < 0 || gxe_cor > 1) {
+    stop("gxe_cor must be a correlation in [0, 1], not ", gxe_cor, call. = FALSE)
+  }
+  # With one environment there is nothing for an effect to be specific TO
+  rho <- if (n_envs > 1) gxe_cor else 1
   n_oat <- nrow(G_oat)
   n_pea <- nrow(G_pea)
 
@@ -148,8 +180,12 @@ simulate_experiment <- function(G_oat, G_pea, sparsity, n_factors,
   V_As <- rest * shares[["associate"]]
   V_e  <- rest * shares[["residual"]]
 
-  Pr <- draw_effect(L_oat, V_Pr)
-  As <- draw_effect(L_pea, V_As)
+  # Each effect splits into a stable share rho and an environment-specific
+  # share 1 - rho, so the TOTAL producer and associate variances are V_Pr and
+  # V_As whatever rho is, and the budget still sums to 1. At rho = 1 these two
+  # calls are exactly the old ones.
+  Pr <- draw_effect(L_oat, V_Pr * rho)
+  As <- draw_effect(L_pea, V_As * rho)
 
   # Interaction: n_factors axes of equal importance
   if (n_factors > 0 && V_I > 0) {
@@ -179,6 +215,32 @@ simulate_experiment <- function(G_oat, G_pea, sparsity, n_factors,
     I_mat[cbind(cells$oat, cells$pea)]
   resid <- stats::rnorm(nrow(cells), 0, sqrt(V_e))
 
+  # --- genotype x environment ---
+  #
+  # Drawn LAST, and only when it is asked for, so that rho = 1 consumes no
+  # random numbers and reproduces the pre-GxE generator bit for bit. Each
+  # environment gets its own draw with variance V * (1 - rho), so an
+  # accession's effect correlates rho with itself in another environment while
+  # its total variance stays V.
+  Pr_env <- As_env <- NULL
+  gxe <- rep(0, nrow(cells))
+  if (rho < 1) {
+    Pr_env <- vapply(seq_len(n_envs), \(k) draw_effect(L_oat, V_Pr * (1 - rho)),
+                     numeric(n_oat))
+    As_env <- vapply(seq_len(n_envs), \(k) draw_effect(L_pea, V_As * (1 - rho)),
+                     numeric(n_pea))
+    gxe <- Pr_env[cbind(cells$oat, env)] + As_env[cbind(cells$pea, env)]
+    genetic <- genetic + gxe
+  }
+
+  # Realised, rather than requested: the mean correlation between an
+  # accession's effect in one environment and in another. Recorded so the axis
+  # can be checked instead of trusted (level S4).
+  realised_gxe_cor <- if (rho < 1 && n_envs > 1) {
+    per_env <- Pr + Pr_env            # n_oat x n_envs, oat effect by environment
+    mean(stats::cor(per_env)[upper.tri(stats::cor(per_env))])
+  } else if (n_envs > 1) 1 else NA_real_
+
   obs <- cells |>
     dplyr::mutate(
       env       = env,
@@ -187,23 +249,32 @@ simulate_experiment <- function(G_oat, G_pea, sparsity, n_factors,
       producer  = Pr[oat],
       associate = As[pea],
       interaction = I_mat[cbind(oat, pea)],
+      gxe       = gxe,
       genetic   = genetic,
-      # The scale factor multiplies signal and noise alike: variance
-      # heterogeneity, with genetic correlations across environments still 1
+      # The scale factor multiplies signal and noise alike, so it is variance
+      # heterogeneity only. Any genotype x environment interaction comes from
+      # the gxe term above, not from this.
       y = env_mean[env] + env_scale[env] * (genetic + resid)
     )
 
   list(
     obs = obs,
+    # producer and associate are the STABLE parts -- what another environment
+    # could predict, and therefore what the models are scored against. The
+    # environment-specific parts are by construction unpredictable.
     truth = list(producer = Pr, associate = As, interaction = I_mat,
+                 producer_env = Pr_env, associate_env = As_env,
                  U = U, Lambda = Lam,
                  env_scale = env_scale, env_mean = env_mean,
-                 V = c(producer = V_Pr, associate = V_As,
+                 gxe_cor = rho, realised_gxe_cor = realised_gxe_cor,
+                 V = c(producer = V_Pr * rho, associate = V_As * rho,
+                       producer_env = V_Pr * (1 - rho),
+                       associate_env = V_As * (1 - rho),
                        interaction = V_I, residual = V_e)),
     G_oat = G_oat, G_pea = G_pea,
     settings = list(n_oat = n_oat, n_pea = n_pea, sparsity = sparsity,
                     n_factors = n_factors, interaction_pct = interaction_pct,
-                    n_envs = n_envs)
+                    n_envs = n_envs, gxe_cor = rho)
   )
 }
 

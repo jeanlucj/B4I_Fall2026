@@ -310,8 +310,13 @@ megalmm_posterior <- function(MegaLMM_state, accessions = NULL) {
     out$U_F <- tryCatch(.pm("U_F"), error = function(e) NULL)
   }
 
+  # All three carry accessions down their rows and all three come back
+  # decorated "<level>::<term>", so all three are undecorated and checked.
+  # U_F was previously left as MegaLMM returned it, which meant any caller
+  # matching its rownames against the GRM got NA for every row.
   out$U       <- .undecorate_rows(out$U, accessions)
   out$U_noU_R <- .undecorate_rows(out$U_noU_R, accessions)
+  out$U_F     <- .undecorate_rows(out$U_F, accessions)
   out
 }
 

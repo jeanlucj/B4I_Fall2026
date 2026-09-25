@@ -18,16 +18,23 @@ SIM_LEVELS <- list(
   # Panel size: oat accessions x pea accessions (square panels)
   n_acc = c(200, 400),
 
-  # Share of the n_oat x n_pea combinations actually observed. The B4I
-  # experiment sits at 1.1% before trimming and 3.2% after, so 3% is roughly
-  # where we are and 6/12% are the densities a redesign could buy.
-  # 5 / 15 / 45%. The first pass used 3 / 6 / 12%, which is where the B4I
-  # experiment sits, but a pilot showed all three are deep in the region
-  # where the factor model has nothing to work with: at 20% observed MegaLMM
-  # loses badly to an additive model and at 50% it wins. Three levels that
-  # straddle that crossover say more than three that agree it has not
-  # happened yet. 5% still brackets the real experiment.
-  sparsity = c(0.05, 0.15, 0.45),
+  # Share of the n_oat x n_pea combinations actually observed, as 1.6 / 4.8 /
+  # 16 / 48% -- two pairs of the same digits a decade apart.
+  #
+  # The earlier 5 / 15 / 45% was chosen to straddle the crossover where the
+  # factor model starts to win, and it does. The low end was added afterwards
+  # for a different reason: the fixed-loading main-effect factor
+  # (SIM_MEGALMM_LEVELS below) is meant to help most exactly where the matrix
+  # is thinnest, because that is where reconstructing a main effect from free
+  # factors fails. Testing it only at densities where it is not needed answers
+  # the wrong question.
+  #
+  # 1.6% is the floor worth using. SIM_MIN_PER_ACC = 3 makes 1.50% the lowest
+  # feasible density at n_acc = 200 (0.75% at 400), and hugging it makes
+  # sample_combinations() overrun the request -- so 1.6% keeps enough slack
+  # that every level returns the exact number of observations asked for.
+  # B4I itself sits at 1.1% before trimming and 3.2% after.
+  sparsity = c(0.016, 0.048, 0.16, 0.48),
 
   # Rank of the true oat x pea interaction. 0 = no interaction at all;
   # 1 = a single axis; 5 = five equally important axes. This is the axis the
@@ -39,7 +46,23 @@ SIM_LEVELS <- list(
   interaction_pct = c(0.10, 0.20),
 
   # One physical environment, or ten each holding a tenth of the combinations
-  n_envs = c(1, 10)
+  n_envs = c(1, 10),
+
+  # Genetic correlation of an accession's producer and associate effects
+  # between two environments -- ordinary GxE, distinct from the oat x pea
+  # interaction. 1 makes every effect perfectly stable, which is what the
+  # generator did before this axis existed; 0.6 puts 40% of each effect's
+  # variance into environment-specific deviations.
+  #
+  # It matters because it is the attenuation the validation trial turns on:
+  # an effect estimated in one set of environments is only worth having if it
+  # survives into another. code/validate_crossval.R measures it on the real
+  # trials and found the across-fold spread of the calibration slope to be
+  # 0.57-0.69 of its mean, which is roughly where 0.6 sits.
+  #
+  # Unidentifiable with a single environment, so those cells are collapsed to
+  # 1 in the grid below, the same way interaction_pct is at n_factors = 0.
+  gxe_cor = c(1.0, 0.6)
 )
 
 # MegaLMM settings swept separately from the data-generating design, because
@@ -70,25 +93,34 @@ SIM_MEGALMM_LEVELS <- list(
   fixed_main_effect = c(FALSE, TRUE)
 )
 
-#' The design grid, with the redundant no-interaction cells collapsed.
+#' The design grid, with the cells that would be duplicates collapsed.
 #'
-#' With `n_factors = 0` there is no interaction, so `interaction_pct` has
-#' nothing to scale and the two levels would be the same simulation run twice.
-#' Those cells are kept once, at 0.
+#' Two axes are meaningless at one end of another axis, and their levels would
+#' otherwise run the same simulation twice:
+#'
+#'   * `interaction_pct` has nothing to scale when `n_factors = 0`;
+#'   * `gxe_cor` has nothing to vary across when `n_envs = 1`.
+#'
+#' Both are pinned to a single value there and the duplicates dropped.
+#'
+#' Sparsity is written into the scenario name in tenths of a percent, so 1.6%
+#' and 2% do not collide as they would at whole percents.
 sim_grid <- function(levels = SIM_LEVELS, n_reps = 1L) {
   grid <- tidyr::expand_grid(!!!levels)
 
   grid <- grid |>
     dplyr::mutate(
-      interaction_pct = dplyr::if_else(n_factors == 0, 0, interaction_pct)
+      interaction_pct = dplyr::if_else(n_factors == 0, 0, interaction_pct),
+      gxe_cor         = dplyr::if_else(n_envs == 1, 1, gxe_cor)
     ) |>
     dplyr::distinct()
 
   tidyr::expand_grid(grid, rep = seq_len(n_reps)) |>
     dplyr::mutate(
-      scenario = sprintf("n%d_sp%02d_f%d_i%02d_e%02d",
-                         n_acc, round(sparsity * 100), n_factors,
-                         round(interaction_pct * 100), n_envs),
+      scenario = sprintf("n%d_sp%03d_f%d_i%02d_e%02d_g%03d",
+                         n_acc, round(sparsity * 1000), n_factors,
+                         round(interaction_pct * 100), n_envs,
+                         round(gxe_cor * 100)),
       seed = SIM_BASE_SEED + dplyr::row_number(),
       .before = 1
     )
@@ -96,11 +128,12 @@ sim_grid <- function(levels = SIM_LEVELS, n_reps = 1L) {
 
 SIM_BASE_SEED <- 20260921L
 
-# The same design with the sparsity axis resolved more finely, including the
-# 3% the real experiment sits at, for locating the crossover precisely.
+# The same design with the sparsity axis resolved more finely, for locating
+# the crossover precisely. Stays clear of the 1.50% floor at n_acc = 200.
 #   Rscript code/sim_run.R --extended
 SIM_LEVELS_EXTENDED <- modifyList(
-  SIM_LEVELS, list(sparsity = c(0.03, 0.05, 0.10, 0.15, 0.25, 0.45, 0.60)))
+  SIM_LEVELS,
+  list(sparsity = c(0.016, 0.032, 0.048, 0.08, 0.16, 0.32, 0.48, 0.60)))
 
 # ------------------------------------------------------------
 # Parameters taken from the B4I data

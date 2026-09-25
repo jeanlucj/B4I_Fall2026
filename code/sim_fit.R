@@ -260,15 +260,39 @@ interaction_part <- function(M) {
   M - rowMeans(M) - rep(colMeans(M), each = nrow(M)) + mean(M)
 }
 
+#' The additive half of the same split: M = additive_part(M) + interaction_part(M).
+#'
+#' Every model here hands back a full oat x pea surface, so the additive part
+#' of that surface is the model's estimate of "producer + associate", whatever
+#' machinery produced it. Nothing MegaLMM-specific is needed: its main effects
+#' are spread across all the factors and the column intercepts, and averaging
+#' over a margin collects them regardless.
+#'
+#' In particular `rowMeans(M)` is the oat main effect of the surface -- an
+#' oat's average value over the pea environments -- which is what makes it a
+#' better estimate of the true producer effect than the first factor's scores.
+#' Expanding MegaLMM's own decomposition shows why:
+#'
+#'   rowMeans(U_F %*% Lambda + U_R) = U_F %*% rowMeans(Lambda) + rowMeans(U_R)
+#'
+#' every factor contributes, weighted by its mean loading, and nothing forces
+#' the free factors' mean loadings to zero.
+additive_part <- function(M) {
+  outer(rowMeans(M), colMeans(M), "+") - mean(M)
+}
+
 score_predictions <- function(pred, sim, held, label) {
   idx <- cbind(held$oat, held$pea)
 
-  truth_total <- sim$truth$producer[held$oat] +
-    sim$truth$associate[held$pea] +
-    sim$truth$interaction[idx]
+  # The STABLE producer and associate effects: what another environment could
+  # predict. Any environment-specific part is unpredictable by construction
+  # and correctly counts against the model.
+  truth_gma   <- sim$truth$producer[held$oat] + sim$truth$associate[held$pea]
+  truth_total <- truth_gma + sim$truth$interaction[idx]
 
   truth_int <- interaction_part(sim$truth$interaction)[idx]
   pred_int  <- interaction_part(pred$total)[idx]
+  pred_add  <- additive_part(pred$total)[idx]
 
   safe_cor <- function(a, b) {
     if (stats::sd(a) < 1e-10 || stats::sd(b) < 1e-10) return(NA_real_)
@@ -278,8 +302,18 @@ score_predictions <- function(pred, sim, held, label) {
   tibble::tibble(
     model = label,
     r_total       = safe_cor(pred$total[idx], truth_total),
+    # General mixing ability: producer + associate, with the interaction
+    # residualised out of the prediction the same way it is left out of the
+    # truth. This is the breeder-facing quantity when specific combinations
+    # are not going to be chosen.
+    r_gma         = safe_cor(pred_add, truth_gma),
     r_interaction = safe_cor(pred_int, truth_int),
-    r_observed    = safe_cor(pred$total[idx], held$y_std)
+    r_observed    = safe_cor(pred$total[idx], held$y_std),
+    # Main-effect recovery, from the margins of the predicted surface rather
+    # than from any one component of any one model -- so the three models are
+    # asked the same question in the same way.
+    r_oat_prod    = safe_cor(rowMeans(pred$total), sim$truth$producer),
+    r_pea_assoc    = safe_cor(colMeans(pred$total), sim$truth$associate)
   )
 }
 
@@ -368,14 +402,32 @@ run_scenario_megalmm <- function(sim, K, eigen_variance,
                   fixed_main_effect = fixed_main_effect,
                   .after = model)
 
-  # How well does the model recover the oat main effect? This is the quantity
-  # the fixed factor exists to rescue, and the row average is the bar it has
-  # to clear, so both are recorded alongside the held-out accuracy.
+  # Two DIAGNOSTICS of the fixed factor, not estimates of the main effect --
+  # for that see r_oat_prod in score_predictions(), which uses the margin of
+  # the whole predicted surface and so collects the main effect wherever the
+  # model happens to have put it.
+  #
+  #   r_mainfactor_truePr  the pinned factor's scores against the truth. Tells
+  #                        you whether the factor is doing its job; it is only
+  #                        the main effect if every other factor has zero mean
+  #                        loading, which nothing enforces. A FREE factor's
+  #                        sign is arbitrary, so that case is reported as |r|.
+  #   r_rowmean_truePr     the bar: a plain average of the training rows.
   row_mean <- tapply(sp$train$y_std, sp$train$oat, mean)
   oats <- as.integer(names(row_mean))
+
+  # U_F's rows are the oats that survived keep_row, in rownames(G_oat) order,
+  # so index the truth by THOSE oats rather than by the first nrow(U_F) --
+  # which is the same thing only while every oat is kept, and misaligns
+  # silently when one is not.
+  kept_oats <- if (!is.null(mm$U_F)) {
+    match(rownames(mm$U_F), rownames(sim$G_oat))
+  } else integer(0)
+
   main_effect <- tibble::tibble(
-    r_mainfactor_truePr = if (!is.null(mm$U_F)) {
-      stats::cor(mm$U_F[, 1], sim$truth$producer[seq_len(nrow(mm$U_F))])
+    r_mainfactor_truePr = if (!is.null(mm$U_F) && !anyNA(kept_oats)) {
+      r <- stats::cor(mm$U_F[, 1], sim$truth$producer[kept_oats])
+      if (fixed_main_effect) r else abs(r)
     } else NA_real_,
     r_rowmean_truePr = stats::cor(row_mean, sim$truth$producer[oats]),
     fixed_ok = mm$fixed_ok
