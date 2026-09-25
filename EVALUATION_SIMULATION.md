@@ -13,7 +13,9 @@ Two failure modes to hunt, in this order:
 
 ## 1. The modules, in one screen
 
-Four files, one of which is a driver. The **group** column is what you pass to `arm_evaluation()`.
+Four files, one of which is a driver, plus the shared DGE-IGE machinery. The **group** column is what you pass to `arm_evaluation()`.
+
+**Two things changed shape in September 2026 and the levels below reflect it.** The generator is now bivariate — four genetic effects and both yields, not two effects and one — and MegaLMM is fitted in both orientations. The DGE-IGE comparator is `fit_producer_associate()` from `code/dge_ige_functions.R`, the same `Multitrait` model the production analysis runs, rather than a univariate stand-in.
 
 | File (`code/…`) | Owns | Group |
 |------------------------|------------------------|------------------------|
@@ -23,7 +25,9 @@ Four files, one of which is a driver. The **group** column is what you pass to `
 | `sim_run.R` | the grid driver: caching, job-array slicing, `--check`, the summary tables | *(driver; use `eval_defs`)* |
 | `megalmm_setup.R` | shared with the analysis — see EVALUATION.md A6 | `megalmm` |
 
-The chain, once: `sim_grid()` → `sim_grms()` → `simulate_experiment()` → `split_observations()` → {`fit_dge_ige()` ×2, `fit_megalmm()`} → `score_predictions()`.
+The chain, once: `sim_design()` → `sim_grms()` → `simulate_experiment()` → `split_observations()` → {`fit_dge_ige()` ×2, `fit_megalmm_both()`} → `score_predictions()`.
+
+Every model returns **two full oat × pea surfaces**, one per trait, both in oat-rows × pea-cols layout. The pea-side MegaLMM fit is transposed on the way out. That uniformity is what makes the metrics comparable, and it is the first thing to check if a number looks odd.
 
 `arm_evaluation("sim_pipeline")` arms the whole middle of that chain at once, so a single `run_scenario_bglr(sim)` breaks at every stage in order.
 

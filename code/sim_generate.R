@@ -1,19 +1,27 @@
 # ============================================================
 # SIMULATING AN OAT x PEA INTERCROP EXPERIMENT
 #
-# Generates oat yield for a set of observed oat x pea combinations under a
-# known truth, so that the MegaLMM and DGE-IGE frameworks can be scored
-# against something rather than against each other.
+# Generates BOTH yields for a set of observed oat x pea combinations under a
+# known truth, so that the MegaLMM and DGE-IGE frameworks can be scored against
+# something rather than against each other.
 #
-# The model, for oat accession i grown with pea accession j in environment k:
+# The model, for oat i with pea j in environment k:
 #
-#   y_ijk = mu_k + s_k * ( Pr_i + As_j + I_ij + e_ijk )
+#   y_oat = mu_oat_k + s_oat_k ( oatPr_i + peaAs_j + I_oat_ij + gxe + e_oat )
+#   y_pea = mu_pea_k + s_pea_k ( peaPr_j + oatAs_i + I_pea_ij + gxe + e_pea )
 #
-#   Pr ~ N(0, G_oat * V_Pr)         producer: what the oat does for itself
-#   As ~ N(0, G_pea * V_As)         associate: what the pea does to the oat
-#   I_ij = sum_f u_if * lam_jf      interaction, rank n_factors
-#     with u_.f ~ N(0, G_oat), lam_.f ~ N(0, G_pea)
-#   e ~ N(0, V_e)
+#   (oatPr, oatAs) ~ N(0, Sigma_oat (x) G_oat)
+#   (peaPr, peaAs) ~ N(0, Sigma_pea (x) G_pea)
+#   (e_oat, e_pea) ~ N(0, R)
+#   I_oat, I_pea     two INDEPENDENT surfaces, each of rank n_factors
+#
+# Four genetic effects, not two. A species' producer effect (on its own yield)
+# and its associate effect (on its partner's) are correlated properties of the
+# same genotype, and that covariance -- Sigma's off-diagonal -- is the whole
+# reason the real analysis fits the two yields jointly. An earlier version of
+# this file simulated oat yield alone, which left the oat's associate effect and
+# the pea's producer effect out of existence and forced the DGE-IGE comparator
+# to be univariate.
 #
 # The interaction is the point of the exercise. Drawing the oat scores from
 # G_oat and the pea loadings from G_pea makes a single factor's covariance
@@ -58,6 +66,48 @@ draw_effect <- function(L, target_var) {
   if (target_var <= 0) return(rep(0, length(v)))
   v <- v - mean(v)
   v * sqrt(target_var / stats::var(v))
+}
+
+#' Draw a CORRELATED PAIR of effects, both with covariance G, with exactly the
+#' requested 2 x 2 covariance between them.
+#'
+#' This is what makes the simulation bivariate. A species' producer effect (on
+#' its own yield) and its associate effect (on its partner's) are two
+#' correlated properties of the same genotype -- `Sigma (x) G` in the
+#' producer-associate model -- and that covariance is the reason the real
+#' analysis fits the two yields jointly rather than separately.
+#'
+#' The realised pair is whitened and then re-coloured, so its empirical
+#' covariance IS `Sigma` rather than merely having it in expectation. Same
+#' reasoning as draw_effect()'s empirical rescaling, extended to two columns.
+#'
+#' @param L Square-root factor of the relationship matrix, from grm_factor().
+#' @param Sigma 2 x 2 target covariance, (producer, associate).
+#' @return An n x 2 matrix, columns (producer, associate).
+draw_effect_pair <- function(L, Sigma) {
+  n <- nrow(L)
+  if (all(diag(Sigma) <= 0)) return(matrix(0, n, 2))
+
+  Z <- L %*% matrix(stats::rnorm(ncol(L) * 2), ncol(L), 2)
+  Z <- sweep(Z, 2, colMeans(Z), "-")
+
+  # whiten: empirical covariance exactly I, so the re-colouring below is exact
+  S <- stats::cov(Z)
+  Zw <- Z %*% solve(chol(S))
+
+  # a zero-variance column would make chol(Sigma) fail; handle it by scaling
+  # the columns separately and only then introducing the correlation
+  if (any(diag(Sigma) <= 0)) {
+    out <- sweep(Zw, 2, sqrt(pmax(diag(Sigma), 0)), "*")
+    return(out)
+  }
+  Zw %*% chol(Sigma)
+}
+
+#' Build a 2 x 2 covariance from two variances and a correlation.
+sigma_from_cor <- function(var1, var2, cor12) {
+  cv <- cor12 * sqrt(var1 * var2)
+  matrix(c(var1, cv, cv, var2), 2, 2)
 }
 
 #' Which oat x pea combinations were observed.
@@ -138,25 +188,43 @@ sample_combinations <- function(n_oat, n_pea, sparsity,
   )
 }
 
-#' Simulate one experiment.
+#' Simulate one bivariate experiment.
+#'
+#' Both yields, and therefore all four genetic effects. For oat i with pea j in
+#' environment k:
+#'
+#'   y_oat = mu_oat_k + s_oat_k ( oatPr_i + peaAs_j + I_oat_ij
+#'                                + oatPr_ik + peaAs_jk + e_oat )
+#'   y_pea = mu_pea_k + s_pea_k ( peaPr_j + oatAs_i + I_pea_ij
+#'                                + peaPr_jk + oatAs_ik + e_pea )
+#'
+#' with (oatPr, oatAs) ~ N(0, Sigma_oat (x) G_oat) and likewise for pea, so a
+#' species' effect on its own yield and its effect on its partner's are
+#' correlated -- the covariance the producer-associate model exists to
+#' estimate, and the reason the fitted comparator must be Multitrait.
+#'
+#' Earlier versions simulated oat yield alone, which meant the oat's associate
+#' effect and the pea's producer effect did not exist and the DGE-IGE
+#' comparator had to be univariate.
 #'
 #' @param G_oat,G_pea Relationship matrices, already subset to the panel size.
 #' @param sparsity Share of the n_oat x n_pea cells observed.
-#' @param n_factors Rank of the interaction; 0 for none.
-#' @param interaction_pct Interaction variance as a share of the total.
+#' @param n_factors Rank of each interaction surface; 0 for none.
+#' @param interaction_pct Interaction variance as a share of each trait's total.
 #' @param n_envs Physical environments; combinations are split evenly.
-#' @param gxe_cor Genetic correlation of an accession's producer and associate
-#'   effects between two environments. 1 makes every effect perfectly stable,
-#'   which is what this function did before the argument existed; 0.6 puts 40%
-#'   of each effect's variance into environment-specific deviations. Ignored
-#'   when `n_envs == 1`, where it is unidentifiable.
-#' @param var_shares Producer / associate / residual shares of the remainder.
-#' @param env_log_sd SD of log environment scale factor.
-#' @param env_mean_log_sd SD of log environment mean.
+#' @param gxe_cor Genetic correlation of an effect between two environments.
+#'   1 makes every effect perfectly stable. Ignored when `n_envs == 1`, where
+#'   it is unidentifiable.
+#' @param var_shares Per-trait producer / associate / residual shares. Read
+#'   "producer" as "of the species whose yield this is".
+#' @param pr_as_cor Within-species producer-associate correlation, per species.
+#' @param resid_cor Residual correlation between the two yields on a plot.
 #' @return list(obs, truth, G_oat, G_pea, settings)
 simulate_experiment <- function(G_oat, G_pea, sparsity, n_factors,
                                 interaction_pct, n_envs, gxe_cor = 1,
                                 var_shares = SIM_VAR_SHARES,
+                                pr_as_cor = SIM_PR_AS_COR,
+                                resid_cor = SIM_RESID_COR,
                                 env_log_sd = SIM_ENV_LOG_SD,
                                 env_mean_log_sd = SIM_ENV_MEAN_LOG_SD,
                                 grand_mean = SIM_GRAND_MEAN) {
@@ -165,112 +233,159 @@ simulate_experiment <- function(G_oat, G_pea, sparsity, n_factors,
   }
   # With one environment there is nothing for an effect to be specific TO
   rho <- if (n_envs > 1) gxe_cor else 1
+
   n_oat <- nrow(G_oat)
   n_pea <- nrow(G_pea)
-
   L_oat <- grm_factor(G_oat)
   L_pea <- grm_factor(G_pea)
 
-  # Variance budget: the interaction takes its share, the rest is split in
-  # the proportions the real data shows
-  shares <- var_shares / sum(var_shares)
-  V_I  <- interaction_pct
+  # ---- variance budget, one per trait ----
+  #
+  # Each trait's interaction takes its share off the top and the rest is split
+  # in the proportions the real data shows. A species' producer variance comes
+  # from its OWN trait's budget and its associate variance from the other
+  # trait's, because that is where each effect acts.
+  V_I <- interaction_pct
   rest <- 1 - V_I
-  V_Pr <- rest * shares[["producer"]]
-  V_As <- rest * shares[["associate"]]
-  V_e  <- rest * shares[["residual"]]
+  sh <- lapply(var_shares, \(x) x / sum(x))
 
-  # Each effect splits into a stable share rho and an environment-specific
-  # share 1 - rho, so the TOTAL producer and associate variances are V_Pr and
-  # V_As whatever rho is, and the budget still sums to 1. At rho = 1 these two
-  # calls are exactly the old ones.
-  Pr <- draw_effect(L_oat, V_Pr * rho)
-  As <- draw_effect(L_pea, V_As * rho)
+  V <- c(
+    oat_prod  = rest * sh$oat[["producer"]],   # oat on oat yield
+    pea_assoc = rest * sh$oat[["associate"]],  # pea on oat yield
+    e_oat     = rest * sh$oat[["residual"]],
+    pea_prod  = rest * sh$pea[["producer"]],   # pea on pea yield
+    oat_assoc = rest * sh$pea[["associate"]],  # oat on pea yield
+    e_pea     = rest * sh$pea[["residual"]]
+  )
 
-  # Interaction: n_factors axes of equal importance
-  if (n_factors > 0 && V_I > 0) {
+  # ---- the four genetic effects, as two correlated pairs ----
+  oat_pair <- draw_effect_pair(
+    L_oat, sigma_from_cor(V[["oat_prod"]] * rho, V[["oat_assoc"]] * rho,
+                          pr_as_cor[["oat"]]))
+  pea_pair <- draw_effect_pair(
+    L_pea, sigma_from_cor(V[["pea_prod"]] * rho, V[["pea_assoc"]] * rho,
+                          pr_as_cor[["pea"]]))
+
+  oat_prod <- oat_pair[, 1]; oat_assoc <- oat_pair[, 2]
+  pea_prod <- pea_pair[, 1]; pea_assoc <- pea_pair[, 2]
+
+  # ---- two interaction surfaces, independent ----
+  #
+  # Independent by choice: nothing says a pairing that suits the oat also suits
+  # the pea. Fitting the real model with the specific-combination term puts the
+  # correlation at about +0.20, but with 1,869 of 2,059 combinations in a single
+  # plot that is not separable from plot quality -- see SIMULATION.md.
+  draw_interaction <- function() {
+    if (!(n_factors > 0 && V_I > 0)) {
+      return(list(I = matrix(0, n_oat, n_pea), U = NULL, Lambda = NULL))
+    }
     U   <- vapply(seq_len(n_factors), \(f) draw_effect(L_oat, 1), numeric(n_oat))
     Lam <- vapply(seq_len(n_factors), \(f) draw_effect(L_pea, 1), numeric(n_pea))
-    I_mat <- (U %*% t(Lam)) / sqrt(n_factors)
-    I_mat <- I_mat * sqrt(V_I / stats::var(as.vector(I_mat)))
-  } else {
-    U <- Lam <- NULL
-    I_mat <- matrix(0, n_oat, n_pea)
+    I <- (U %*% t(Lam)) / sqrt(n_factors)
+    I <- I * sqrt(V_I / stats::var(as.vector(I)))
+    list(I = I, U = U, Lambda = Lam)
   }
+  int_oat <- draw_interaction()
+  int_pea <- draw_interaction()
 
+  # ---- which cells, and in which environment ----
   cells <- sample_combinations(n_oat, n_pea, sparsity)
 
-  # Environments: each takes an equal slice of the combinations at random
   env <- if (n_envs > 1) {
     sample(rep_len(seq_len(n_envs), nrow(cells)))
   } else {
     rep(1L, nrow(cells))
   }
-  env_scale <- if (n_envs > 1) exp(stats::rnorm(n_envs, 0, env_log_sd)) else 1
-  env_mean  <- if (n_envs > 1) {
+  # each trait gets its own environment means and scales: a site that is good
+  # for oats is not necessarily good for peas
+  env_scale_oat <- if (n_envs > 1) exp(stats::rnorm(n_envs, 0, env_log_sd)) else 1
+  env_scale_pea <- if (n_envs > 1) exp(stats::rnorm(n_envs, 0, env_log_sd)) else 1
+  env_mean_oat  <- if (n_envs > 1) {
+    grand_mean * exp(stats::rnorm(n_envs, 0, env_mean_log_sd))
+  } else grand_mean
+  env_mean_pea  <- if (n_envs > 1) {
     grand_mean * exp(stats::rnorm(n_envs, 0, env_mean_log_sd))
   } else grand_mean
 
-  genetic <- Pr[cells$oat] + As[cells$pea] +
-    I_mat[cbind(cells$oat, cells$pea)]
-  resid <- stats::rnorm(nrow(cells), 0, sqrt(V_e))
-
-  # --- genotype x environment ---
-  #
-  # Drawn LAST, and only when it is asked for, so that rho = 1 consumes no
-  # random numbers and reproduces the pre-GxE generator bit for bit. Each
-  # environment gets its own draw with variance V * (1 - rho), so an
-  # accession's effect correlates rho with itself in another environment while
-  # its total variance stays V.
-  Pr_env <- As_env <- NULL
-  gxe <- rep(0, nrow(cells))
+  # ---- genotype x environment on all four effects ----
+  gxe_env <- list(oat_prod = NULL, oat_assoc = NULL,
+                  pea_prod = NULL, pea_assoc = NULL)
+  gxe_oat <- gxe_pea <- rep(0, nrow(cells))
   if (rho < 1) {
-    Pr_env <- vapply(seq_len(n_envs), \(k) draw_effect(L_oat, V_Pr * (1 - rho)),
-                     numeric(n_oat))
-    As_env <- vapply(seq_len(n_envs), \(k) draw_effect(L_pea, V_As * (1 - rho)),
-                     numeric(n_pea))
-    gxe <- Pr_env[cbind(cells$oat, env)] + As_env[cbind(cells$pea, env)]
-    genetic <- genetic + gxe
+    per_env <- function(L, target) {
+      vapply(seq_len(n_envs), \(k) draw_effect(L, target), numeric(nrow(L)))
+    }
+    gxe_env$oat_prod  <- per_env(L_oat, V[["oat_prod"]]  * (1 - rho))
+    gxe_env$oat_assoc <- per_env(L_oat, V[["oat_assoc"]] * (1 - rho))
+    gxe_env$pea_prod  <- per_env(L_pea, V[["pea_prod"]]  * (1 - rho))
+    gxe_env$pea_assoc <- per_env(L_pea, V[["pea_assoc"]] * (1 - rho))
+
+    gxe_oat <- gxe_env$oat_prod[cbind(cells$oat, env)] +
+               gxe_env$pea_assoc[cbind(cells$pea, env)]
+    gxe_pea <- gxe_env$pea_prod[cbind(cells$pea, env)] +
+               gxe_env$oat_assoc[cbind(cells$oat, env)]
   }
 
-  # Realised, rather than requested: the mean correlation between an
-  # accession's effect in one environment and in another. Recorded so the axis
-  # can be checked instead of trusted (level S4).
   realised_gxe_cor <- if (rho < 1 && n_envs > 1) {
-    per_env <- Pr + Pr_env            # n_oat x n_envs, oat effect by environment
-    mean(stats::cor(per_env)[upper.tri(stats::cor(per_env))])
+    pe <- oat_prod + gxe_env$oat_prod
+    mean(stats::cor(pe)[upper.tri(stats::cor(pe))])
   } else if (n_envs > 1) 1 else NA_real_
+
+  # ---- correlated residuals: the two yields on one plot ----
+  R <- sigma_from_cor(V[["e_oat"]], V[["e_pea"]], resid_cor)
+  E <- matrix(stats::rnorm(nrow(cells) * 2), nrow(cells), 2) %*% chol(R)
+
+  genetic_oat <- oat_prod[cells$oat] + pea_assoc[cells$pea] +
+    int_oat$I[cbind(cells$oat, cells$pea)] + gxe_oat
+  genetic_pea <- pea_prod[cells$pea] + oat_assoc[cells$oat] +
+    int_pea$I[cbind(cells$oat, cells$pea)] + gxe_pea
 
   obs <- cells |>
     dplyr::mutate(
-      env       = env,
-      oat_name  = rownames(G_oat)[oat],
-      pea_name  = rownames(G_pea)[pea],
-      producer  = Pr[oat],
-      associate = As[pea],
-      interaction = I_mat[cbind(oat, pea)],
-      gxe       = gxe,
-      genetic   = genetic,
-      # The scale factor multiplies signal and noise alike, so it is variance
-      # heterogeneity only. Any genotype x environment interaction comes from
-      # the gxe term above, not from this.
-      y = env_mean[env] + env_scale[env] * (genetic + resid)
+      env      = env,
+      oat_name = rownames(G_oat)[oat],
+      pea_name = rownames(G_pea)[pea],
+      # the scale factors multiply signal and noise alike, so they are variance
+      # heterogeneity only; any GxE comes from the gxe terms above
+      y_oat = env_mean_oat[env] + env_scale_oat[env] * (genetic_oat + E[, 1]),
+      y_pea = env_mean_pea[env] + env_scale_pea[env] * (genetic_pea + E[, 2]),
+      genetic_oat = genetic_oat, genetic_pea = genetic_pea
     )
 
   list(
     obs = obs,
-    # producer and associate are the STABLE parts -- what another environment
+    # The four effects here are the STABLE parts -- what another environment
     # could predict, and therefore what the models are scored against. The
     # environment-specific parts are by construction unpredictable.
-    truth = list(producer = Pr, associate = As, interaction = I_mat,
-                 producer_env = Pr_env, associate_env = As_env,
-                 U = U, Lambda = Lam,
-                 env_scale = env_scale, env_mean = env_mean,
-                 gxe_cor = rho, realised_gxe_cor = realised_gxe_cor,
-                 V = c(producer = V_Pr * rho, associate = V_As * rho,
-                       producer_env = V_Pr * (1 - rho),
-                       associate_env = V_As * (1 - rho),
-                       interaction = V_I, residual = V_e)),
+    truth = list(
+      oat_prod = oat_prod, oat_assoc = oat_assoc,
+      pea_prod = pea_prod, pea_assoc = pea_assoc,
+      I_oat = int_oat$I, I_pea = int_pea$I,
+      U_oat = int_oat$U, Lambda_oat = int_oat$Lambda,
+      U_pea = int_pea$U, Lambda_pea = int_pea$Lambda,
+      gxe = gxe_env,
+      env_scale = list(oat = env_scale_oat, pea = env_scale_pea),
+      env_mean  = list(oat = env_mean_oat,  pea = env_mean_pea),
+      gxe_cor = rho, realised_gxe_cor = realised_gxe_cor,
+      # per trait, each summing to 1
+      V = list(
+        oat = c(producer = V[["oat_prod"]] * rho,
+                associate = V[["pea_assoc"]] * rho,
+                producer_env = V[["oat_prod"]] * (1 - rho),
+                associate_env = V[["pea_assoc"]] * (1 - rho),
+                interaction = V_I, residual = V[["e_oat"]]),
+        pea = c(producer = V[["pea_prod"]] * rho,
+                associate = V[["oat_assoc"]] * rho,
+                producer_env = V[["pea_prod"]] * (1 - rho),
+                associate_env = V[["oat_assoc"]] * (1 - rho),
+                interaction = V_I, residual = V[["e_pea"]])
+      ),
+      Sigma = list(
+        oat = sigma_from_cor(V[["oat_prod"]], V[["oat_assoc"]], pr_as_cor[["oat"]]),
+        pea = sigma_from_cor(V[["pea_prod"]], V[["pea_assoc"]], pr_as_cor[["pea"]]),
+        R = R
+      )
+    ),
     G_oat = G_oat, G_pea = G_pea,
     settings = list(n_oat = n_oat, n_pea = n_pea, sparsity = sparsity,
                     n_factors = n_factors, interaction_pct = interaction_pct,

@@ -33,7 +33,9 @@ remotes::install_github("TriticeaeToolbox/BrAPI.R")   # BrAPI wrapper
 remotes::install_github("jeanlucj/T3BrapiHelpers")
 remotes::install_github("jeanlucj/T3GenoTools")       # GRMs + shared geno cache
 remotes::install_github("deruncie/MegaLMM")           # factor model
-install.packages(c("tidyverse", "here", "BGLR", "patchwork", "workflowr"))
+install.packages(c("tidyverse", "here", "BGLR", "patchwork", "workflowr",
+                   "AlgDesign", "withr"))   # AlgDesign: the simulation's
+                                            # fractional design
 ```
 
 R ≥ 4.5. `httr` must be attached in any session that talks to the server —

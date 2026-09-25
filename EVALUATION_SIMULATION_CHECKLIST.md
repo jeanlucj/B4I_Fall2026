@@ -62,6 +62,39 @@ loading the analysis alongside it is now harmless.
       `r_observed` you are quoting, and that `r_pea_assoc` is the **pea's**
       effect on oat yield; count the `NA`s feeding each mean.
 
+## Bivariate and both orientations
+
+- [ ] **Four effects, correlated as asked** — `cor(oat_prod, oat_assoc)` ≈
+      −0.065 and `cor(pea_prod, pea_assoc)` ≈ −0.234 to four decimals (the
+      whitening in `draw_effect_pair()` makes these exact, not approximate);
+      `var()` of each equals its target; both per-trait budgets sum to 1.
+- [ ] **Two interaction surfaces, independent** — `qr(I_oat)$rank` and
+      `qr(I_pea)$rank` both equal `n_factors`; `cor(I_oat, I_pea)` ≈ 0.
+- [ ] **The comparator is the real model** — `fit_dge_ige()` calls
+      `fit_producer_associate()`, so the simulation and the production analysis
+      fit one implementation. Its mix term uses the low-rank `kron_rank` basis,
+      not the exact kernel.
+- [ ] **Both orientations run and the pea side is transposed** —
+      `dim(surface$oat) == dim(surface$pea)`, both oat-rows × pea-cols;
+      `n_dropped == 0`.
+- [ ] **The structural prediction** — `r_*_assoc` degrades faster than
+      `r_*_prod` as sparsity falls from 48% to 1.6%, because only the producer
+      effects get kinship. On `megalmm_U`, which excludes the per-column
+      intercept, the associate effects should be near zero at any density
+      (measured: 0.13 and 0.16 on a dense panel against 0.94 for the producer).
+
+## The fractional design
+
+- [ ] **The recoding is what makes it estimable** — a main-effects-plus-2FI
+      model is singular on the FULL grid, because `interaction_pct` is nested in
+      `n_factors` and `gxe_cor` in `n_envs`. Confirm `sim_design()$model_rank`
+      equals `$model_terms` (82).
+- [ ] **150 runs covers everything** — all 120 data scenarios touched, all 8
+      MegaLMM settings present with roughly equal counts.
+- [ ] **Read it as a model, not a table** — `simulation_design_effects.csv`,
+      not cell means. There is no per-scenario best-of-settings to take any
+      more, which is the point.
+
 ## The models
 
 - [ ] **S7 `sim_bglr`** — additive model's `interaction` is exactly 0;

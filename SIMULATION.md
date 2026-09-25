@@ -40,7 +40,47 @@ Six factors, in `SIM_LEVELS` in `code/sim_config.R`:
 
 `2 × 4 × 3 × 2 × 2 × 2 = 192`, less the cells where a level scales nothing —
 `interaction_pct` at `n_factors = 0`, and `gxe_cor` at `n_envs = 1`:
-**120 scenarios**.
+**120 data scenarios**.
+
+### The MegaLMM sweep is fractional
+
+Crossing those 120 scenarios with the eight MegaLMM settings
+(`K` × `eigen_variance` × `fixed_main_effect`) is 960 combinations, and since
+MegaLMM is now fitted in both orientations that would be **1,920 fits** per
+replicate. What we actually want from the sweep is each lever's main effect and
+the two-way interactions between levers; three-way interactions are not
+interpretable anyway.
+
+**Two axes have to be recoded before any of that works.** `interaction_pct`
+exists only when `n_factors > 0` and `gxe_cor` only when `n_envs > 1`, so as
+separate factors they are *nested*, not crossed — and a main-effects-plus-2FI
+model is singular on the **full** grid, not merely on a fraction of it. Folding
+each nested pair into a composite factor fixes it:
+
+| factor | levels |
+|---|---|
+| `n_acc` | 200, 400 |
+| `sparsity` | 1.6%, 4.8%, 16%, 48% |
+| `interaction` | none, f1_i10, f1_i20, f5_i10, f5_i20 |
+| `environment` | one, ten_stable, ten_gxe |
+| `K` | 5, 10 |
+| `eigen_variance` | 0.25, 0.75 |
+| `fixed_main_effect` | FALSE, TRUE |
+
+960 candidates, 82 parameters for main effects plus all two-way interactions,
+full-factorial rank 82. `sim_design()` takes a **D-optimal subset of 150 runs**
+via `AlgDesign::optFederov`, which keeps full rank and still touches all 120
+data scenarios — so the DGE-IGE half loses no coverage while MegaLMM drops from
+1,920 fits to 300. `--full` runs every candidate instead; `--runs N` changes the
+fraction.
+
+**This changes how the results are read.** Most scenarios carry only some
+MegaLMM settings, so a table of cell means would compare unlike with unlike.
+Fit the design model to the outcomes instead — `sim_run.R` writes
+`simulation_design_effects.csv` as a first pass. It also removes a bias the old
+summary had: it took the best of twelve MegaLMM settings per scenario, judged on
+the same held-out cells it reported, and compared that maximum against a
+DGE-IGE fitted once.
 
 ### Why 1.6 / 4.8 / 16 / 48%
 
@@ -73,31 +113,39 @@ observations asked for, which `sample_combinations()` now asserts.
 
 ## What is simulated
 
-For oat *i* with pea *j* in environment *k*:
+For oat *i* with pea *j* in environment *k*, **both yields**:
 
 ```
-y_ijk = mu_k + s_k * ( Pr_i + As_j + I_ij + Pr_ik + As_jk + e_ijk )
+y_oat = mu_oat_k + s_oat_k ( oatPr_i + peaAs_j + I_oat_ij + gxe + e_oat )
+y_pea = mu_pea_k + s_pea_k ( peaPr_j + oatAs_i + I_pea_ij + gxe + e_pea )
 
-Pr  ~ N(0, G_oat * V_Pr * rho)    producer: what the oat does for itself
-As  ~ N(0, G_pea * V_As * rho)    associate: what the PEA does to the oat
-I   = sum_f u_if * lam_jf         interaction, rank n_factors
-        u_.f ~ N(0, G_oat),  lam_.f ~ N(0, G_pea)
-Pr_ik ~ N(0, G_oat * V_Pr * (1-rho))   environment-specific, one draw per env
-As_jk ~ N(0, G_pea * V_As * (1-rho))
-e   ~ N(0, V_e)
+(oatPr, oatAs) ~ N(0, Sigma_oat (x) G_oat)
+(peaPr, peaAs) ~ N(0, Sigma_pea (x) G_pea)
+(e_oat, e_pea) ~ N(0, R)
+I_oat, I_pea     two INDEPENDENT surfaces, each of rank n_factors
+gxe              per-environment deviations on all four effects, size 1 - rho
 ```
 
-**The response is oat yield, and only oat yield.** That is worth stating
-plainly because it decides what the simulation can and cannot speak to: `Pr` is
-the **oat's** producer effect and `As` is the **pea's** associate effect on the
-oat. The oat's own associate effect — its effect on pea yield — and the pea's
-producer effect are not simulated, because pea yield never appears. See the
-caveats at the end.
+**Four genetic effects, not two.** A species' producer effect (on its own
+yield) and its associate effect (on its partner's) are correlated properties of
+the same genotype, and that covariance — `Sigma`'s off-diagonal — is the whole
+reason the real analysis fits the two yields jointly. `draw_effect_pair()`
+whitens and re-colours each pair so its realised covariance *is* `Sigma` rather
+than merely having it in expectation.
 
-`rho` (`gxe_cor`) is the across-environment genetic correlation, and splits each
-effect into a stable share and an environment-specific one so the total producer
-and associate variances are unchanged. At `rho = 1` there is no GxE and the
-generator reduces exactly to the pre-GxE version.
+An earlier version of this framework simulated oat yield alone. That left the
+oat's associate effect and the pea's producer effect out of existence, forced
+the DGE-IGE comparator to be univariate, and meant only one of the two
+contrasts the validation trial tests had any simulation behind it.
+
+`rho` (`gxe_cor`) is the across-environment genetic correlation. Each effect
+splits into a stable share and an environment-specific one, so the total
+variances are unchanged and `rho = 1` reduces to no GxE at all.
+
+**The two interaction surfaces are independent.** Fitting the real model with
+the specific-combination term puts their correlation at about +0.20, but with
+1,869 of 2,059 combinations in a single plot that is not separable from plot
+quality — a fertile plot lifts both yields. See the caveats.
 
 ### The interaction is built to be fair to both frameworks
 
@@ -114,10 +162,18 @@ correct answer is that neither should find anything.
 
 ### Everything else comes from the B4I data
 
-- **Variance shares** — producer 0.211, associate 0.160, residual 0.630, from
-  the fitted bivariate model (395.1 / 299.3 / 1181.5 for oat yield). The
-  interaction takes its share off the top and the rest is split in these
-  proportions.
+- **Variance shares, one budget per trait and deliberately not symmetric** —
+  oat yield splits producer 0.211 / associate 0.160 / residual 0.630
+  (395.1 / 299.3 / 1181.5), pea yield 0.215 / 0.121 / 0.663
+  (185.9 / 105.3 / 572.9). Read "producer" as "of the species whose yield this
+  is". The interaction takes its share off the top and the rest is split in
+  these proportions.
+- **The off-diagonals** — within-species producer–associate correlations of
+  −0.065 (oat) and −0.234 (pea), and a residual correlation between the two
+  yields of −0.122. These are the **genetic** correlations from the fit, not the
+  correlations between the BLUPs (−0.405, −0.441): the BLUP correlation is
+  inflated because the two effects are estimated with correlated errors.
+  `sim_observed_parameters()` re-derives all of it.
 - **Relationship matrices** — the real `GRM_Avena.rds` and `GRM_Pisum.rds`,
   subsampled to the panel size, so the relatedness structure and its
   unevenness are real rather than idealised.
@@ -151,14 +207,54 @@ Masking for cross-validation carries the same floor.
 
 Three models, all shown identical data and scored on identical held-out cells:
 
-| model | interaction |
+| model | what it fits |
 |---|---|
-| `additive` | none — producer + associate only. The model used on the real B4I data, and the floor the others must clear. |
-| `dge_ige` | the specific-combination term, covariance `G_oat ⊗ G_pea`. The proposal's Eqn 2 in full. |
-| `megalmm` | factors, with pea GRM eigenvectors as environmental covariates. Scored on `Eta_mean`, the predicted phenotype. |
-| `megalmm_U` | the same fit scored on `U` instead, for comparison. |
+| `additive` | the bivariate producer–associate model, no interaction term. The model used on the real B4I data, and the floor the others must clear. |
+| `dge_ige` | the same plus the specific-combination term, covariance `G_oat ⊗ G_pea` at low rank. The proposal's Eqn 2 in full. |
+| `megalmm` | the factor model, fitted **twice** — once each orientation. Scored on `Eta_mean`, the predicted phenotype. |
+| `megalmm_U` | the same fits scored on `U` instead, for comparison. |
 
-plus `oat_mean` and `oat_plus_pea` as margin-only baselines.
+plus `row_mean` and `both_means` as margin-only baselines.
+
+Both DGE-IGE variants are fitted by **`fit_producer_associate()` in
+`code/dge_ige_functions.R`** — the same function the production analysis and the
+leave-one-trial-out cross-validation use. The comparator is therefore the model
+the project actually runs, not a univariate stand-in. Its specific-combination
+term is built from the low-rank Kronecker basis (`kron_rank`), because the exact
+kernel is tractable at the real experiment's 2,059 combinations but not at a
+simulation's 19,200.
+
+### MegaLMM is fitted in both orientations
+
+| orientation | rows | columns | cells | gives, as margins |
+|---|---|---|---|---|
+| oat-side | oat, with `G_oat` | pea | oat yield | oat **producer**, pea **associate** |
+| pea-side | pea, with `G_pea` | oat | pea yield | pea **producer**, oat **associate** |
+
+One orientation cannot give all four effects, because MegaLMM has a per-column
+intercept and **no per-row one**. So the row species' main effect must be
+carried by kinship-shrunk latent structure, while the column species' main
+effect sits in an unshrunk fixed intercept. Each orientation therefore estimates
+one species' producer effect with borrowing and the other species' associate
+effect without it.
+
+Running both and assembling gives every effect from the orientation that treats
+it best:
+
+```
+oat GMA = rowMeans(surface_oat) + rowMeans(surface_pea)
+pea GMA = colMeans(surface_pea) + colMeans(surface_oat)
+```
+
+The pea-side surface is transposed on the way out, so **every model returns the
+same thing: two full oat × pea surfaces, one per trait, both oat-rows ×
+pea-cols**. That uniformity is what makes the metrics comparable — each effect
+is a margin of a surface, taken the same way from every framework, rather than
+each model's own idea of what it estimated.
+
+It also predicts something testable: **the associate columns should fall away
+faster than the producer columns as the matrix thins**, because only the
+producer effects get kinship. The 1.6% level is where to look.
 
 ### Score `Eta_mean`, not `U`
 
@@ -223,53 +319,64 @@ M  =  additive_part(M)  +  interaction_part(M)
 additive_part(M) = outer(rowMeans(M), colMeans(M), "+") - mean(M)
 ```
 
-**Scored against the truth at the held-out cells:**
+**Per trait, at the held-out cells** (suffix `_oat` for oat yield, `_pea` for
+pea yield):
 
-- **`r_total`** — against the true genetic value `Pr + As + I`. What a breeder
-  ranking on predicted performance would care about.
-- **`r_gma`** — against `Pr + As`, the interaction removed from prediction and
+- **`r_total_*`** — against the true genetic value `Pr + As + I` for that trait.
+  What a breeder ranking on predicted performance would care about.
+- **`r_gma_*`** — against `Pr + As`, the interaction removed from prediction and
   truth alike. General mixing ability: the quantity that matters when specific
-  combinations are not going to be chosen, only good general partners.
-- **`r_interaction`** — against the true interaction alone. **The metric the
+  combinations will not be chosen, only good general partners.
+- **`r_int_*`** — against the true interaction alone. **The metric the
   comparison turns on.** Neither framework returns an "interaction" on the same
-  terms — DGE-IGE has an explicit term, MegaLMM's factors carry main effects
-  and interaction together — so row and column means are stripped from the
-  whole predicted surface and from the truth alike. An additive model
-  residualises to exactly zero, which is the correct answer for it.
-- **`r_observed`** — against the held-out observation, noise included. The
-  ceiling any model faces in practice.
+  terms, so row and column means are stripped from the predicted surface and
+  from the truth alike. An additive model residualises to exactly zero, which is
+  the correct answer for it.
+- **`r_obs_*`** — against the held-out observation, noise included. The ceiling
+  any model faces in practice.
 
-**Effect recovery, from the margins of the surface rather than from any one
-model's internals:**
+**Effect recovery — all four, each from the margin that carries it:**
 
-- **`r_oat_prod`** — `cor(rowMeans(surface), true producer effect)`. The oat's
-  producer effect is the row margin by definition, so this asks every framework
-  the same question in the same way.
-- **`r_pea_assoc`** — `cor(colMeans(surface), true associate effect)`. Note
-  which effect this is: in the single-trait framing the response is **oat
-  yield**, so the column margin is the **pea's** effect on the oat. The oat's
-  own associate effect, which acts on pea yield, is not in this simulation at
-  all — see the caveats.
+| metric | margin | is the effect of |
+|---|---|---|
+| `r_oat_prod` | `rowMeans(surface_oat)` | oat, on its own yield |
+| `r_pea_assoc` | `colMeans(surface_oat)` | pea, on the oat |
+| `r_oat_assoc` | `rowMeans(surface_pea)` | oat, on the pea |
+| `r_pea_prod` | `colMeans(surface_pea)` | pea, on its own yield |
+
+and **`r_oat_gma` / `r_pea_gma`** for each species' producer plus associate,
+assembled across the two surfaces. Taking every effect as a surface margin is
+what asks the three frameworks the same question the same way.
 
 **Two diagnostics of the fixed-loading factor**, not estimates of a main
 effect:
 
-- **`r_mainfactor_truePr`** — the pinned factor's scores against the true
-  producer effect. Says whether `fixed_main_effect` is doing its job. It equals
-  the main effect only if every other factor has zero mean loading, which
-  nothing enforces, so `r_oat_prod` is the estimate to quote. Reported as `|r|`
-  when the factor is free, because a free factor's sign is arbitrary.
-- **`r_rowmean_truePr`** — the bar: a plain average of the training rows.
-- **`fixed_ok`** — `sd(Lambda[1, ]) < 1e-8`, i.e. the pinned loadings really
-  are constant across columns. They come back at the main-effect SD rather than
-  at 1, because `remove_nuisance_parameters` rescales `Lambda`.
+- **`r_mainfactor_oat` / `r_mainfactor_pea`** — the pinned factor's scores
+  against the true producer effect of the species on that orientation's rows.
+  Says whether `fixed_main_effect` is doing its job. It equals the main effect
+  only if every other factor has zero mean loading, which nothing enforces —
+  measured on a dense panel the factor route explains 7.5% of the margin's
+  variance and correlates 0.05 with the truth against 0.94 for the margin
+  itself. So `r_oat_prod` is the estimate to quote. Reported as `|r|` when the
+  factor is free, because a free factor's sign is arbitrary.
+- **`r_rowmean_oat` / `r_rowmean_pea`** — the bar: a plain average of the
+  training rows.
+- **`fixed_ok_oat` / `fixed_ok_pea`** — `sd(Lambda[1, ]) < 1e-8`, i.e. the
+  pinned loadings really are constant across columns. They come back at the
+  main-effect SD rather than at 1, because `remove_nuisance_parameters`
+  rescales `Lambda`.
+- **`n_dropped`** — accessions with no training observation, padded back with
+  zero. Should be 0; if it is not, some held-out cells are being predicted as
+  exactly zero and the correlations are diluted.
 
 ## Running it
 
 ```bash
 Rscript code/sim_run.R --check                          # sanity check, always first
-Rscript code/sim_run.R                                  # the 120-scenario grid
+Rscript code/sim_run.R                                  # 120 scenarios, 150 MegaLMM runs
 Rscript code/sim_run.R --reps 5                         # replicated
+Rscript code/sim_run.R --full                           # every candidate, no fraction
+Rscript code/sim_run.R --runs 200                       # a bigger fraction
 Rscript code/sim_run.R --extended                       # finer sparsity axis
 Rscript code/sim_run.R --filter "n_acc == 200 & n_envs == 1"
 Rscript code/sim_run.R --refresh                        # ignore the cache
@@ -501,23 +608,17 @@ change the bivariate model needs for `σ_PrAs`.
   producer and associate effects — a single correlation parameter, not a
   structured G×E. Nothing crosses over in a patterned way.
 - The convergence trace does not reconcile with the final posterior (above).
-- Only the oat orientation is fitted. MegaLMM gives the oat axis a relationship
-  matrix and the pea axis only a per-column intercept and factor loadings, so
-  the pea side is structurally under-specified relative to the DGE-IGE model,
-  which shrinks both species through their GRMs. Part of MegaLMM's deficit on
-  `r_total` is that asymmetry rather than the method.
-  [BOTH_ORIENTATIONS.md](BOTH_ORIENTATIONS.md) sets out what to do about it.
-- **Only oat yield is simulated, and this is the framework's biggest
-  limitation.** `Pr` is the oat's producer effect and `As` is the *pea's*
-  associate effect on the oat. The oat's own associate effect — its effect on
-  pea yield — and the pea's producer effect do not exist here, because pea
-  yield never appears. Consequences: the within-species producer–associate
-  covariance that motivates the bivariate model is absent; `dge_ige` is fitted
-  with univariate `BGLR::BGLR` rather than the `Multitrait` model the project
-  actually runs, so it cannot borrow across the two yields; and of the two
-  contrasts the validation trial will test, only the pea one has a simulation
-  behind it. The oat side is symmetric by construction, so the conclusions
-  probably transfer — "probably" being the operative word.
+- **Both orientations are now fitted**, so MegaLMM is no longer penalised for
+  never having been given the pea relationships. What remains is structural and
+  cannot be fixed by running it twice: in each orientation the column species'
+  main effect sits in an unshrunk intercept, so neither associate effect gets
+  kinship from MegaLMM, while the DGE-IGE model shrinks all four through
+  `Sigma ⊗ G`. [BOTH_ORIENTATIONS.md](BOTH_ORIENTATIONS.md) sets out the
+  cross-orientation covariate idea that would close that gap.
+- **Both yields are now simulated**, so the within-species producer–associate
+  covariance is present and the DGE-IGE comparator is the real `Multitrait`
+  model. What is *not* simulated is any covariance between the two interaction
+  surfaces (below), or any structured pattern to the GxE.
 - **The correlation between the two interaction surfaces is not known.** Fitting
   the real bivariate model *with* the specific-combination term
   (`fit_producer_associate(..., fit_mix_term = TRUE)`) gives var(I on oat yield)

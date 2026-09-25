@@ -78,6 +78,24 @@ incidence <- function(x, levels) {
   Z
 }
 
+# A full set of dummy columns for a factor, no intercept.
+#
+# model.matrix(~ 0 + f) refuses a single-level factor -- "contrasts can be
+# applied only to factors with 2 or more levels" -- even though the answer is
+# an unambiguous column of ones. That case never arises in the six-trial
+# production fit, but it does for a simulated experiment with one environment,
+# and it is the caller's problem either way.
+dummy_matrix <- function(f) {
+  f <- droplevels(as.factor(f))
+  if (nlevels(f) < 2) {
+    Z <- matrix(1, length(f), 1, dimnames = list(NULL, levels(f)))
+    return(Z)
+  }
+  Z <- stats::model.matrix(~ 0 + f)
+  colnames(Z) <- levels(f)
+  Z
+}
+
 #' @param trait_names Column names of the response, in order. Passed
 #'   explicitly rather than read from a global `Y`, because the pilot fits
 #'   the same model to a different experiment.
@@ -107,6 +125,46 @@ accession_effects <- function(fit, term, L, trait_names, roles) {
       AsEff = .data[[roles[["As"]]]],
       GMA   = PrEff + AsEff   # GMA = Pr + As, docs/B4I_Proposal_Models.docx
     )
+}
+
+# ------------------------------------------------------------
+# Low-rank bases for design matrices
+#
+# Moved here from code/sim_fit.R: the simulation and the DGE-IGE model both
+# need them, and the specific-combination term cannot be built at scale
+# without them. The index arithmetic in kron_basis() and the reshape that
+# undoes it are derived in docs/specific-combination_kronecker.md -- read that
+# before touching either, because getting it wrong fails silently.
+# ------------------------------------------------------------
+
+grm_basis <- function(G, rank = NULL, variance = NULL) {
+  e <- eigen(G, symmetric = TRUE)
+  vals <- pmax(e$values, 0)
+  k <- if (!is.null(rank)) {
+    min(rank, sum(vals > 1e-8 * max(vals)))
+  } else {
+    which(cumsum(vals) / sum(vals) >= variance)[1]
+  }
+  V <- sweep(e$vectors[, seq_len(k), drop = FALSE], 2, sqrt(vals[seq_len(k)]), "*")
+  rownames(V) <- rownames(G)
+  V
+}
+
+#' Row-wise Kronecker basis for the specific-combination term.
+#'
+#' The exact term needs the n_obs x n_obs kernel G_oat[i,i'] * G_pea[j,j'],
+#' which at 19,200 observations is a 2.9 GB matrix to eigen-decompose. The
+#' same space is spanned by products of the two species' own eigenvectors, so
+#' the leading `rank` of each are combined instead: column (a-1)*rank + b of
+#' the result is A[,a] * B[,b], and a fitted coefficient vector reshapes to
+#' a rank x rank matrix with the full interaction surface A %*% Beta %*% t(B).
+#'
+#' That reshaping is what makes prediction for every cell cheap; building the
+#' basis for all n_oat * n_pea cells directly would not be.
+kron_basis <- function(A, B, oat_idx, pea_idx) {
+  k <- ncol(A)
+  A[oat_idx, rep(seq_len(k), each = k), drop = FALSE] *
+    B[pea_idx, rep(seq_len(k), times = k), drop = FALSE]
 }
 
 # ------------------------------------------------------------
@@ -140,13 +198,22 @@ DGE_IGE_ROLES <- list(
 #' @param G_oat,G_pea Relationship matrices, already collapsed onto the
 #'   analysis names.  Subset to the accessions in `dat` here.
 #' @param fit_mix_term The specific-combination term.  Off by default: it is
-#'   estimable only when combinations are replicated, and building its kernel
-#'   costs an eigendecomposition the size of the number of combinations.
-#' @return list(fit, L_oat, L_pea, effects, varcomp, resid_cov, accessions)
+#'   estimable only when combinations are replicated.
+#' @param kron_rank How to build that term. `NA` uses the EXACT kernel
+#'   `G_oat[i,i'] * G_pea[j,j']` over observed combinations, which costs an
+#'   eigendecomposition the size of the number of combinations -- fine at the
+#'   2,059 of the real experiment, impossible at the 19,200 of a dense
+#'   simulation. An integer instead builds the low-rank row-wise Kronecker
+#'   basis from the leading `kron_rank` eigenvectors of each species, giving a
+#'   `kron_rank^2`-column design matrix whose fitted coefficients reshape to a
+#'   full interaction surface. See docs/specific-combination_kronecker.md.
+#' @return list(fit, L_oat, L_pea, effects, varcomp, resid_cov, accessions,
+#'   interaction) -- `interaction` is a per-trait pair of full oat x pea
+#'   surfaces when the mix term was fitted at low rank, else NULL.
 fit_producer_associate <- function(dat, G_oat, G_pea, seed = 12567,
                                    nIter = 20000, burnIn = 3000, thin = 10,
-                                   fit_mix_term = FALSE, saveAt = NULL,
-                                   verbose = FALSE) {
+                                   fit_mix_term = FALSE, kron_rank = NA,
+                                   saveAt = NULL, verbose = FALSE) {
 
   oatAccs <- sort(unique(dat$oatAcc))
   peaAccs <- sort(unique(dat$peaAcc))
@@ -168,8 +235,7 @@ fit_producer_associate <- function(dat, G_oat, G_pea, seed = 12567,
   # Full trial dummies and NO separate intercept: a full dummy set plus an
   # intercept is rank-deficient, and BGLR samples along the ridge rather than
   # erroring, so nothing means anything and the chain mixes badly.
-  incTrials <- stats::model.matrix(~ 0 + trialF, dat)
-  colnames(incTrials) <- levels(dat$trialF)
+  incTrials <- dummy_matrix(dat$trialF)
 
   # Blocks are informative only where a trial has more than one. A trial with
   # a single block gives a factor constant within it, perfectly aliased with
@@ -185,8 +251,7 @@ fit_producer_associate <- function(dat, G_oat, G_pea, seed = 12567,
     unique() |>
     as.character()
 
-  incBlocks <- stats::model.matrix(~ 0 + blockNumberF, dat)
-  colnames(incBlocks) <- levels(dat$blockNumberF)
+  incBlocks <- dummy_matrix(dat$blockNumberF)
   incBlocks <- incBlocks[, colnames(incBlocks) %in% informative, drop = FALSE]
 
   Z_oat <- incidence(dat$oatAcc, rownames(Go))
@@ -207,15 +272,30 @@ fit_producer_associate <- function(dat, G_oat, G_pea, seed = 12567,
   }
 
   L_mix <- NULL
+  kron_A <- kron_B <- NULL
+  oat_idx <- match(dat$oatAcc, oatAccs)
+  pea_idx <- match(dat$peaAcc, peaAccs)
+
   if (fit_mix_term) {
-    mixIDs <- sort(unique(paste(dat$oatAcc, dat$peaAcc, sep = "::")))
-    parts <- stringr::str_split_fixed(mixIDs, stringr::fixed("::"), 2)
-    G_mix <- Go[parts[, 1], parts[, 1], drop = FALSE] *
-             Gp[parts[, 2], parts[, 2], drop = FALSE]
-    dimnames(G_mix) <- list(mixIDs, mixIDs)
-    L_mix <- grm_factor(G_mix)
-    Z_mix <- incidence(paste(dat$oatAcc, dat$peaAcc, sep = "::"), mixIDs)
-    ETA$G_mix <- list(X = Z_mix %*% L_mix, model = "BRR")
+    if (is.na(kron_rank)) {
+      # exact kernel over observed combinations
+      mixIDs <- sort(unique(paste(dat$oatAcc, dat$peaAcc, sep = "::")))
+      parts <- stringr::str_split_fixed(mixIDs, stringr::fixed("::"), 2)
+      G_mix <- Go[parts[, 1], parts[, 1], drop = FALSE] *
+               Gp[parts[, 2], parts[, 2], drop = FALSE]
+      dimnames(G_mix) <- list(mixIDs, mixIDs)
+      L_mix <- grm_factor(G_mix)
+      Z_mix <- incidence(paste(dat$oatAcc, dat$peaAcc, sep = "::"), mixIDs)
+      ETA$G_mix <- list(X = Z_mix %*% L_mix, model = "BRR")
+    } else {
+      # low-rank row-wise Kronecker basis: one column per (oat direction x pea
+      # direction) pair, so the term is kron_rank^2 columns wide however many
+      # combinations there are
+      kron_A <- grm_basis(Go, rank = kron_rank)
+      kron_B <- grm_basis(Gp, rank = kron_rank)
+      ETA$G_mix <- list(X = kron_basis(kron_A, kron_B, oat_idx, pea_idx),
+                        model = "BRR")
+    }
   }
 
   set.seed(seed)
@@ -251,6 +331,22 @@ fit_producer_associate <- function(dat, G_oat, G_pea, seed = 12567,
                     sqrt(R["peaYield", "peaYield"] * R["oatYield", "oatYield"])
     ),
     accessions = list(oat = oatAccs, pea = peaAccs),
+    # Full oat x pea interaction surfaces, one per trait, when the mix term was
+    # built at low rank. The coefficients come back as kron_rank^2 x 2 (one
+    # column per trait); each column reshapes row-major to kron_rank x
+    # kron_rank and expands to A %*% Beta %*% t(B). byrow = TRUE is not
+    # optional -- see docs/specific-combination_kronecker.md.
+    interaction = if (fit_mix_term && !is.na(kron_rank)) {
+      b <- fit$ETA$G_mix$beta
+      surf <- function(trait) {
+        Beta <- matrix(b[, match(trait, DGE_IGE_TRAITS)],
+                       nrow = ncol(kron_A), ncol = ncol(kron_B), byrow = TRUE)
+        out <- kron_A %*% Beta %*% t(kron_B)
+        dimnames(out) <- list(oatAccs, peaAccs)
+        out
+      }
+      list(oat = surf("oatYield"), pea = surf("peaYield"))
+    } else NULL,
     n_plots = nrow(dat), n_blocks_fitted = ncol(incBlocks)
   )
 }

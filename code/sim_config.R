@@ -65,31 +65,32 @@ SIM_LEVELS <- list(
   gxe_cor = c(1.0, 0.6)
 )
 
-# MegaLMM settings swept separately from the data-generating design, because
-# they change nothing about the simulated experiment and so must not cause the
-# expensive BGLR fits to be repeated. sim_run.R crosses these with SIM_LEVELS
-# and caches the two halves apart.
+# MegaLMM settings, swept as part of the design rather than crossed with it.
+#
+# They change nothing about the simulated experiment, so the expensive DGE-IGE
+# half must not be refitted for each of them -- the two halves are cached
+# separately. Since MegaLMM is now fitted in BOTH orientations, the sweep is
+# also where most of the compute goes, which is why sim_design() takes a
+# D-optimal fraction of it rather than running every combination.
 #
 # K: MegaLMM shrinks surplus factors through the ARD prior, so erring high is
 # meant to be cheap. Five is about the most one could hope to detect in a real
 # intercrop experiment and ten is past the point of usefulness, so the sweep
 # brackets the practical range rather than exploring beyond it.
 #
-# eigen_variance: how much pea genetic variance the covariates offered to
-# Lambda should span. Irrelevant covariates are likewise meant to be shrunk
-# away, so this tests that claim as much as it tunes anything.
-# fixed_main_effect: give MegaLMM a first factor with loadings pinned at 1,
-# so the oat main effect has a term of its own instead of having to be
-# reconstructed from latent factors. See docs/MegaLMM_sparsity_challenge.md
-# for why that is the obvious thing to try, and setup_megalmm_state() for the
-# three settings it drags along with it.
+# eigen_variance: how much of the column species' genetic variance the
+# covariates offered to Lambda should span. Irrelevant covariates are likewise
+# meant to be shrunk away, so this tests that claim as much as it tunes
+# anything. Two levels, well apart, is enough to see whether it matters.
 #
-# Crossing all three doubles the MegaLMM half to 12 settings and the whole
-# grid to 720 fits. The BGLR half is cached apart and is not refitted, so the
-# added cost is 6 MegaLMM fits per scenario at roughly 10-40 s each.
+# fixed_main_effect: give the row species a first factor with loadings pinned
+# at 1, so its main effect has a term of its own instead of having to be
+# reconstructed from latent factors. See docs/MegaLMM_sparsity_challenge.md for
+# why that is the obvious thing to try, and setup_megalmm_state() for the three
+# settings it drags along with it.
 SIM_MEGALMM_LEVELS <- list(
   K = c(5, 10),
-  eigen_variance = c(0.20, 0.50, 0.80),
+  eigen_variance = c(0.25, 0.75),
   fixed_main_effect = c(FALSE, TRUE)
 )
 
@@ -128,6 +129,143 @@ sim_grid <- function(levels = SIM_LEVELS, n_reps = 1L) {
 
 SIM_BASE_SEED <- 20260921L
 
+# ------------------------------------------------------------
+# The fractional design
+#
+# Crossing the data-generating grid with the MegaLMM sweep and running every
+# cell is 960 combinations, and with MegaLMM now fitted in BOTH orientations
+# that is 1,920 fits per replicate. Most of it is redundant: what we want from
+# the sweep is the main effect of each lever and the two-way interactions
+# between them. Three-way interactions are not interpretable anyway.
+#
+# TWO AXES HAVE TO BE RECODED FIRST. `interaction_pct` only exists when
+# n_factors > 0 and `gxe_cor` only when n_envs > 1, so as separate factors they
+# are NESTED rather than crossed, and a main-effects-plus-two-way model is
+# singular on the full grid -- not just on a fraction of it. Folding each
+# nested pair into one composite factor makes the design properly crossed:
+#
+#   interaction : none, f1_i10, f1_i20, f5_i10, f5_i20        (5 levels)
+#   environment : one, ten_stable, ten_gxe                    (3 levels)
+#
+# With n_acc (2), sparsity (4), K (2), eigen_variance (2) and
+# fixed_main_effect (2) that is 960 candidates and 82 parameters for main
+# effects plus all two-way interactions, and the full factorial has rank 82.
+# A D-optimal subset of 150 runs keeps full rank at D-efficiency ~0.6 and
+# touches all 120 data scenarios, so the DGE-IGE half loses no coverage.
+#
+# HOW THE RESULTS ARE THEN READ. Not as a table of cell means -- most cells
+# have only some MegaLMM settings. Fit the design model to the outcomes and
+# report main effects and two-way interactions. That also removes the
+# best-of-twelve-settings selection bias the old summary had, because there is
+# no longer a per-scenario maximum to take.
+# ------------------------------------------------------------
+
+# How the composite levels map back to what the generator needs
+SIM_INTERACTION_MAP <- tibble::tribble(
+  ~interaction, ~n_factors, ~interaction_pct,
+  "none",       0,          0,
+  "f1_i10",     1,          0.10,
+  "f1_i20",     1,          0.20,
+  "f5_i10",     5,          0.10,
+  "f5_i20",     5,          0.20
+)
+
+SIM_ENVIRONMENT_MAP <- tibble::tribble(
+  ~environment,  ~n_envs, ~gxe_cor,
+  "one",         1,       1.0,
+  "ten_stable",  10,      1.0,
+  "ten_gxe",     10,      0.6
+)
+
+#' The full candidate set, in both codings.
+#'
+#' One row per (data scenario x MegaLMM setting), with the composite factors
+#' the design model uses alongside the underlying levels the generator needs.
+sim_candidates <- function(levels = SIM_LEVELS,
+                           mm_levels = SIM_MEGALMM_LEVELS) {
+  tidyr::expand_grid(
+    n_acc = levels$n_acc,
+    sparsity = levels$sparsity,
+    interaction = SIM_INTERACTION_MAP$interaction,
+    environment = SIM_ENVIRONMENT_MAP$environment,
+    K = mm_levels$K,
+    eigen_variance = mm_levels$eigen_variance,
+    fixed_main_effect = mm_levels$fixed_main_effect
+  ) |>
+    dplyr::left_join(SIM_INTERACTION_MAP, by = "interaction") |>
+    dplyr::left_join(SIM_ENVIRONMENT_MAP, by = "environment")
+}
+
+#' Everything a run needs: the data scenarios, and the runs chosen from them.
+#'
+#' @param n_runs Size of the D-optimal subset. 150 is the default because it is
+#'   where the model first becomes full rank with room to spare AND every data
+#'   scenario is still touched.
+#' @param full TRUE ignores the fraction and returns every candidate, for when
+#'   the compute is available and the cell means are wanted directly.
+#' @return list(scenarios, runs, efficiency, model_rank, model_terms)
+sim_design <- function(levels = SIM_LEVELS, mm_levels = SIM_MEGALMM_LEVELS,
+                       n_runs = SIM_DESIGN_RUNS, n_reps = 1L,
+                       seed = SIM_DESIGN_SEED, full = FALSE) {
+
+  cand <- sim_candidates(levels, mm_levels)
+  design_vars <- c("n_acc", "sparsity", "interaction", "environment",
+                   "K", "eigen_variance", "fixed_main_effect")
+
+  chosen <- if (full) {
+    cand
+  } else {
+    if (!requireNamespace("AlgDesign", quietly = TRUE)) {
+      stop("the fractional design needs the AlgDesign package; install it or ",
+           "call sim_design(full = TRUE)", call. = FALSE)
+    }
+    d <- as.data.frame(lapply(cand[design_vars], factor))
+    withr::with_seed(seed, {
+      opt <- AlgDesign::optFederov(~ .^2, data = d, nTrials = n_runs,
+                                   criterion = "D", nRepeats = 20,
+                                   maxIteration = 200)
+    })
+    cand[opt$rows, ]
+  }
+
+  X <- stats::model.matrix(~ .^2,
+                           data = as.data.frame(lapply(chosen[design_vars], factor)))
+
+  # the data scenarios the chosen runs need generated, numbered and seeded once
+  scenarios <- chosen |>
+    dplyr::distinct(n_acc, sparsity, interaction, environment,
+                    n_factors, interaction_pct, n_envs, gxe_cor) |>
+    dplyr::arrange(n_acc, sparsity, interaction, environment) |>
+    dplyr::mutate(
+      scenario = sprintf("n%d_sp%03d_f%d_i%02d_e%02d_g%03d",
+                         n_acc, round(sparsity * 1000), n_factors,
+                         round(interaction_pct * 100), n_envs,
+                         round(gxe_cor * 100)),
+      .before = 1
+    )
+
+  scenarios <- tidyr::expand_grid(scenarios, rep = seq_len(n_reps)) |>
+    dplyr::mutate(seed = SIM_BASE_SEED + dplyr::row_number())
+
+  runs <- chosen |>
+    dplyr::left_join(dplyr::select(scenarios, scenario, rep, seed,
+                                   n_acc, sparsity, interaction, environment),
+                     by = c("n_acc", "sparsity", "interaction", "environment"),
+                     relationship = "many-to-many")
+
+  list(scenarios = scenarios, runs = runs,
+       efficiency = if (full) NA_real_ else
+         attr(chosen, "Dea") %||% NA_real_,
+       model_rank = qr(X)$rank, model_terms = ncol(X))
+}
+
+# Runs in the fractional design, and the seed the search used. 150 is not a
+# round number chosen for tidiness: below about 120 the model loses rank, and
+# above 200 the gain in D-efficiency stops paying for the compute.
+SIM_DESIGN_RUNS <- 150L
+SIM_DESIGN_SEED <- 20260925L
+
+
 # The same design with the sparsity axis resolved more finely, for locating
 # the crossover precisely. Stays clear of the 1.50% floor at n_acc = 200.
 #   Rscript code/sim_run.R --extended
@@ -142,9 +280,35 @@ SIM_LEVELS_EXTENDED <- modifyList(
 # values it returns for the six B4I intercrop trials as of 2026-09-21.
 # ------------------------------------------------------------
 
-# Variance of oat yield split between producer, associate and residual, from
-# the fitted bivariate model: 395.1 / 299.3 / 1181.5.
-SIM_VAR_SHARES <- c(producer = 0.211, associate = 0.160, residual = 0.630)
+# Each TRAIT's variance split between the producer effect of the species whose
+# yield it is, the associate effect of the other species, and residual -- from
+# the fitted bivariate model. The two traits are deliberately NOT symmetric,
+# because the data is not:
+#
+#   oat yield : oat producer 395.1 / pea associate 299.3 / residual 1181.5
+#   pea yield : pea producer 185.9 / oat associate 105.3 / residual  572.9
+#
+# Read "producer" as "of the species this trait belongs to" and "associate" as
+# "of the other species" throughout.
+SIM_VAR_SHARES <- list(
+  oat = c(producer = 0.211, associate = 0.160, residual = 0.630),
+  pea = c(producer = 0.215, associate = 0.121, residual = 0.663)
+)
+
+# Within-species correlation between a species' producer effect (on its own
+# yield) and its associate effect (on its partner's). This is the off-diagonal
+# of Sigma_oat and Sigma_pea -- the covariance that motivates fitting the two
+# traits jointly, and the reason the simulation needs both.
+#
+# These are the GENETIC correlations from the fit (-0.065, -0.234), not the
+# correlations between the BLUPs (-0.405, -0.441). The BLUP correlation is
+# inflated because the two effects are estimated with correlated errors: on any
+# plot both contribute and they trade off.
+SIM_PR_AS_COR <- c(oat = -0.065, pea = -0.234)
+
+# Residual correlation between the two yields on the same plot: competition,
+# once trial and block are removed.
+SIM_RESID_COR <- -0.122
 
 # Between-environment heterogeneity. Environment scale factors are drawn
 # log-normal, so this is the SD of log(within-trial SD) across trials.
@@ -183,19 +347,34 @@ sim_observed_parameters <- function(
                           env_mean_log_sd = stats::sd(log(d$mean)))
 
   v <- readr::read_csv(varcomp_file, show_col_types = FALSE)
-  g <- v |> dplyr::filter(component == "genetic")
-  vPr <- mean(g$var_Pr[g$term == "G_oat"])
-  vAs <- mean(g$var_As[g$term == "G_pea"])
-  vE  <- mean(v$var_oat[v$component == "residual"], na.rm = TRUE)
-  shares <- c(producer = vPr, associate = vAs, residual = vE)
-  shares <- shares / sum(shares)
+  g <- dplyr::filter(v, component == "genetic")
+  r <- dplyr::filter(v, component == "residual")
+
+  # Which component belongs to which trait. For oat yield the producer is the
+  # OAT's effect on its own yield (G_oat's var_Pr) and the associate is the
+  # PEA's effect on the oat (G_pea's var_As); for pea yield it is the mirror.
+  comp <- function(term, field) mean(g[[field]][g$term == term])
+  budget <- list(
+    oat = c(producer = comp("G_oat", "var_Pr"),
+            associate = comp("G_pea", "var_As"),
+            residual  = mean(r$var_oat, na.rm = TRUE)),
+    pea = c(producer = comp("G_pea", "var_Pr"),
+            associate = comp("G_oat", "var_As"),
+            residual  = mean(r$var_pea, na.rm = TRUE))
+  )
 
   list(
     per_trial   = per_trial,
     grand_mean  = mean(pheno$oat_yield),
     all_trials  = spread(per_trial),
     no_failure  = spread(dplyr::filter(per_trial, sd > 0.5 * stats::median(per_trial$sd))),
-    var_shares  = shares
+    # absolute variances, and the same as shares summing to 1 within each trait
+    var_absolute = budget,
+    var_shares  = purrr::map(budget, \(b) b / sum(b)),
+    # the off-diagonals: within-species producer-associate, and residual
+    pr_as_cor = c(oat = mean(g$cor_PrAs[g$term == "G_oat"]),
+                  pea = mean(g$cor_PrAs[g$term == "G_pea"])),
+    resid_cor = mean(r$cor_pea_oat, na.rm = TRUE)
   )
 }
 
