@@ -14,6 +14,16 @@ source(here::here("code", "evaluation.R"))
 eval_load("analysis"); eval_conflicts(); eval_groups("analysis")
 ```
 
+## Before anything else
+
+- [ ] **`Rscript tests/run_all.R`** — green. ~45 s, needs no `output/` and no
+      credentials. It pins the things with an independently knowable right
+      answer, so the walkthrough below is spent on the things that do not have
+      one.
+- [ ] **`Rscript tests/run_all.R --all`** — green. Adds short real BGLR and
+      MegaLMM chains, plus the null. Run it at least once per session in which
+      you change a fitter.
+
 ## Offline — no T3 login, reads `data/` and `output/`
 
 - [ ] **A0 `eval_conflicts()`** — **no FUNCTION defined by more than one

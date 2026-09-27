@@ -109,11 +109,15 @@ accession meets a different partner every time. Averaging an accession over
 many partners is what makes its pool mean precise; it is worth more than
 repeating combinations.
 
-**Anchors.** One combination per cell is sown **twice at each location**, the
-same combinations everywhere — 8 plots per location, 40 in total. Within-
-location duplication is the only thing that separates plot error from
-combination × location; repeating a combination across locations alone
-confounds the two. This also buys a first estimate of specific-combination
+**Anchors.** One combination per cell is sown **twice at each location**, and it
+is the *same* four combinations everywhere — 8 plots per location, 40 in total.
+Both halves of that matter and for different reasons. Within-location duplication
+is the only thing that separates plot error from combination × location;
+repeating a combination across locations alone confounds the two. Holding the
+combinations fixed across locations is what makes combination × location
+estimable at all. Getting either half wrong leaves a design that still looks
+replicated and answers neither question — so `check_validation_design()` asserts
+both, and `tests/test_validation.R` asserts that it does. This also buys a first estimate of specific-combination
 variance, the quantity the project has concluded is missing from the existing
 design.
 
@@ -127,11 +131,20 @@ generated design gives:
 |---|---|
 | plots per location | 80 (exactly) |
 | cells per location | 20 / 20 / 20 / 20, of which 4 are anchor duplicates |
-| plots per oat accession | median 10 (range 8–12) |
-| plots per pea accession | median 6 (range 6–10) |
-| distinct partners per oat | median 9 (range 6–10) |
+| plots per oat accession | median 10 (range 8–20) |
+| plots per pea accession | median 6 (range 6–20) |
+| distinct partners per oat | median 9 (range 2–10) |
 | **partner-pool imbalance** | **0 for every accession, both species** |
-| replicated combinations | 41 |
+| replicated combinations | 23: four anchors at 10 plots each, the rest at 2–3 |
+
+The two ranges that look lopsided are the anchors. An anchor combination is sown
+twice at each of the five locations, so its four accessions appear in 20 plots
+against everyone else's 8–12, and they meet only their four fixed partners rather
+than nine. That is the cost of making combination × location estimable, and it is
+paid by four accessions per species. It is benign for the contrast — the analysis
+averages to one value per accession before comparing pools, so an anchor
+contributes a single, slightly more precise mean — and the unevenness is what the
+null-rate paragraph below accounts for.
 
 That last row is the one the analysis depends on: **every focal accession
 meets the two partner pools equally often**, so partner effects are orthogonal
@@ -268,6 +281,12 @@ than a cell its members appear at only some locations — and the equal-variance
 test used in the simulation assumes that heterogeneity away. It errs toward
 not rejecting, so the power above is if anything understated; the mixed model
 in the real analysis weights by precision and should recover the nominal rate.
+
+(These two rates were measured before the anchor combinations were fixed across
+locations, which made replication slightly less even — four accessions per
+species now carry 20 plots rather than 12. The direction of the effect is the
+same and the argument is unchanged, but expect the rates to move a little when
+`validate_power.R` is next re-run.)
 
 ---
 

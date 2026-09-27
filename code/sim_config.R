@@ -220,6 +220,17 @@ sim_design <- function(levels = SIM_LEVELS, mm_levels = SIM_MEGALMM_LEVELS,
            "call sim_design(full = TRUE)", call. = FALSE)
     }
     d <- as.data.frame(lapply(cand[design_vars], factor))
+
+    # optFederov refuses nTrials below the parameter count with a message about
+    # "columns in expanded X", which is not obviously about the run count. Say
+    # what is actually needed.
+    n_par <- ncol(stats::model.matrix(~ .^2, data = d))
+    if (n_runs < n_par) {
+      stop("n_runs = ", n_runs, " cannot estimate a model with ", n_par,
+           " parameters (main effects plus all two-way interactions). Use at ",
+           "least ", n_par, ", or sim_design(full = TRUE).", call. = FALSE)
+    }
+
     withr::with_seed(seed, {
       opt <- AlgDesign::optFederov(~ .^2, data = d, nTrials = n_runs,
                                    criterion = "D", nRepeats = 20,

@@ -72,6 +72,53 @@ Two independent chains that meet at the phenotype table. Every step writes to
                                       megalmm_fit_<fill>.rds
 ```
 
+### The other two chains
+
+The simulation and the validation trial are separate from the pipeline above and
+share only the GRMs and the fitted variance components.
+
+```
+  data/GRM_Avena.rds, GRM_Pisum.rds
+           |
+           v
+  sim_config.R       SIM_LEVELS -> 120 data scenarios
+                     the MegaLMM levers -> 960 candidates
+                     AlgDesign::optFederov -> a D-optimal 150-run fraction
+           |
+           v
+  sim_generate.R     one experiment under a known truth:
+                     four genetic effects, two yields, a low-rank
+                     interaction per trait, optional GxE
+           |
+           v
+  sim_fit.R          split -> {additive, dge_ige} via fit_producer_associate,
+                     MegaLMM in BOTH orientations -> two oat x pea surfaces
+                     per model -> score against the simulated truth
+           |
+           v
+  sim_run.R          the driver: caching, job-array slicing, --check,
+                     the design model fitted to the outcomes
+                     -> simulation_results.csv, simulation_design.csv,
+                        simulation_design_effects.csv, simulation_summary.png
+                     on a cluster: code/scinet/sim_array.sbatch
+
+
+  output/BGLR_*_effects_all_seeds.csv, variance components
+           |
+           v
+  validation_functions.R  (shared, sourced not run)
+     |              |                |
+  validate_      validate_        validate_      validate_
+  pool_selection  power            design        crossval
+     As+/As-      analytic and     field book    attenuation
+     pools        simulated        + balance     (lambda),
+     + churn      power            checks        leave-one-trial-out
+```
+
+Both chains are entirely offline: no T3 login, nothing downloaded. The
+simulation additionally knows its own truth, which is what makes it checkable
+against something other than another model.
+
 ## The scripts
 
 | script | does |
@@ -96,11 +143,24 @@ Two independent chains that meet at the phenotype table. Every step writes to
 | `validate_power.R` | analytic and simulation power, plus the false-positive check |
 | `validate_design.R` | field book for the validation trial, with balance checks |
 | `evaluation.R` | console tooling for [EVALUATION.md](EVALUATION.md): `arm_evaluation()`, `peek()`, `eval_load()`, the independent checks. Sourced by hand, never by a pipeline script |
+| `evaluation_snippets.R` | the paste-along companion to [EVALUATION_SIMULATION.md](EVALUATION_SIMULATION.md). Not a script — blocks to copy, level by level |
+
+## The tests
+
+`tests/` holds the unit tests. `Rscript tests/run_all.R` runs the fast tier in
+about 45 seconds; `--all` adds `test_fits.R`, which fits short real BGLR and
+MegaLMM chains. Each file runs in its own process, so no file's seeds or loaded
+functions can decide another's result.
+
+Nothing in `tests/` reads `output/` or needs credentials — the oracles are
+algebraic identities, planted answers and values the caller requested — so the
+suite runs in a fresh clone. See [tests/README.md](tests/README.md) for what
+each file pins.
 
 ## Conventions
 
 - workflowr project: `code/` runnable scripts and shared functions, `analysis/`
-  notebooks, `data/` inputs, `output/` generated results.
+  notebooks, `data/` inputs, `output/` generated results, `tests/` unit tests.
 - Every script starts with `library(tidyverse)` and `here::i_am(...)`; other
   packages are called as `package::function()`.
 - `output/` is gitignored apart from its README: everything in it regenerates.

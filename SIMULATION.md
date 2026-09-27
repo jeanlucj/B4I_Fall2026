@@ -378,12 +378,17 @@ Rscript code/sim_run.R --reps 5                         # replicated
 Rscript code/sim_run.R --full                           # every candidate, no fraction
 Rscript code/sim_run.R --runs 200                       # a bigger fraction
 Rscript code/sim_run.R --extended                       # finer sparsity axis
-Rscript code/sim_run.R --filter "n_acc == 200 & n_envs == 1"
+Rscript code/sim_run.R --pilot                          # four cheap runs, end to end
+Rscript code/sim_run.R --filter "n_acc == 200 & environment == 'one'"
 Rscript code/sim_run.R --refresh                        # ignore the cache
-Rscript code/sim_run.R --trace                          # record a convergence trace
 Rscript code/sim_run.R --task 3 --ntasks 20             # one slice, for a job array
 Rscript code/sim_run.R --combine                        # rebuild the CSV from the cache
 ```
+
+`--filter` takes an R expression over the **composite** design columns —
+`n_acc`, `sparsity`, `interaction`, `environment`, `K`, `eigen_variance`,
+`fixed_main_effect` — not over the raw `n_factors` / `n_envs` the generator
+receives. `--check` and `--pilot` are the two to run before anything long.
 
 On a cluster the grid runs as a SLURM job array; see
 [code/scinet/README.md](code/scinet/README.md).
@@ -392,20 +397,61 @@ On a cluster the grid runs as a SLURM job array; see
 
 | path | what it is |
 |---|---|
-| `output/simulation/<scenario>_rep<k>.rds` | one scenario's scores: a tibble with one row per model, the same shape as a slice of the combined CSV. This is the cache — the presence of this file is what lets a scenario be skipped. |
+| `output/simulation/<scenario>_rep<k>_s<seed>_bglr.rds` | the DGE-IGE half of one scenario: a tibble with one row per BGLR model and per baseline, the same shape as a slice of the combined CSV. |
+| `output/simulation/<scenario>_rep<k>_s<seed>_mm_K<k>_ev<vv>_fx<b>.rds` | one MegaLMM setting on one scenario. The two halves are cached apart because the BGLR half does not depend on the MegaLMM levers. |
+| `output/simulation_design.csv` | the run list that was actually executed, composite levels and all. |
+| `output/simulation_design_effects.csv` | the design model fitted to the outcomes — the intended way to read a fractional design. |
 | `output/simulation_results.csv` | every scenario run so far, combined. Columns as described under [Reading the results](#reading-the-results). |
 | `output/simulation_summary.png` | interaction accuracy against sparsity, faceted by panel size and interaction rank. |
 | `output/simulation_runs/` | scratch. MegaLMM needs its run state on disk, so each scenario gets a subdirectory here and it is deleted as soon as the scenario's scores are cached. The parent directory stays behind; nothing in it is worth keeping. |
 
 Everything under `output/` is gitignored, and everything here regenerates.
 
-Because the cache is per scenario, the grid can be run in pieces, interrupted
-and resumed. Re-running picks up where it stopped; `--refresh` ignores the
-cache and refits.
+Because the cache is per scenario and per MegaLMM setting, the grid can be run
+in pieces, interrupted and resumed. Re-running picks up where it stopped;
+`--refresh` ignores the cache and refits.
+
+**The seed is part of the cache key, not just of the contents.** A scenario's
+seed is `SIM_BASE_SEED` plus its row number over the whole grid, so adding a
+level to any axis renumbers every row and changes every seed — while the
+scenario *name*, which encodes only the design, does not. Putting the seed in
+the filename means those files simply miss and are recomputed, rather than being
+silently reused under a seed the current grid would never have assigned.
 
 ### How long it takes
 
-Measured at 200 × 200, mean seconds per scenario over all three fits:
+**Measured on the worst cell**, 400 × 400 at 48% — 76,800 plots per trait,
+61,440 in training after the 20% held out:
+
+| fit | production chain | measured |
+|---|---|---|
+| `additive` (no interaction term) | 6,000 iterations | **3.9 min** |
+| `dge_ige` (rank-30 Kronecker term) | 6,000 iterations | **9.0 min** |
+
+The interaction fit was timed at 400 and 800 iterations (37.0 s and 71.3 s) and
+extrapolated, because the cost is essentially all sampling and essentially
+linear: **2.7 s of setup plus 0.086 s per iteration**. Building the 61,440 × 900
+basis is not the expensive part; sampling through it is.
+
+BGLR's cost is close to linear in the number of observations, so scaling that
+anchor across the design gives, for one replicate:
+
+| | single-core time |
+|---|---|
+| `additive`, all 120 scenarios | ~1.8 h |
+| `dge_ige`, all 120 scenarios | ~4.1 h |
+| **both halves, whole grid** | **~5.9 h** |
+| the most expensive single scenario | 13 min |
+| per task at `--array=1-20` | 0.1–0.4 h, median 0.3 h |
+
+So the twelve-hour wall clock in `sim_array.sbatch` has a very large margin, and
+the earlier "budget 4–6 hours" estimate was for the whole grid on one core rather
+than per task. MegaLMM adds to this but is flat in sparsity — its cost is driven
+by the matrix size and `K`, not by how much of the matrix is filled — and the
+D-optimal fraction cut it from 1,920 fits to 300.
+
+For context, the older single-trait timings at 200 × 200, mean seconds per
+scenario over all three fits:
 
 | observed | observations | additive | dge_ige | megalmm | per scenario |
 |---|---|---|---|---|---|
@@ -413,29 +459,22 @@ Measured at 200 × 200, mean seconds per scenario over all three fits:
 | 15% | 6,000 | 7.3 | 28.6 | 10.0 | 46 s |
 | 45% | 18,000 | 20.4 | 70.6 | 9.8 | 101 s |
 
-(measured at the old 5 / 15 / 45% levels; 1.6 / 4.8 / 16 / 48% brackets them)
+Those predate the bivariate generator, so they are a lower bound: `Multitrait`
+carries two traits where those carried one. They are kept because the *shape* is
+the same and it is the shape that matters — the BGLR models scale with the number
+of observations, MegaLMM does not.
 
-Those timings predate the current levels and the GxE axis. Scaling them:
-`n_envs` and `gxe_cor` do not change the amount of data, only how the
-standardisation is grouped and how the effects are drawn, so they cost nothing.
-The two new low-sparsity levels are the **cheapest** cells in the grid — the
-BGLR models scale with the number of observations and 1.6% at 200 × 200 is 640
-of them — so doubling the grid from 60 to 120 scenarios costs much less than
-double. **Budget 4–6 hours for one replicate** rather than the previous three,
-extrapolated rather than measured, so treat it as give or take half.
+`n_envs` and `gxe_cor` cost nothing: they change how the standardisation is
+grouped and how the effects are drawn, not how much data there is. The two new
+low-sparsity levels are the **cheapest** cells in the grid — 1.6% at 200 × 200 is
+640 observations — so doubling the grid from 60 to 120 scenarios cost much less
+than double.
 
-The most expensive cell is 48% at 400 × 400: 76,800 observations, against the
-72,000 of the old 45% level. Time that one alone before launching the full grid.
-
-Note that `megalmm` is flat across sparsity while the two BGLR models are not:
-MegaLMM's cost is driven by the size of the matrix and `K`, not by how much of
-it is filled.
-
-The cell most likely to give trouble is 400 × 400 at 45%, where the Kronecker
-design matrix is 72,000 × 900 — 518 MB, with two temporaries of that size
-built before they are multiplied. If the full grid fails anywhere it will be
-there, on memory rather than time. Halving `SIM_KRON_RANK` to 20 cuts that
-term to 400 columns.
+The cell most likely to give trouble is 400 × 400 at 48%, on **memory rather than
+time**: the Kronecker design matrix is 61,440 × 900, about 440 MB, with two
+temporaries of that size built before they are multiplied, and `Multitrait`
+carrying two traits through it. Halving `SIM_KRON_RANK` to 20 cuts that term from
+900 columns to 400.
 
 ### Convergence: checked, not swept
 

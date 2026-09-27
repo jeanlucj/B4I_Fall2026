@@ -29,3 +29,7 @@ output/simulation_runs/
 
 # Pilot BGLR MCMC sample files
 output/pilot/pilot_seed_*.dat
+
+# SLURM job-array logs; the directory itself is kept (logs/.gitkeep)
+logs/*
+!logs/.gitkeep

@@ -3,6 +3,13 @@
 For the models themselves see [BACKGROUND.md](../BACKGROUND.md); for the
 simulation that produced these numbers see [SIMULATION.md](../SIMULATION.md).
 
+**A note on the numbers below.** They were measured at the simulation's original
+5 / 15 / 45% sparsity levels, against a single-trait generator. The design now
+sweeps 1.6 / 4.8 / 16 / 48% and is bivariate, so the figures here bracket the
+current levels rather than matching them. The mechanism is what this document is
+about and none of it depends on the exact levels; the current results are in
+[SIMULATION.md](../SIMULATION.md).
+
 ## The puzzle
 
 That a sparse matrix makes pea "environment" loadings hard to estimate is

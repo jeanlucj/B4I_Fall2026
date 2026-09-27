@@ -62,7 +62,25 @@ all. Only A9–A11 do.
 
 ## 2. How to evaluate: the plan
 
-Three principles, in order:
+### Step 0: run the tests
+
+```sh
+Rscript tests/run_all.R          # fast tier, ~45 s
+Rscript tests/run_all.R --all    # adds the real MCMC fits
+```
+
+`tests/` pins the parts of the code that have an independently knowable right
+answer — algebraic identities, planted duplicates, requested variances, exact
+sparsity — so that stepping through a module by hand is spent on the parts that
+do not. `tests/README.md` says what each file covers and what it has already
+caught. If the suite is red, fix that before reading anything below.
+
+The walkthrough and the tests answer different questions. A test says "this
+function computes what it claims". Stepping through says "this function is the
+right thing to compute here, on these data". The second is what the levels below
+are for.
+
+### Then: three principles, in order
 
 1. **Offline before online.** A1–A8 read `data/` and `output/`. They are where
    the subtle bugs are — name joins, collapses, masks, transposes — and they
@@ -830,6 +848,8 @@ Ranked by how badly a wrong answer would mislead, not by likelihood.
 
 ## 7. Where things live
 
+- `tests/` — the unit-test suite, `Rscript tests/run_all.R`. Needs no `data/`,
+  no `output/` and no credentials.
 - `data/` — versioned inputs, including the two GRMs and the downloaded
   observations. Rebuilding them from T3 takes hours, which is why they are not
   in `output/`.

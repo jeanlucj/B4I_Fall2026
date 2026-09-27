@@ -229,7 +229,14 @@ build_pools <- function(inp, n, pr_quantile = 0.5, tol = 1.0,
 
   # theta = 0 selects on As alone; because Pr and As are negatively correlated
   # in the BLUPs that leaves the As+ pool short on Pr, so dPr starts negative
-  # and rises with theta. Bisect on that.
+  # and rises with theta in TREND. Bisect on that.
+  #
+  # dPr is a step function of theta and is not locally monotone -- adjacent
+  # steps can reverse -- so this finds a zero crossing, not necessarily the
+  # theta that minimises |dPr|. In practice it lands well inside the tolerance
+  # when the candidate set is large enough to have the freedom; when it does
+  # not, the warning below is the signal, and the fix is a larger candidate set
+  # (lower pr_quantile) rather than more iterations.
   lo <- 0; hi <- theta_max; theta <- 0
   for (i in seq_len(iterations)) {
     theta <- (lo + hi) / 2
@@ -348,7 +355,27 @@ make_validation_design <- function(oat_pools, pea_pools, n_loc = 5L,
   # Take `m` members of a pool starting at an offset, wrapping around. When the
   # pool is bigger than the cell, the offset rotates membership across
   # locations so every accession appears about equally often overall.
-  take <- function(x, m, offset) x[((offset + seq_len(m) - 1L) %% length(x)) + 1L]
+  take <- function(x, m, offset) {
+    if (m <= 0L) return(x[0])
+    x[((offset + seq_len(m) - 1L) %% length(x)) + 1L]
+  }
+
+  # The anchors must sit OUTSIDE that rotation. If they are taken from the
+  # rotated window, the first member of the window differs at every location
+  # whenever the cell is smaller than the pool -- which is the normal case,
+  # because the anchors' second copies come out of the budget -- and then the
+  # anchor combination is not repeated across locations at all, so combination
+  # x location is not estimable. So: the first `anchor_n` members of each pool
+  # are fixed, and only the remaining slots rotate.
+  anchor_n <- min(as.integer(n_anchor), cell_size)
+  pick <- function(x, m, offset) {
+    if (length(x) <= anchor_n) {
+      stop("a pool of ", length(x), " cannot supply ", anchor_n,
+           " anchor(s) and still rotate; use a larger pool or fewer anchors",
+           call. = FALSE)
+    }
+    c(x[seq_len(anchor_n)], take(x[-seq_len(anchor_n)], m - anchor_n, offset))
+  }
 
   cells <- tidyr::expand_grid(oat_pool = c("As+", "As-"),
                               pea_pool = c("As+", "As-"))
@@ -356,11 +383,12 @@ make_validation_design <- function(oat_pools, pea_pools, n_loc = 5L,
   design <- purrr::map(seq_len(n_loc), \(loc) {
     purrr::pmap(cells, \(oat_pool, pea_pool) {
       o_all <- oats[[oat_pool]]; p_all <- peas[[pea_pool]]
-      o <- take(o_all, cell_size, (loc - 1L) * cell_size)
-      p <- take(p_all, cell_size, (loc - 1L) * cell_size)
+      rot <- (loc - 1L) * (cell_size - anchor_n)
+      o <- pick(o_all, cell_size, rot)
+      p <- pick(p_all, cell_size, rot)
 
       # anchors first, identical at every location; the rest re-permuted
-      anchor_idx <- seq_len(min(n_anchor, cell_size))
+      anchor_idx <- seq_len(anchor_n)
       rest <- setdiff(seq_len(cell_size), anchor_idx)
 
       pairing <- integer(cell_size)

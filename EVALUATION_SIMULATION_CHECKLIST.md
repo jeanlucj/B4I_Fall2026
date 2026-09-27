@@ -23,6 +23,16 @@ peek(sim)
 uses the same `grm_factor()` and `read_grm()` the DGE-IGE model fits with, so
 loading the analysis alongside it is now harmless.
 
+## Before anything else
+
+- [ ] **`Rscript tests/run_all.R`** — green. ~45 s, needs no `output/` and no
+      credentials. It pins the things with an independently knowable right
+      answer, so the walkthrough below is spent on the things that do not have
+      one.
+- [ ] **`Rscript tests/run_all.R --all`** — green. Adds short real BGLR and
+      MegaLMM chains, plus the null. Run it at least once per session in which
+      you change a fitter.
+
 ## The generator — does it produce the truth it advertises?
 
 - [ ] **S1 `sim_design`** — **120** scenarios, 120 distinct names; the cells

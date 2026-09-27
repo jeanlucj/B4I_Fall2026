@@ -33,6 +33,36 @@ Every model returns **two full oat × pea surfaces**, one per trait, both in oat
 
 ------------------------------------------------------------------------
 
+## 1b. Run the tests first
+
+``` sh
+Rscript tests/run_all.R          # fast tier, ~45 s
+Rscript tests/run_all.R --all    # adds the real MCMC fits
+```
+
+Both failure modes above are partly automated now. `tests/test_generator.R`
+checks the generator against what was **requested** — the budget sums to 1, the
+sparsity label is exact, the interaction is the rank it says, the realised
+producer–associate correlations are the ones `SIM_PR_AS_COR` asked for — and
+`tests/test_surface.R` checks the decomposition every metric is a margin of, to
+1e-12. `tests/test_design.R` covers the grid collapses and the D-optimal
+fraction; `tests/test_fits.R` fits short real chains and includes a null.
+
+That does **not** replace the walkthrough. The tests say each function computes
+what it claims; the levels below are where you decide whether it is the right
+thing to compute. In particular nothing in `tests/` touches S11 — the
+best-of-12 selection — because it is a design flaw rather than a coding error,
+and the fractional design is what addresses it.
+
+See `tests/README.md` for what each file pins and for the three bugs the suite
+has already caught.
+
+`code/evaluation_snippets.R` is the paste-along companion to the levels below —
+the same blocks, ready to copy, so stepping through a module does not mean
+retyping its setup.
+
+------------------------------------------------------------------------
+
 ## 2. Bootstrap (paste once per session)
 
 ``` r
@@ -425,6 +455,8 @@ Ranked by consequence.
 
 ## 6. Where things live
 
+- `tests/` — the unit-test suite. `test_generator.R`, `test_surface.R`,
+  `test_design.R` and the slow `test_fits.R` are the simulation's share of it.
 - `output/simulation/` — one cache file per scenario × rep × half. Regenerable; delete after changing the generator or the scorer.
 - `output/simulation_runs/` — MegaLMM run state, created and deleted per fit.
 - `output/simulation_results.csv`, `simulation_summary.png` — the combined results, always rebuilt from the cache.

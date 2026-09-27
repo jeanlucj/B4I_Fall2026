@@ -161,10 +161,14 @@ grm_basis <- function(G, rank = NULL, variance = NULL) {
 #'
 #' That reshaping is what makes prediction for every cell cheap; building the
 #' basis for all n_oat * n_pea cells directly would not be.
+#' The two bases need not have the same number of columns. `grm_basis(G, rank =
+#' r)` caps r at the number of non-null directions in G, so a rank-deficient
+#' relationship matrix silently returns fewer -- and an earlier version of this
+#' function used `ncol(A)` for both, which then indexed B beyond its width.
 kron_basis <- function(A, B, oat_idx, pea_idx) {
-  k <- ncol(A)
-  A[oat_idx, rep(seq_len(k), each = k), drop = FALSE] *
-    B[pea_idx, rep(seq_len(k), times = k), drop = FALSE]
+  ka <- ncol(A); kb <- ncol(B)
+  A[oat_idx, rep(seq_len(ka), each  = kb), drop = FALSE] *
+    B[pea_idx, rep(seq_len(kb), times = ka), drop = FALSE]
 }
 
 # ------------------------------------------------------------

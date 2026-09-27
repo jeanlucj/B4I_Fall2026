@@ -1,8 +1,16 @@
 # Running the simulation on SciNet (Ceres)
 
-The 360-fit grid — 60 data scenarios × 6 MegaLMM settings — is about 18 hours
-on a laptop and embarrassingly parallel, so it belongs on the cluster. This
-directory holds a SLURM job array that splits it across tasks.
+The grid is **120 data scenarios** and a **D-optimal fraction of 150 MegaLMM
+runs**, each of those fitted in both orientations. Per data scenario that is two
+bivariate `BGLR::Multitrait` fits (additive and DGE-IGE) plus whichever MegaLMM
+settings the fraction assigned to it. It is many hours on a laptop and
+embarrassingly parallel, so it belongs on the cluster. This directory holds a
+SLURM job array that splits it across tasks.
+
+**The cost is now in the BGLR half, not MegaLMM.** Multitrait is slower than the
+univariate model it replaced, it runs once per scenario regardless of the
+fraction, and its Kronecker interaction term is what needs the memory. MegaLMM is
+flat in sparsity and was the half the fraction cut. Size the jobs for BGLR.
 
 Conventions here follow `T3Predictathon2026/scripts/Analysis_Claude/optimizer`;
 its `RUNBOOK_SLURM.md` is the fuller guide to Ceres itself and is worth reading
@@ -45,8 +53,18 @@ module load r/4.5.3
 # the library directory must exist before R will use it
 mkdir -p /project/<account>/R_packages/4.5
 
-Rscript -e 'install.packages(c("remotes","tidyverse","here","BGLR","withr","patchwork"), repos = "https://cloud.r-project.org")'
+Rscript -e 'install.packages(c("remotes","tidyverse","here","BGLR","withr","AlgDesign"), repos = "https://cloud.r-project.org")'
 Rscript -e 'remotes::install_github("deruncie/MegaLMM")'
+```
+
+**`AlgDesign` is not optional.** `sim_config.R` calls
+`AlgDesign::optFederov()` to build the D-optimal fraction, and it is called
+while the script is loading its design — so without it every task dies before
+fitting anything, including under `--check`. Confirm all five before submitting:
+
+```bash
+Rscript -e 'for (p in c("tidyverse","here","BGLR","MegaLMM","AlgDesign","withr"))
+             cat(sprintf("%-10s %s\n", p, requireNamespace(p, quietly=TRUE)))'
 ```
 
 **Pass `repos=` explicitly.** Without it a batch `Rscript -e
@@ -56,7 +74,8 @@ R-version incompatibility and is not one — see
 [below](#if-installpackages-says-a-package-is-not-available). `remotes` is in
 the list because the next line needs it.
 
-The simulation needs `BGLR`, `MegaLMM`, `tidyverse`, `here` and `withr`. It
+The simulation needs `BGLR`, `MegaLMM`, `AlgDesign`, `tidyverse`, `here` and
+`withr`. It
 does **not** need `BrAPI.R`, `T3GenoTools` or a T3 login: the GRMs live in
 `data/` and are versioned, so `git clone` brings them and there is nothing to
 copy across. Only `code/create_GRMs_T3.R` and
@@ -109,36 +128,92 @@ Other causes, once the repository is definitely set:
 
 ## 2. Shake it out first
 
+Three steps, cheapest first. All of them are worth doing on a fresh clone,
+because each rules out a different kind of failure.
+
 ```bash
+# 1. the unit tests: no cluster, no data, ~45 s on the login node
+Rscript tests/run_all.R
+
+# 2. the sanity check: one dense scenario, ~1 min
 sbatch -A <account> --qos=debug --time=00:30:00 --array=1-1 \
        code/scinet/sim_array.sbatch --check
+
+# 3. the pilot: four of the cheapest real runs, end to end including the cache
+sbatch -A <account> --qos=debug --time=00:30:00 --array=1-1 \
+       code/scinet/sim_array.sbatch --pilot
 ```
 
-`--check` fits one dense scenario where MegaLMM must recover the signal and
-fails loudly if it does not. Thirty minutes is plenty. Read `logs/sim_*.out`.
+`tests/run_all.R` catches a bad install and a bad clone without queueing
+anything. `--check` fits one dense scenario in which MegaLMM must recover the
+simulated signal and fails loudly if it does not — the wiring mistake it guards
+against looks exactly like "the method does not work here". `--pilot` runs four
+real scenarios from the cheapest corner of the design, so it also exercises the
+cache paths and the combine step. Read `logs/sim_<jobid>_<task>.log`.
 
 ## 3. Run the grid
 
 ```bash
+mkdir -p logs                                    # SLURM will not create it
 sbatch -A <account> code/scinet/sim_array.sbatch
 ```
 
-Defaults in the script: `--array=1-20`, 4 cpus, 8 GB per cpu, 12 hours,
-partition `ceres`. Twenty tasks over 60 scenarios is three scenarios each,
-which is comfortable inside twelve hours even for the 400 × 400 cells.
+**`mkdir -p logs` matters.** `--output=logs/sim_%A_%a.log` is resolved by SLURM
+when the task starts, before the script's own `mkdir` runs, so on a fresh clone —
+where `logs/` does not exist, because `output/` and `logs/` are gitignored — every
+task fails with nothing written anywhere. It is the most confusing version of
+section 5's "no output" problem, because there is no file to read at all.
 
-Useful variations:
+Defaults in the script: `--array=1-20`, 4 cpus, **16 GB per cpu**, 12 hours,
+partition `ceres`. Twenty tasks over 120 scenarios is **six scenarios each**.
+The array slices by *data scenario*, not by run, so a scenario's BGLR and
+MegaLMM halves always land in the same task and no experiment is simulated
+twice.
+
+**Twelve hours is far more than a task needs.** Measured on the worst cell
+(400 × 400 at 48%, 61,440 training plots per trait): the additive fit is 3.9 min
+and the DGE-IGE fit with the rank-30 Kronecker term is 9.0 min, both at the
+production 6,000 iterations. Scaling that across the design — BGLR is close to
+linear in the number of observations — the whole 120-scenario BGLR half is about
+**6 single-core hours**, which at `--array=1-20` is **0.1–0.4 h per task**. See
+[SIMULATION.md](../../SIMULATION.md#how-long-it-takes) for the table. MegaLMM adds
+to it but is flat in sparsity.
+
+The sparsity axis spans 1.6% to 48% — a factor of thirty in the number of
+observations — so the slices are not equally expensive, and the slicing is by
+position rather than by cost. That also turns out not to matter: the 15 worst
+cells are regularly spaced in the grid ordering, so at `--array=1-20` **each task
+gets exactly six scenarios and at most one of them**, and the same holds at
+`1-40`. Measured, not assumed.
+
+If a task does hit the wall clock it costs only its unfinished scenario —
+everything finished is cached — so the remedy is to resubmit the same array.
+
+Arguments after the script name are passed through to `sim_run.R`:
 
 ```bash
 # throttle to ten concurrent tasks
 sbatch -A <account> --array=1-20%10 code/scinet/sim_array.sbatch
 
-# more replicates -- arguments after the script go to sim_run.R
+# more replicates
 sbatch -A <account> code/scinet/sim_array.sbatch --reps 5
 
-# only the cheap half, to get a first answer quickly
-sbatch -A <account> --array=1-6 code/scinet/sim_array.sbatch --filter "n_acc == 200"
+# the cheap half first, to get an answer while the rest runs
+sbatch -A <account> --array=1-10 code/scinet/sim_array.sbatch --filter "n_acc == 200"
+
+# a bigger fraction, or none at all (960 candidate runs -- days, not hours)
+sbatch -A <account> code/scinet/sim_array.sbatch --runs 200
+sbatch -A <account> code/scinet/sim_array.sbatch --full
 ```
+
+`--filter` takes an R expression over the **composite** design columns, which is
+what `sim_config.R` recodes the nested axes into — `n_acc`, `sparsity`,
+`interaction` (`none`, `f1_i10`, `f1_i20`, `f5_i10`, `f5_i20`), `environment`
+(`one`, `ten_stable`, `ten_gxe`), `K`, `eigen_variance`, `fixed_main_effect`. So
+`--filter "environment == 'one'"`, not `--filter "n_envs == 1"`.
+
+The full list of `sim_run.R` flags is at the top of `code/sim_run.R` and in
+[SIMULATION.md](../../SIMULATION.md#running-it).
 
 ## 4. Combine
 
@@ -150,8 +225,15 @@ Rscript code/sim_run.R --combine
 ```
 
 This refits nothing. It reads `output/simulation/*.rds` and writes
-`output/simulation_results.csv` and `output/simulation_summary.png`. It is
-also safe to run while tasks are still going, to see partial results.
+`output/simulation_results.csv`, `output/simulation_design_effects.csv` and
+`output/simulation_summary.png`. It is safe to run while tasks are still going,
+to see partial results.
+
+`simulation_design_effects.csv` is the one to read first. Because the fraction
+gives most scenarios only some of the MegaLMM settings, a table of cell means
+compares unlike with unlike; the design model — main effects and two-way
+interactions in the composite factors — is what the fraction was built to
+estimate. See [SIMULATION.md](../../SIMULATION.md#reading-the-results).
 
 ## 5. When a job produces no output
 
@@ -191,11 +273,13 @@ other half of why an empty log is easy to produce.
 ## 6. What to watch
 
 - **Memory, not time, is the likely failure.** Ceres kills a job that exceeds
-  its allocation rather than throttling it. The 400 × 400 scenarios at 45%
-  build a 72,000 × 900 Kronecker design matrix, about 518 MB, with two
-  temporaries of that size before they are multiplied. If tasks die there,
-  either raise `--mem-per-cpu` or drop `SIM_KRON_RANK` from 30 to 20 in
-  `code/sim_config.R`, which cuts that term to 400 columns.
+  its allocation rather than throttling it. The worst cell is 400 × 400 at 48%:
+  76,800 plots per trait, 61,440 of them in training after the 20% held out, and
+  a 61,440 × 900 Kronecker design matrix — about 440 MB, with two temporaries of
+  that size built before they are multiplied, and `Multitrait` carrying two
+  traits through it. The script asks for 4 × 16 GB, which is deliberately
+  generous. If tasks are still killed there, drop `SIM_KRON_RANK` from 30 to 20
+  in `code/sim_config.R`, which cuts that term from 900 columns to 400.
 - **Restarting is free.** Every scenario is cached by name, so resubmitting
   the same array skips what finished and picks up what did not. A task that
   hits the wall clock costs only its unfinished scenario.

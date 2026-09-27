@@ -135,3 +135,124 @@ Can you use the data that we have to estimate the power of the validation experi
 [2026-09-25 17:09:06] OK.  Please implement.  For symmetry, make the 15% sparsity 16% instead.
 [2026-09-25 17:14:19] Something I should have thought more carefully about: for MegaLMM, we are simulating and analyzing only one orientation at the moment, right?  So we are looking only at the oat yield, and how that yield is affected by the pea "environment".  But then I'm not seeing how we get the As effect of the oat since it depends on having a value for the pea yield.  OR and I suppose I could have misunderstood this from the beginning, is the response variable for MegaLMM the sum of oat and pea yield?  I need to understand this issue, but please do not act on it by coding anything just yet (even though you are in auto mode).
 [2026-09-25 18:05:58] So, you have not yet scripted Parts 2 to 5, is that right?  If so, please do.
+[2026-09-27 10:42:20] As you have been coding, you have been doing tests to verify that your code functions, but there is no set of unit tests.  Do you have a suite in your memory or something.  I think it would make sense to have a folder "tests" as in the optimizer repository.
+[2026-09-27 17:07:21] I'm going to run the simulation on SciNet first thing tomorrow.  Is it all ready and is the documentation (code/scinet/README.md) all up to date?  Maybe do a quick round up of the documentation to make sure it's up to date for the latest version and all documentation files are linked with brief descriptions in the main README.  Then go ahead and commit and push.
+[2026-09-27 17:18:14] <task-notification>
+<task-id>b2fajz6bk</task-id>
+<tool-use-id>toolu_01HTZSh43V5Eh15ZyAPZ1ChP</tool-use-id>
+<output-file>/private/tmp/claude-1334918876/-Users-jj332-Documents-GitRepo-B4I-Fall2026/9648120b-4509-444c-a67d-53a3892cdcf3/tasks/b2fajz6bk.output</output-file>
+<status>completed</status>
+<summary>Background command "(time Rscript code/sim_run.R --pilot) &gt; /tmp/simpilot.log 2&gt;&amp;1; echo "pilot exit=$?"; grep -E "scenario\(s\)|run\(s\)|real|Error|nothing to run" /tmp/simpilot.log | head" completed (exit code 0)</summary>
+</task-notification>
+[2026-09-27 17:21:17] <task-notification>
+<task-id>bze3q50nn</task-id>
+<tool-use-id>toolu_01BMASeHR59HrAGQGu6FVbdU</tool-use-id>
+<output-file>/private/tmp/claude-1334918876/-Users-jj332-Documents-GitRepo-B4I-Fall2026/9648120b-4509-444c-a67d-53a3892cdcf3/tasks/bze3q50nn.output</output-file>
+<status>completed</status>
+<summary>Background command "sleep 240; grep -E "min |Error" /tmp/timecell.log" completed (exit code 0)</summary>
+</task-notification>
+[2026-09-27 17:25:55] <task-notification>
+<task-id>bs4ut290q</task-id>
+<tool-use-id>toolu_01CHuY4qLJnBK1LZzhKAC3XP</tool-use-id>
+<output-file>/private/tmp/claude-1334918876/-Users-jj332-Documents-GitRepo-B4I-Fall2026/9648120b-4509-444c-a67d-53a3892cdcf3/tasks/bs4ut290q.output</output-file>
+<status>failed</status>
+<summary>Background command "cat &gt; /private/tmp/claude-1334918876/-Users-jj332-Documents-GitRepo-B4I-Fall2026/9648120b-4509-444c-a67d-53a3892cdcf3/scratchpad/time_worst_cell.R &lt;&lt;'EOF'
+# Time and size the most expensive cell in the design: 400 accessions, 48%
+# observed, so 76,800 plots per trait, with the rank-30 Kronecker interaction
+# (900 columns). Production chain length.
+library(tidyverse)
+here::i_am("code/sim_run.R")
+for (f in c("dge_ige_functions.R","sim_config.R","sim_generate.R","sim_fit.R"))
+  source(here::here("code", f))
+
+gc(reset = TRUE)
+grms &lt;- sim_grms(400L, seed = 400L)
+set.seed(1L)
+sim &lt;- simulate_experiment(grms$G_oat, grms$G_pea, sparsity = 0.48,
+                           n_factors = 1, interaction_pct = 0.20, n_envs = 1)
+cat("plots per trait:", nrow(sim$obs), "\n")
+sp &lt;- split_observations(sim, SIM_CV_FRACTION, seed = 1L)
+cat("training plots:", nrow(sp$train), "\n")
+cat("SIM_BGLR_NITER =", SIM_BGLR_NITER, " burnIn =", SIM_BGLR_BURNIN,
+    " SIM_KRON_RANK =", SIM_KRON_RANK, "\n\n")
+
+for (int in c(FALSE, TRUE)) {
+  gc(reset = TRUE)
+  t0 &lt;- Sys.time()
+  f &lt;- fit_dge_ige(sp$train, sim$G_oat, sim$G_pea, with_interaction = int,
+                   seed = 1L)
+  secs &lt;- as.numeric(difftime(Sys.time(), t0, units = "s"))
+  cat(sprintf("%-10s %6.1f min   peak R memory %5.2f GB\n",
+              if (int) "dge_ige" else "additive", secs / 60,
+              sum(gc()[, "max used"] * c(8, 8)) / 1024^2))
+}
+EOF
+(time Rscript /private/tmp/claude-1334918876/-Users-jj332-Documents-GitRepo-B4I-Fall2026/9648120b-4509-444c-a67d-53a3892cdcf3/scratchpad/time_worst_cell.R) &gt; /tmp/timecell.log 2&gt;&amp;1; echo "exit=$?"; grep -E "plots|NITER|min |real" /tmp/timecell.log" failed with exit code 144</summary>
+</task-notification>
+[2026-09-27 17:25:55] <task-notification>
+<task-id>b8i8p5xh9</task-id>
+<tool-use-id>toolu_013fVGH7j2CDjQRzge9oEr58</tool-use-id>
+<output-file>/private/tmp/claude-1334918876/-Users-jj332-Documents-GitRepo-B4I-Fall2026/9648120b-4509-444c-a67d-53a3892cdcf3/tasks/b8i8p5xh9.output</output-file>
+<status>failed</status>
+<summary>Background command "for i in $(seq 1 20); do sleep 90; if ! pgrep -f time_worst_cell.R &gt;/dev/null; then break; fi; done; grep -E "min |Error" /tmp/timecell.log; echo "---"; tail -3 /tmp/timecell.log" failed with exit code 144</summary>
+</task-notification>
+[2026-09-27 17:25:55] <task-notification>
+<task-id>bfnjd670o</task-id>
+<tool-use-id>toolu_01XXEF6mzWpdcCLsgU8QXP3C</tool-use-id>
+<output-file>/private/tmp/claude-1334918876/-Users-jj332-Documents-GitRepo-B4I-Fall2026/9648120b-4509-444c-a67d-53a3892cdcf3/tasks/bfnjd670o.output</output-file>
+<status>failed</status>
+<summary>Background command "start=$(date +%s); while pgrep -f time_worst_cell.R &gt;/dev/null; do sleep 60; now=$(date +%s); if [ $((now-start)) -gt 1500 ]; then echo "gave up waiting after $(( (now-start)/60 )) min of wall clock"; break; fi; done; echo "waited $(( ($(date +%s)-start)/60 )) min"; grep -E "min |Error" /tmp/timecell.log" failed with exit code 144</summary>
+</task-notification>
+[2026-09-27 17:25:56] <task-notification>
+<task-id>bnh7zkeje</task-id>
+<tool-use-id>toolu_012f8kCDcpBY7Q6DUrHE26gn</tool-use-id>
+<output-file>/private/tmp/claude-1334918876/-Users-jj332-Documents-GitRepo-B4I-Fall2026/9648120b-4509-444c-a67d-53a3892cdcf3/tasks/bnh7zkeje.output</output-file>
+<status>completed</status>
+<summary>Background command "pkill -f time_worst_cell.R; sleep 2; cat &gt; /private/tmp/claude-1334918876/-Users-jj332-Documents-GitRepo-B4I-Fall2026/9648120b-4509-444c-a67d-53a3892cdcf3/scratchpad/time_short.R &lt;&lt;'EOF'
+# The worst cell (400 acc, 48% observed) at a SHORT chain, twice, so the
+# per-iteration cost can be read off the difference and scaled to production.
+# BGLR's sampler cost is linear in iterations, so two points pin the line and
+# separate setup (building the 61,440 x 900 basis) from sampling.
+library(tidyverse)
+here::i_am("code/sim_run.R")
+for (f in c("dge_ige_functions.R","sim_config.R","sim_generate.R","sim_fit.R"))
+  source(here::here("code", f))
+
+grms &lt;- sim_grms(400L, seed = 400L)
+set.seed(1L)
+sim &lt;- simulate_experiment(grms$G_oat, grms$G_pea, sparsity = 0.48,
+                           n_factors = 1, interaction_pct = 0.20, n_envs = 1)
+sp &lt;- split_observations(sim, SIM_CV_FRACTION, seed = 1L)
+cat("training plots:", nrow(sp$train), " per trait\n")
+
+timing &lt;- purrr::map_dfr(c(400L, 800L), function(ni) {
+  t0 &lt;- Sys.time()
+  invisible(fit_dge_ige(sp$train, sim$G_oat, sim$G_pea, with_interaction = TRUE,
+                        nIter = ni, burnIn = 100L, seed = 1L))
+  tibble::tibble(nIter = ni,
+                 secs = as.numeric(difftime(Sys.time(), t0, units = "s")))
+})
+print(timing)
+
+per_iter &lt;- diff(timing$secs) / diff(timing$nIter)
+setup    &lt;- timing$secs[1] - per_iter * timing$nIter[1]
+cat(sprintf("\nsetup %.1f s + %.4f s/iteration\n", setup, per_iter))
+cat(sprintf("extrapolated to production (%d iterations): %.0f min\n",
+            SIM_BGLR_NITER, (setup + per_iter * SIM_BGLR_NITER) / 60))
+EOF
+(time Rscript /private/tmp/claude-1334918876/-Users-jj332-Documents-GitRepo-B4I-Fall2026/9648120b-4509-444c-a67d-53a3892cdcf3/scratchpad/time_short.R) &gt; /tmp/timeshort.log 2&gt;&amp;1; echo "exit=$?"; grep -E "training|nIter|setup|extrapolated|real|Error" /tmp/timeshort.log" completed (exit code 0)</summary>
+</task-notification>
+[2026-09-27 17:25:56] <task-notification>
+<task-id>byw6d2v8j</task-id>
+<tool-use-id>toolu_01JXs8vgYb1rixHeD3892foh</tool-use-id>
+<output-file>/private/tmp/claude-1334918876/-Users-jj332-Documents-GitRepo-B4I-Fall2026/9648120b-4509-444c-a67d-53a3892cdcf3/tasks/byw6d2v8j.output</output-file>
+<status>completed</status>
+<summary>Background command "sleep 420; grep -E "min |Error" /tmp/timecell.log; pgrep -f time_worst_cell &gt;/dev/null &amp;&amp; echo "STILL RUNNING" || echo "DONE"" completed (exit code 0)</summary>
+</task-notification>
+[2026-09-27 17:26:35] <task-notification>
+<task-id>bg76t43ih</task-id>
+<tool-use-id>toolu_01CjfDo2EUfpp1m6mJt9mUo6</tool-use-id>
+<output-file>/private/tmp/claude-1334918876/-Users-jj332-Documents-GitRepo-B4I-Fall2026/9648120b-4509-444c-a67d-53a3892cdcf3/tasks/bg76t43ih.output</output-file>
+<status>completed</status>
+<summary>Background command "start=$(date +%s); while pgrep -f time_short.R &gt;/dev/null; do sleep 45; [ $(( $(date +%s)-start )) -gt 1500 ] &amp;&amp; break; done; grep -E "training|nIter|setup|extrapolated|real|Error|^[0-9]" /tmp/timeshort.log" completed (exit code 0)</summary>
+</task-notification>

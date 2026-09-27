@@ -5,9 +5,19 @@
 #   sbatch -A <account> --array=1-20%10 code/scinet/sim_array.sbatch   # 10 at a time
 #   sbatch -A <account> --qos=debug --array=1-2 --time=00:30:00 code/scinet/sim_array.sbatch
 #
-# Each array task takes a slice of the scenarios: task k of N runs scenarios
-# k, k+N, k+2N, ... Slicing by scenario keeps a scenario's BGLR and MegaLMM
-# halves in the same task, so no simulation is generated twice.
+# Each array task takes a slice of the DATA SCENARIOS: task k of N runs
+# scenarios k, k+N, k+2N, ... Slicing by scenario keeps a scenario's BGLR and
+# MegaLMM halves in the same task, so no experiment is simulated twice.
+#
+# 120 data scenarios over the default 20 tasks is six each, and the 15 most
+# expensive cells (48% x 400) are spaced regularly enough in the grid ordering
+# that each task gets at most one of them. Everything finished is cached, so a
+# task that does hit the wall clock costs only its unfinished scenario and the
+# remedy is to resubmit the same array.
+#
+# logs/ must exist before submitting: SLURM resolves --output when the task
+# starts, before the mkdir below. It is committed with a .gitkeep for that
+# reason, but check it after a fresh clone.
 #
 # Tasks share output/simulation/ and never write the same file, because the
 # cache path is built from the scenario name. When they are all done, combine
@@ -32,10 +42,11 @@
 set -euo pipefail
 
 # Ceres kills a job that exceeds its memory rather than throttling it. The
-# 400x400 scenarios at 45% build a 72,000 x 900 Kronecker design matrix --
-# about 518 MB, with two temporaries of that size before they are multiplied.
-# 4 cpus x 8G leaves room; drop SIM_KRON_RANK to 20 in code/sim_config.R if a
-# task is still killed.
+# worst cell is 400x400 at 48%: 61,440 training plots and a 61,440 x 900
+# Kronecker design matrix, about 440 MB, with two temporaries of that size
+# before they are multiplied -- and Multitrait carries two traits through it.
+# 4 cpus x 16G is deliberately generous; drop SIM_KRON_RANK to 20 in
+# code/sim_config.R if a task is still killed.
 
 module load r/4.5.3
 
