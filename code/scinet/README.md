@@ -215,6 +215,39 @@ what `sim_config.R` recodes the nested axes into — `n_acc`, `sparsity`,
 The full list of `sim_run.R` flags is at the top of `code/sim_run.R` and in
 [SIMULATION.md](../../SIMULATION.md#running-it).
 
+## 3b. The interaction-focused run
+
+A second, smaller design answers one question: **where** are the boundaries at
+which MegaLMM starts to beat the Kronecker kernel on the oat × pea interaction?
+The main grid established that a density threshold and a rank threshold both
+exist but could not locate either, because its MegaLMM sweep is a fraction and
+cannot support questions conditioned on a configuration.
+
+```bash
+mkdir -p logs
+sbatch -A <account> --qos=debug --time=00:30:00 --array=1-1 \
+       code/scinet/sim_int_array.sbatch --check
+sbatch -A <account> code/scinet/sim_int_array.sbatch
+```
+
+120 data scenarios × 3 replicates, each with one BGLR `dge_ige` fit and two
+MegaLMM runs (pinned and not). About **65 single-core hours**, ~3.3 h per task
+at `--array=1-20`. MegaLMM dominates the cost here rather than BGLR, because it
+runs twice per scenario and in both orientations.
+
+Its `--check` is a *positive control* rather than a smoke test: it fits a dense
+rank-1 scenario where MegaLMM must beat `dge_ige` on `r_int`, and fails loudly if
+it does not. Measured at 0.870 against 0.453.
+
+Cache and outputs are named separately (`output/simulation_int/`,
+`simulation_int_results.csv`) so the two designs can never be combined by
+accident — which matters, because they sweep different levels and a globbed CSV
+would silently mix them.
+
+```bash
+Rscript code/sim_int_run.R --combine     # rebuild, and print the two boundaries
+```
+
 ## 4. Combine
 
 No single task sees every scenario, so the combined table is rebuilt from the

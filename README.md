@@ -35,6 +35,8 @@ matches the question you have.
 | [SIMULATION.md](SIMULATION.md) | when either framework *would* work: the bivariate generator, the 120-scenario design, the D-optimal fraction, and how to read a fractional design |
 | [SIMULATION_GLOSSARY.md](SIMULATION_GLOSSARY.md) | every column in `simulation_results.csv`: what each of the six models is, and what each `r_*` metric measures. Read this before reading results |
 | [docs/MegaLMM_anova.md](docs/MegaLMM_anova.md) | which factors actually move MegaLMM's accuracy, and by how much — the split-plot ANOVA of the simulation, with expected mean squares |
+| [docs/BGLR_vs_MegaLMM.md](docs/BGLR_vs_MegaLMM.md) | the head-to-head: BGLR wins GMA everywhere, MegaLMM wins the interaction but only above a density threshold B4I is below |
+| [code/sim_int_config.R](code/sim_int_config.R) | the follow-up design that locates those two boundaries — a full factorial, run with `code/sim_int_run.R` |
 | [docs/MegaLMM_sparsity_challenge.md](docs/MegaLMM_sparsity_challenge.md) | why sparsity hurts the factor model so much more than a row average — the mechanism behind the simulation's headline result |
 | [code/scinet/README.md](code/scinet/README.md) | running the grid as a SLURM job array on Ceres: install, shake-out, submission, and how to read a job that produced no output |
 
@@ -117,10 +119,23 @@ Rscript code/sim_run.R --pilot                  # four cheap runs, end to end
 Rscript code/sim_run.R                          # 120 scenarios, 150 MegaLMM runs
 ```
 
-On a cluster it runs as a SLURM job array — see
-[code/scinet/README.md](code/scinet/README.md). The simulation needs
-`AlgDesign` (for the D-optimal fraction) but no T3 login: the GRMs are versioned
-in `data/`.
+There is also a second, smaller simulation aimed at one question — where the
+boundaries are at which MegaLMM starts to beat BGLR on the oat × pea interaction:
+
+```bash
+Rscript code/sim_int_run.R --check               # positive control; run first
+Rscript code/sim_int_run.R                       # 120 scenarios x 3 replicates
+```
+
+It is a **full factorial** rather than a fraction, because a question
+conditioned on a particular MegaLMM configuration cannot be asked of a design
+that never ran that configuration in most cells. See
+[code/sim_int_config.R](code/sim_int_config.R).
+
+On a cluster both run as SLURM job arrays — see
+[code/scinet/README.md](code/scinet/README.md). The main simulation needs
+`AlgDesign` (for the D-optimal fraction); neither needs a T3 login, since the
+GRMs are versioned in `data/`.
 
 ### Tests
 

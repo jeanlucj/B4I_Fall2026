@@ -137,3 +137,41 @@ Size versus architecture of the interaction.  In the table for that section, you
 <status>completed</status>
 <summary>Background command "rm -rf output/simulation output/simulation_design.csv output/simulation_results.csv &amp;&amp; Rscript code/sim_run.R --pilot &gt; /tmp/p1.log 2&gt;&amp;1; echo "pilot exit=$?"; echo "design after run:"; wc -l &lt; output/simulation_design.csv; echo "seed column in results?"; head -1 output/simulation_results.csv | tr ',' '\n' | grep -n "^seed$"; echo; echo "--- now --combine with NO --reps: must not touch the design ---"; md5 -q output/simulation_design.csv; Rscript code/sim_run.R --combine &gt; /tmp/p2.log 2&gt;&amp;1; echo "combine exit=$?"; md5 -q output/simulation_design.csv; wc -l &lt; output/simulation_design.csv" completed (exit code 0)</summary>
 </task-notification>
+[2026-09-30 11:41:24] 
+
+<pasted_content id="663e">
+Here are my assumptions at the outset.  I would expect the BGLR model to do a better job than the MegaLMM model at estimating GMA in all cases.  The BGLR model analyzes all the data together rather than doing an awkward two orientations analysis. On the other hand, if there is an interaction between oat and pea accessions, I believe the MegaLMM might be more effective at decomposing it.  That decomposition _might_ make it tractable to understand it biologically.  I think the MegaLMM_anova analysis has shown us how to use MegaLMM best.  I want to give it that best shot, even if it might bias things in MegaLMM's favor.  I don't get the sense that the bias will be great.  So, critique this but my thought is to filter to these MegaLMM settings: Use MegaLMM, not MegaLMM_U; use K=5; when sparsity is 1.6% or 4.8%, use pin the main effect else don't; average over the two eigen_variance settings to gain power from replication.  Develop an analysis to compare the two BGLR models to this optimized MegaLMM model across the factors of the generative model.  Look at r_gma_oat, r_gma_pea, r_int_oat, and r_int_pea.  I hypothesize that both BGLR models will be superior to MegaLMM for the gma responses.  My hope is that MegaLMM will be superior to BGLR at least for the generative model that has a simple architecture for the interaction.  But that is the question at hand.
+</pasted_content id="663e">
+[2026-09-30 12:07:01] I know this will not change the results but my understanding is that part of the problem with my filtering plan was that we started with a fractional design, to there are combination levels that do not exist.  Would it be worth rerunning the simulation focused just on this question of when MegaLMM might improve on BGLR?  The simulation could drop the additive BGLR model.  I would also add a 9% sparsity level because there looks to be a big switch between 4.8% and 16%.  I'm a little confused about the pin rule: if it is never useful for estimating the interaction, then never use it.  If it _is_ useful, then use dynamic pinning.  Though I guess I don't know whether to pin or not at 9% sparsity.  Go ahead and do this and commit and push.  Give this new simulation a different name (simulation_int) so that it doesn't get confused with the general simulation.  I didn't fully understand the table under "bias question, measured".  What is per-cell oracle and rule - arbitrary?  Give column explanations in the .md of BGLR vs MeagLMM
+[2026-09-30 12:19:37] <task-notification>
+<task-id>b5a6obq2y</task-id>
+<tool-use-id>toolu_018mFefrqazK5SyprYZKx9xS</tool-use-id>
+<output-file>/private/tmp/claude-1334918876/-Users-jj332-Documents-GitRepo-B4I-Fall2026/9648120b-4509-444c-a67d-53a3892cdcf3/tasks/b5a6obq2y.output</output-file>
+<status>completed</status>
+<summary>Background command "python3 - &lt;&lt;'PY'
+p = "code/sim_int_config.R"
+s = open(p).read()
+old = "SIM_INT_BASE_SEED &lt;- 20260930L"
+new = """# Deliberately far above the main design's range rather than a day later than
+# it. SIM_BASE_SEED is 20260921 and its seeds run to about 20262100 at ten
+# replicates, so a base 9 apart would have made 591 of 600 seeds collide. The two
+# simulations would then have drawn from identical RNG streams for unrelated
+# scenarios -- harmless while their caches and scenario names stay separate, but
+# a trap for anyone who later pooled them, and free to avoid.
+SIM_INT_BASE_SEED &lt;- 20270000L"""
+assert old in s
+open(p, "w").write(s.replace(old, new))
+PY
+python3 - &lt;&lt;'PY'
+# move the appended block above finish()
+p = "tests/test_design.R"
+s = open(p).read()
+marker = 'finish("design tests")\n'
+i = s.index(marker)
+block = s[i + len(marker):]
+assert "interaction-focused design" in block
+s = s[:i] + block.strip("\n") + "\n\n" + marker
+open(p, "w").write(s)
+PY
+Rscript tests/test_design.R 2&gt;&amp;1 | tail -3 &amp;&amp; Rscript tests/run_all.R 2&gt;&amp;1 | tail -3" completed (exit code 0)</summary>
+</task-notification>

@@ -428,7 +428,15 @@ split_observations <- function(sim, cv_fraction = SIM_CV_FRACTION, seed = 1L) {
   list(train = dplyr::filter(obs, !held), held = dplyr::filter(obs, held))
 }
 
-run_scenario_bglr <- function(sim, cv_fraction = SIM_CV_FRACTION, seed = 1L) {
+#' @param models Which BGLR models to fit. The interaction-focused design
+#'   (code/sim_int_run.R) drops `additive`: it has no interaction term, so it
+#'   cannot answer that design's question, and on the additive part it is
+#'   indistinguishable from `dge_ige` -- measured at a gap of 0.005 on the
+#'   Fisher-z scale, which is the sanity check that adding a specific-combination
+#'   term does not disturb the main effects. Fitting it again would cost a third
+#'   of the BGLR budget to re-confirm that.
+run_scenario_bglr <- function(sim, cv_fraction = SIM_CV_FRACTION, seed = 1L,
+                              models = c("additive", "dge_ige")) {
   sp <- split_observations(sim, cv_fraction, seed)
   oat_names <- rownames(sim$G_oat); pea_names <- rownames(sim$G_pea)
 
@@ -438,17 +446,27 @@ run_scenario_bglr <- function(sim, cv_fraction = SIM_CV_FRACTION, seed = 1L) {
     list(v = v, secs = as.numeric(difftime(Sys.time(), t0, units = "s")))
   }
 
-  add <- timed(fit_dge_ige(sp$train, sim$G_oat, sim$G_pea, FALSE, seed = seed))
-  dge <- timed(fit_dge_ige(sp$train, sim$G_oat, sim$G_pea, TRUE,  seed = seed))
+  fits <- list()
+  secs <- numeric(0)
+  if ("additive" %in% models) {
+    a <- timed(fit_dge_ige(sp$train, sim$G_oat, sim$G_pea, FALSE, seed = seed))
+    fits$additive <- a$v; secs <- c(secs, a$secs)
+  }
+  if ("dge_ige" %in% models) {
+    d <- timed(fit_dge_ige(sp$train, sim$G_oat, sim$G_pea, TRUE, seed = seed))
+    fits$dge_ige <- d$v; secs <- c(secs, d$secs)
+  }
 
-  preds <- c(list(additive = add$v, dge_ige = dge$v),
-             baseline_predictions(sp$train, nrow(sim$G_oat), nrow(sim$G_pea),
-                                  oat_names, pea_names))
+  # The margin-only baselines are free -- no fitting, just training means -- so
+  # they are always included as the floor every model has to clear.
+  base <- baseline_predictions(sp$train, nrow(sim$G_oat), nrow(sim$G_pea),
+                               oat_names, pea_names)
+  preds <- c(fits, base)
 
   purrr::imap(preds, \(pp, nm) score_predictions(pp, sim, sp$held, nm)) |>
     purrr::list_rbind() |>
     dplyr::mutate(
-      seconds = c(add$secs, dge$secs, NA_real_, NA_real_),
+      seconds = c(secs, rep(NA_real_, length(base))),
       n_train = nrow(sp$train), n_held = nrow(sp$held), .after = model
     )
 }

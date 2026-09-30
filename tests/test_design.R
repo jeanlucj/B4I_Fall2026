@@ -203,4 +203,60 @@ shared <- dplyr::inner_join(
 check(nrow(shared) > 0 && any(shared$seed != shared$seed_full),
       "dropping a level renumbers seeds, so stale cache files miss rather than being reused")
 
+# ------------------------------------------------------------
+# 6. The interaction-focused design (code/sim_int_config.R)
+#
+# Its whole reason for existing is that it is a FULL FACTORIAL where the main
+# grid is a fraction: a question conditioned on a particular MegaLMM
+# configuration cannot be asked of a design that never ran that configuration
+# in most cells. So the property to pin is completeness -- every combination of
+# every factor present, every scenario carrying both pinning settings.
+# ------------------------------------------------------------
+
+load_code("sim_int_config.R")
+
+ig <- sim_int_grid(n_reps = 1)
+ir <- sim_int_runs(sim_int_grid(n_reps = 1))
+
+check(nrow(ig) == prod(lengths(SIM_INT_LEVELS)),
+      "the interaction grid is the full crossing of its levels")
+check(nrow(ig) == dplyr::n_distinct(ig$scenario),
+      "every interaction scenario has a distinct name")
+check(all(stringr::str_starts(ig$scenario, "int_")),
+      "its scenario names are prefixed, so they can never collide with the main grid")
+
+# fully crossed: every (sparsity, rank) cell present, and equally often
+cells <- dplyr::count(ig, sparsity, n_factors)
+check(nrow(cells) == length(SIM_INT_LEVELS$sparsity) *
+        length(SIM_INT_LEVELS$n_factors),
+      "every sparsity x rank cell exists")
+check(dplyr::n_distinct(cells$n) == 1,
+      "and they are equally represented -- which a D-optimal fraction is not")
+
+# both pinning settings on every scenario: the open question must be answerable
+# in every cell, not just where a fraction happened to put it
+per_sc <- dplyr::count(ir, scenario, rep, name = "mm_runs")
+check(all(per_sc$mm_runs == length(SIM_INT_MEGALMM$fixed_main_effect)),
+      "every scenario carries BOTH pinning settings")
+check(dplyr::n_distinct(ir$K) == 1 && dplyr::n_distinct(ir$eigen_variance) == 1,
+      "K and eigen_variance are fixed, not swept -- the ANOVA settled both")
+
+# the levels that were added to locate the two boundaries
+check(0.09 %in% SIM_INT_LEVELS$sparsity,
+      "9% sparsity is present, between the 4.8% and 16% the gate lies between")
+check(3L %in% SIM_INT_LEVELS$n_factors,
+      "rank 3 is present, between the rank 1 that wins and the rank 5 that does not")
+check(!0 %in% SIM_INT_LEVELS$n_factors,
+      "there is no zero-interaction level: r_int is undefined without one")
+
+# seeds: the same additivity rule as the main design, and no collision with it
+ig3 <- sim_int_grid(n_reps = 3)
+check(identical(dplyr::arrange(ig, scenario)$seed,
+                dplyr::arrange(dplyr::filter(ig3, rep == 1), scenario)$seed),
+      "interaction-design seeds are additive in replicates too")
+check(!any(duplicated(ig3$seed)), "and all distinct across three replicates")
+check(length(intersect(ig3$seed, sim_design(n_runs = SIM_DESIGN_RUNS,
+                                            n_reps = 3)$scenarios$seed)) == 0,
+      "and never collide with the main design's seeds")
+
 finish("design tests")
