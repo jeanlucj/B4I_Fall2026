@@ -34,7 +34,7 @@ library(tidyverse)
 here::i_am("code/sim_int_run.R")
 
 source(here::here("code", "dge_ige_functions.R"))
-source(here::here("code", "sim_config.R"))        # SIM_CV_FRACTION, SIM_BGLR_*
+source(here::here("code", "sim_config.R"))        # SIM_SCORE_SET, SIM_BGLR_*
 source(here::here("code", "sim_int_config.R"))
 source(here::here("code", "sim_generate.R"))
 source(here::here("code", "sim_fit.R"))
@@ -76,7 +76,7 @@ if (check) {
   set.seed(1L)
   sim <- simulate_experiment(grms$G_oat, grms$G_pea, sparsity = 0.48,
                              n_factors = 1, interaction_pct = 0.20, n_envs = 1)
-  sp <- split_observations(sim, SIM_CV_FRACTION, seed = 1L)
+  sp <- prepare_scenario(sim)
 
   d <- fit_dge_ige(sp$train, sim$G_oat, sim$G_pea, TRUE,
                    nIter = 3000L, burnIn = 600L, seed = 1L)
@@ -85,8 +85,8 @@ if (check) {
                          K = SIM_INT_MEGALMM$K,
                          eigen_variance = SIM_INT_MEGALMM$eigen_variance,
                          fixed_main_effect = FALSE)
-  sd_ <- score_predictions(d,  sim, sp$held, "dge_ige")
-  sm  <- score_predictions(mm, sim, sp$held, "megalmm")
+  sd_ <- score_predictions(d,  sim, sp$idx, "dge_ige", train = sp$train)
+  sm  <- score_predictions(mm, sim, sp$idx, "megalmm", train = sp$train)
   print(dplyr::bind_rows(sd_, sm) |>
           dplyr::select(model, r_int_oat, r_int_pea, r_gma_oat, r_gma_pea))
 
@@ -152,9 +152,20 @@ if (!is.na(task) && !is.na(ntasks)) {
 # Run
 # ------------------------------------------------------------
 
+# The scoring scheme is part of the cache key.
+#
+# Files written before 30 September 2026 hold scores computed on a HELD-OUT 20%
+# of the observed cells, with the models fitted at 0.8x the labelled sparsity.
+# They are not comparable with anything written since, and a globbed CSV would
+# mix the two silently -- which is the class of bug this project has already been
+# bitten by twice. Marking the scheme in the filename means old files simply miss
+# and are recomputed, and the combine glob below will not pick them up.
+SIM_CACHE_SCHEME <- "v2"
+
 cache_path <- function(scenario, rep, seed, suffix) {
   file.path(cache_dir,
-            paste0(scenario, "_rep", rep, "_s", seed, "_", suffix, ".rds"))
+            paste0(scenario, "_rep", rep, "_s", seed, "_",
+                   SIM_CACHE_SCHEME, "_", suffix, ".rds"))
 }
 
 run_one <- function(sc_row, sc_runs) {
@@ -190,7 +201,7 @@ run_one <- function(sc_row, sc_runs) {
 
   if (refresh || !file.exists(bglr_file)) {
     # `additive` is deliberately not fitted -- see SIM_INT_BGLR_MODELS
-    b <- run_scenario_bglr(sim, SIM_CV_FRACTION, seed = sc_row$seed,
+    b <- run_scenario_bglr(sim, SIM_SCORE_SET, seed = sc_row$seed,
                            models = SIM_INT_BGLR_MODELS)
     saveRDS(dplyr::bind_cols(b, design_cols[rep(1, nrow(b)), ]), bglr_file)
   }
@@ -205,7 +216,7 @@ run_one <- function(sc_row, sc_runs) {
     dir.create(rd, showWarnings = FALSE, recursive = TRUE)
     on.exit(unlink(rd, recursive = TRUE), add = TRUE)
     out <- run_scenario_megalmm(sim, K = K, eigen_variance = eigen_variance,
-                                cv_fraction = SIM_CV_FRACTION,
+                                score_set = SIM_SCORE_SET,
                                 seed = sc_row$seed, run_dir = rd,
                                 fixed_main_effect = fixed_main_effect)$scores
     saveRDS(dplyr::bind_cols(out, design_cols[rep(1, nrow(out)), ]), f)
@@ -228,7 +239,8 @@ if (!combine_only) {
 # ------------------------------------------------------------
 
 cache_files <- list.files(cache_dir,
-                          pattern = "_(bglr|mm_K[0-9]+_ev[0-9]+_fx[01])\\.rds$",
+                          pattern = paste0("_", SIM_CACHE_SCHEME,
+                                            "_(bglr|mm_K[0-9]+_ev[0-9]+_fx[01])\\.rds$"),
                           full.names = TRUE)
 if (length(cache_files) == 0) { message("no cached results yet"); quit(save = "no") }
 

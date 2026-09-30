@@ -63,6 +63,14 @@ out_dir <- here::here("output")
 res_path <- arg_value("--results",
                       file.path(out_dir, "simulation_results_from_ceres_filtered.csv"))
 
+# NOTE ON THE INPUT. These read the September 2026 Ceres results, which used the
+# pre-October scoring scheme: 20% of the observed cells held out, so the models
+# were fitted at 0.8x the labelled sparsity and the per-cell metrics were scored
+# on the held-out cells. Read every sparsity level as 0.8x its label. Results
+# generated from now on use the never-observed cells and are fitted at the
+# labelled density; they also name the fit statistic r_fit_ rather than r_obs_.
+# See SIMULATION_GLOSSARY.md.
+
 RESPONSES <- c("r_gma_oat", "r_gma_pea", "r_int_oat", "r_int_pea")
 GEN <- c("interaction", "environment")                    # the generative model
 DAT <- c("n_acc", "sparsity")                             # how much data

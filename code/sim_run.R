@@ -220,9 +220,20 @@ if (!is.na(task) && !is.na(ntasks)) {
 # which encodes only the design, stays the same. Without the seed here a
 # changed grid silently reuses results generated under a seed it would never
 # have chosen. With it, those files simply miss and are recomputed.
+# The scoring scheme is part of the cache key.
+#
+# Files written before 30 September 2026 hold scores computed on a HELD-OUT 20%
+# of the observed cells, with the models fitted at 0.8x the labelled sparsity.
+# They are not comparable with anything written since, and a globbed CSV would
+# mix the two silently -- which is the class of bug this project has already been
+# bitten by twice. Marking the scheme in the filename means old files simply miss
+# and are recomputed, and the combine glob below will not pick them up.
+SIM_CACHE_SCHEME <- "v2"
+
 cache_path <- function(scenario, rep, seed, suffix) {
   file.path(cache_dir,
-            paste0(scenario, "_rep", rep, "_s", seed, "_", suffix, ".rds"))
+            paste0(scenario, "_rep", rep, "_s", seed, "_",
+                   SIM_CACHE_SCHEME, "_", suffix, ".rds"))
 }
 
 #' One data scenario: generate it, fit the DGE-IGE half, and fit whichever
@@ -321,7 +332,8 @@ if (!combine_only) {
 # Always rebuild the combined table from the cache rather than from this run:
 # with a job array, no single process sees every scenario.
 cache_files <- list.files(cache_dir,
-                          pattern = "_(bglr|mm_K[0-9]+_ev[0-9]+_fx[01])\\.rds$",
+                          pattern = paste0("_", SIM_CACHE_SCHEME,
+                                            "_(bglr|mm_K[0-9]+_ev[0-9]+_fx[01])\\.rds$"),
                           full.names = TRUE)
 
 # Cache files written before `seed` was carried in the scores do not have the

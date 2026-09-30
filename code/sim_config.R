@@ -415,10 +415,23 @@ sim_observed_parameters <- function(
 # ------------------------------------------------------------
 
 # Fraction of observed cells held out for scoring
-SIM_CV_FRACTION <- 0.20
+# Which cells the per-cell metrics are scored on. NOT a cross-validation
+# fraction: no observations are held out at all. See scoring_index() in
+# code/sim_fit.R for why.
+#
+#   "unobserved"  the cells with no plot -- the prediction target
+#   "all"         every cell, blending prediction with fit
+SIM_SCORE_SET <- "unobserved"
+
+# Retained only so that results generated before 30 September 2026 can be read
+# in context: those runs held out this share of the OBSERVED cells, so their
+# models were fitted at 0.8x their labelled sparsity. Nothing uses it now.
+SIM_LEGACY_CV_FRACTION <- 0.20
 
 # Minimum observations an oat or pea must retain after masking
-SIM_FLOOR_OBS <- 2
+# Was the per-accession floor the holdout had to respect. Unused now that
+# nothing is held out; an accession's observations are all kept.
+SIM_LEGACY_FLOOR_OBS <- 2
 
 # Minimum observations every accession gets by design. Below 3 a pea
 # environment can end up with a single oat, which has no estimable residual

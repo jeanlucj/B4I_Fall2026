@@ -53,7 +53,12 @@ G_pea <- make_panel(N_ACC, "p", 12)
 # failure here is a failure of the model and not of identifiability.
 sim <- simulate_experiment(G_oat, G_pea, sparsity = 0.48, n_factors = 1,
                            interaction_pct = 0.20, n_envs = 1)
-sp  <- split_observations(sim, SIM_CV_FRACTION, seed = 1L)
+sp  <- prepare_scenario(sim)
+
+check(nrow(sp$train) == nrow(sim$obs),
+      "nothing is held out: the models are fitted at the labelled sparsity")
+check_near(nrow(sp$idx) / (N_ACC * N_ACC), 1 - 0.48, tol = 1e-12,
+           "and scored on exactly the unobserved share of the matrix")
 
 cat("fitting the additive model...\n")
 add <- fit_dge_ige(sp$train, G_oat, G_pea, with_interaction = FALSE,
@@ -68,10 +73,10 @@ base <- baseline_predictions(sp$train, N_ACC, N_ACC,
 # so its column-margin metrics are NA by construction rather than poor -- which
 # is correct, but makes it the wrong comparator.
 
-s_add  <- score_predictions(add, sim, sp$held, "additive")
-s_dge  <- score_predictions(dge, sim, sp$held, "dge_ige")
-s_mean <- score_predictions(base$both_means, sim, sp$held, "both_means")
-s_row  <- score_predictions(base$row_mean, sim, sp$held, "row_mean")
+s_add  <- score_predictions(add, sim, sp$idx, "additive", train = sp$train)
+s_dge  <- score_predictions(dge, sim, sp$idx, "dge_ige", train = sp$train)
+s_mean <- score_predictions(base$both_means, sim, sp$idx, "both_means", train = sp$train)
+s_row  <- score_predictions(base$row_mean, sim, sp$idx, "row_mean", train = sp$train)
 check(is.na(s_row$r_pea_assoc) && is.na(s_row$r_pea_prod),
       "the row-mean baseline has no column effect, so its column metrics are NA")
 check(!is.na(s_mean$r_pea_assoc) && !is.na(s_mean$r_pea_prod),
@@ -181,8 +186,8 @@ null_cols <- c("r_oat_prod", "r_oat_assoc", "r_pea_prod", "r_pea_assoc",
 null_runs <- purrr::map(seq_len(8), \(i) {
   other <- simulate_experiment(G_oat, G_pea, sparsity = 0.48, n_factors = 1,
                                interaction_pct = 0.20, n_envs = 1)
-  # the same fit and the same held-out rows; only the TRUTH differs
-  score_predictions(dge, other, sp$held, "independent_truth")
+  # the same fit and the same scored cells; only the TRUTH differs
+  score_predictions(dge, other, sp$idx, "independent_truth", train = sp$train)
 }) |> purrr::list_rbind()
 
 for (col in null_cols) {
@@ -199,7 +204,7 @@ for (col in null_cols) {
 perm <- sim
 perm$truth$oat_prod  <- sim$truth$oat_prod[sample(N_ACC)]
 perm$truth$pea_assoc <- sim$truth$pea_assoc[sample(N_ACC)]
-s_perm <- score_predictions(dge, perm, sp$held, "permuted")
+s_perm <- score_predictions(dge, perm, sp$idx, "permuted", train = sp$train)
 check(abs(s_perm$r_oat_prod) < s_dge$r_oat_prod,
       "a permuted truth scores worse than the real one on r_oat_prod")
 check(abs(s_perm$r_pea_assoc) < s_dge$r_pea_assoc,
@@ -214,7 +219,7 @@ flat <- c(producer = 0.001, associate = 0.001, interaction = 0,
 null_sim <- simulate_experiment(
   G_oat, G_pea, sparsity = 0.48, n_factors = 0, interaction_pct = 0, n_envs = 1,
   var_shares = list(oat = flat, pea = flat))
-null_sp  <- split_observations(null_sim, SIM_CV_FRACTION, seed = 2L)
+null_sp  <- prepare_scenario(null_sim)
 null_fit <- fit_dge_ige(null_sp$train, G_oat, G_pea, with_interaction = FALSE,
                         nIter = N_ITER, burnIn = BURN, seed = 2L)
 gen <- function(v) dplyr::filter(v, term %in% c("G_oat", "G_pea"))
@@ -251,7 +256,7 @@ if (!requireNamespace("MegaLMM", quietly = TRUE)) {
   check(identical(dim(mm$surface$pea), dim(mm$surface$oat)),
         "so the two surfaces are conformable")
 
-  s_mm <- score_predictions(mm, sim, sp$held, "megalmm")
+  s_mm <- score_predictions(mm, sim, sp$idx, "megalmm", train = sp$train)
   for (col in c("r_oat_prod", "r_oat_assoc", "r_pea_prod", "r_pea_assoc")) {
     check(s_mm[[col]] > 0.2,
           sprintf("MegaLMM recovers %s (got %.2f)", col, s_mm[[col]]))

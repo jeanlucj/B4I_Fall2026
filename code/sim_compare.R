@@ -57,6 +57,14 @@ prefer_pin <- function(sparsity) sparsity <= 0.048
 
 raw <- readr::read_csv(res_path, show_col_types = FALSE) |> dplyr::filter(rep > 1)
 
+# NOTE ON THE INPUT. These read the September 2026 Ceres results, which used the
+# pre-October scoring scheme: 20% of the observed cells held out, so the models
+# were fitted at 0.8x the labelled sparsity and the per-cell metrics were scored
+# on the held-out cells. Read every sparsity level as 0.8x its label. Results
+# generated from now on use the never-observed cells and are fitted at the
+# labelled density; they also name the fit statistic r_fit_ rather than r_obs_.
+# See SIMULATION_GLOSSARY.md.
+
 RESP <- c("r_gma_oat", "r_gma_pea", "r_int_oat", "r_int_pea")
 
 long <- raw |>

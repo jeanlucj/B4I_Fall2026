@@ -7,6 +7,16 @@ Produced by `code/sim_anova.R`. For what the response variables mean see
 [SIMULATION_GLOSSARY.md](../SIMULATION_GLOSSARY.md); for the design see
 [SIMULATION.md](../SIMULATION.md).
 
+> **These results are from the September 2026 Ceres run, which used the
+> pre-October scoring scheme**: 20% of the observed cells held out, so the models
+> were fitted at 0.8 × the labelled sparsity and the per-cell metrics were scored
+> on the held-out cells rather than on the never-observed ones. Read every
+> sparsity level as 0.8 × its label — the density gate quoted as "between 4.8%
+> and 16%" is between **3.84% and 12.8%** actually fitted. The scheme has since
+> changed (see [SIMULATION_GLOSSARY.md](../SIMULATION_GLOSSARY.md)); these
+> analyses have not been rerun, because the conclusions they support do not turn
+> on it.
+
 Data: `megalmm` and `megalmm_U` rows only, **replicates 2–5** (800 runs, 1,600
 rows). Replicate 1 is excluded because it holds two sets of cache files under
 different seeds, both calling themselves rep 1 — see

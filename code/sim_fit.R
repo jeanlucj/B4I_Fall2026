@@ -63,30 +63,44 @@ standardize_within_env <- function(obs) {
     dplyr::ungroup()
 }
 
-#' Hold out a share of the observations, keeping a floor in every oat and pea.
+#' Which cells to score, as a two-column index matrix.
 #'
-#' The floor is not tidiness: an oat or pea left with nothing takes MegaLMM's
-#' ARD sampler to NaN deep inside sample_Lambda_prec_ARD rather than to a
-#' clean error. Same rule as the real analysis in code/megalmm_oat_pea.R.
-mask_observations <- function(obs, fraction, floor_obs = SIM_FLOOR_OBS) {
-  oat_left <- table(obs$oat)
-  pea_left <- table(obs$pea)
-  order_try <- sample(nrow(obs))
-  target <- round(fraction * nrow(obs))
-
-  held <- logical(nrow(obs))
-  n_held <- 0L
-  for (k in order_try) {
-    if (n_held >= target) break
-    i <- as.character(obs$oat[k]); j <- as.character(obs$pea[k])
-    if (oat_left[[i]] > floor_obs && pea_left[[j]] > floor_obs) {
-      held[k] <- TRUE
-      n_held <- n_held + 1L
-      oat_left[[i]] <- oat_left[[i]] - 1L
-      pea_left[[j]] <- pea_left[[j]] - 1L
-    }
+#' NO OBSERVATIONS ARE HELD OUT. In a simulation the truth is known for every
+#' one of the n_oat x n_pea cells, so the natural test set is the cells that were
+#' never observed at all -- which is what the model is actually for, and which
+#' the design already provides (1 - sparsity) of. Holding out a share of the
+#' OBSERVED cells instead had three costs:
+#'
+#'   * it made the nominal sparsity a lie. Holding out 20% meant the models were
+#'     fitted at 0.8x the labelled density -- a scenario labelled 4.8% observed
+#'     trained at 3.84% -- with nothing in the output saying so.
+#'   * it threw away most of the available evaluation. At 10% observed there are
+#'     72 held-out cells against 3,240 never-observed ones, so the per-cell
+#'     metrics were estimated on 2% of the matrix while a 45x larger and more
+#'     relevant set went unused. Measured: r_int came out 0.017 on the held-out
+#'     cells and 0.144 on the never-observed ones, the former being mostly noise.
+#'   * it spent 20% of the data to answer a question the simulation does not need
+#'     answered. Guarding against overfitting is what a holdout is for, and here
+#'     the criterion is a noise-free truth that was never the fitting target.
+#'
+#' @param set "unobserved" scores the cells with no plot -- the prediction
+#'   target, and the default. "all" scores every cell, which additionally
+#'   includes the cells the model was fitted to and so is a blend of prediction
+#'   and fit; it differs materially only where the matrix is dense.
+scoring_index <- function(sim, set = SIM_SCORE_SET) {
+  n_oat <- nrow(sim$G_oat); n_pea <- nrow(sim$G_pea)
+  observed <- matrix(FALSE, n_oat, n_pea)
+  observed[cbind(sim$obs$oat, sim$obs$pea)] <- TRUE
+  keep <- switch(set,
+    unobserved = !observed,
+    all        = matrix(TRUE, n_oat, n_pea),
+    stop("SIM_SCORE_SET must be \"unobserved\" or \"all\", not \"", set, "\"",
+         call. = FALSE))
+  if (sum(keep) < 3) {
+    stop("only ", sum(keep), " cell(s) to score; a correlation needs at least 3",
+         call. = FALSE)
   }
-  dplyr::mutate(obs, held = held)
+  which(keep, arr.ind = TRUE, useNames = FALSE)
 }
 
 # ------------------------------------------------------------
@@ -220,7 +234,7 @@ fit_megalmm_one <- function(row_idx, col_idx, y, G_row, G_col, runID,
   post <- megalmm_posterior(state, accessions = accNames$germplasmName)
 
   # Pad dropped rows and columns back with zero so the surface is always the
-  # full panel. With SIM_MIN_PER_ACC = 3 and SIM_FLOOR_OBS = 2 nothing should
+  # full panel. With SIM_MIN_PER_ACC = 3 and nothing held out, nothing should
   # be dropped; `n_dropped` is reported so that assumption is visible.
   place <- function(M) {
     out <- matrix(0, n_row, n_col,
@@ -312,8 +326,7 @@ additive_part <- function(M) {
   outer(rowMeans(M), colMeans(M), "+") - mean(M)
 }
 
-score_predictions <- function(pred, sim, held, label) {
-  idx <- cbind(held$oat, held$pea)
+score_predictions <- function(pred, sim, idx, label, train = NULL) {
   t <- sim$truth
 
   safe_cor <- function(a, b) {
@@ -322,27 +335,38 @@ score_predictions <- function(pred, sim, held, label) {
     stats::cor(a, b)
   }
 
-  # ---- per-trait metrics at the held-out cells ----
+  # ---- per-trait metrics, at the scored cells ----
   #
   # The truth is the STABLE effects plus the interaction. Environment-specific
   # deviations are unpredictable by construction and correctly count against
   # every model.
-  per_trait <- function(surface, prod_eff, assoc_eff, I_true, observed) {
-    truth_gma   <- prod_eff + assoc_eff
+  per_trait <- function(surface, prod_vec, assoc_vec, I_true) {
+    truth_gma   <- prod_vec[idx[, 1]] + assoc_vec[idx[, 2]]
     truth_total <- truth_gma + I_true[idx]
     c(
       total       = safe_cor(surface[idx], truth_total),
       gma         = safe_cor(additive_part(surface)[idx], truth_gma),
       interaction = safe_cor(interaction_part(surface)[idx],
-                             interaction_part(I_true)[idx]),
-      observed    = safe_cor(surface[idx], observed)
+                             interaction_part(I_true)[idx])
     )
   }
 
-  oat_trait <- per_trait(pred$surface$oat, t$oat_prod[held$oat],
-                         t$pea_assoc[held$pea], t$I_oat, held$y_oat_std)
-  pea_trait <- per_trait(pred$surface$pea, t$oat_assoc[held$oat],
-                         t$pea_prod[held$pea], t$I_pea, held$y_pea_std)
+  oat_trait <- per_trait(pred$surface$oat, t$oat_prod, t$pea_assoc, t$I_oat)
+  pea_trait <- per_trait(pred$surface$pea, t$oat_assoc, t$pea_prod, t$I_pea)
+
+  # ---- fit against the observed phenotype ----
+  #
+  # NOT a cross-validation number. Nothing is held out, so this is measured on
+  # the cells the model was fitted to and is a goodness of FIT, which is why it
+  # is named r_fit_ and not r_obs_. It is kept because a model whose surface does
+  # not track its own training data has gone wrong in a way the truth-based
+  # metrics can hide.
+  fit_r <- c(oat = NA_real_, pea = NA_real_)
+  if (!is.null(train) && nrow(train) > 2) {
+    oidx <- cbind(train$oat, train$pea)
+    fit_r["oat"] <- safe_cor(pred$surface$oat[oidx], train$y_oat_std)
+    fit_r["pea"] <- safe_cor(pred$surface$pea[oidx], train$y_pea_std)
+  }
 
   # ---- effect recovery, from the margins of the surfaces ----
   #
@@ -352,8 +376,8 @@ score_predictions <- function(pred, sim, held, label) {
   #                      PEA's associate
   #   pea-yield surface: row margin = the OAT's associate, col margin = the
   #                      PEA's producer
-  # Taking them this way asks every framework the same question in the same
-  # way, rather than reading each model's own idea of what it estimated.
+  # These are full-panel margins, one value per accession, and always were --
+  # an accession effect has no held-out version.
   oat_prod_hat  <- rowMeans(pred$surface$oat)
   pea_assoc_hat <- colMeans(pred$surface$oat)
   oat_assoc_hat <- rowMeans(pred$surface$pea)
@@ -361,19 +385,21 @@ score_predictions <- function(pred, sim, held, label) {
 
   tibble::tibble(
     model = label,
+    n_scored = nrow(idx),
     # oat yield
     r_total_oat = oat_trait[["total"]], r_gma_oat = oat_trait[["gma"]],
-    r_int_oat = oat_trait[["interaction"]], r_obs_oat = oat_trait[["observed"]],
+    r_int_oat = oat_trait[["interaction"]], r_fit_oat = fit_r[["oat"]],
     # pea yield
     r_total_pea = pea_trait[["total"]], r_gma_pea = pea_trait[["gma"]],
-    r_int_pea = pea_trait[["interaction"]], r_obs_pea = pea_trait[["observed"]],
+    r_int_pea = pea_trait[["interaction"]], r_fit_pea = fit_r[["pea"]],
     # the four effects
     r_oat_prod  = safe_cor(oat_prod_hat,  t$oat_prod),
     r_oat_assoc = safe_cor(oat_assoc_hat, t$oat_assoc),
     r_pea_prod  = safe_cor(pea_prod_hat,  t$pea_prod),
     r_pea_assoc = safe_cor(pea_assoc_hat, t$pea_assoc),
-    # general mixing ability per species: producer + associate, each taken from
-    # whichever surface carries it
+    # general mixing ability per SPECIES: producer + associate, each taken from
+    # whichever surface carries it. Not the same quantity as r_gma_oat above,
+    # which is the additive part of oat YIELD -- see SIMULATION_GLOSSARY.md.
     r_oat_gma = safe_cor(oat_prod_hat + oat_assoc_hat,
                          t$oat_prod + t$oat_assoc),
     r_pea_gma = safe_cor(pea_prod_hat + pea_assoc_hat,
@@ -421,23 +447,19 @@ baseline_predictions <- function(train, n_oat, n_pea, oat_names, pea_names) {
 # halves are run and cached separately and joined afterwards.
 # ------------------------------------------------------------
 
-#' The train/held split, derived from the seed so both halves see the same one.
-split_observations <- function(sim, cv_fraction = SIM_CV_FRACTION, seed = 1L) {
-  set.seed(seed)
-  obs <- sim$obs |> standardize_within_env() |> mask_observations(cv_fraction)
-  list(train = dplyr::filter(obs, !held), held = dplyr::filter(obs, held))
+#' Everything a scenario's fits need: the training table and the cells to score.
+#'
+#' All observed plots are used for fitting -- see scoring_index() for why nothing
+#' is held out. Deterministic, so the two halves of a scenario, run in separate
+#' processes, always score the same cells.
+prepare_scenario <- function(sim, score_set = SIM_SCORE_SET) {
+  list(train = standardize_within_env(sim$obs),
+       idx   = scoring_index(sim, score_set))
 }
 
-#' @param models Which BGLR models to fit. The interaction-focused design
-#'   (code/sim_int_run.R) drops `additive`: it has no interaction term, so it
-#'   cannot answer that design's question, and on the additive part it is
-#'   indistinguishable from `dge_ige` -- measured at a gap of 0.005 on the
-#'   Fisher-z scale, which is the sanity check that adding a specific-combination
-#'   term does not disturb the main effects. Fitting it again would cost a third
-#'   of the BGLR budget to re-confirm that.
-run_scenario_bglr <- function(sim, cv_fraction = SIM_CV_FRACTION, seed = 1L,
+run_scenario_bglr <- function(sim, score_set = SIM_SCORE_SET, seed = 1L,
                               models = c("additive", "dge_ige")) {
-  sp <- split_observations(sim, cv_fraction, seed)
+  sp <- prepare_scenario(sim, score_set)
   oat_names <- rownames(sim$G_oat); pea_names <- rownames(sim$G_pea)
 
   timed <- function(expr) {
@@ -463,19 +485,20 @@ run_scenario_bglr <- function(sim, cv_fraction = SIM_CV_FRACTION, seed = 1L,
                                oat_names, pea_names)
   preds <- c(fits, base)
 
-  purrr::imap(preds, \(pp, nm) score_predictions(pp, sim, sp$held, nm)) |>
+  purrr::imap(preds, \(pp, nm)
+              score_predictions(pp, sim, sp$idx, nm, train = sp$train)) |>
     purrr::list_rbind() |>
     dplyr::mutate(
       seconds = c(secs, rep(NA_real_, length(base))),
-      n_train = nrow(sp$train), n_held = nrow(sp$held), .after = model
+      n_train = nrow(sp$train), .after = model
     )
 }
 
 run_scenario_megalmm <- function(sim, K, eigen_variance,
-                                 cv_fraction = SIM_CV_FRACTION, seed = 1L,
+                                 score_set = SIM_SCORE_SET, seed = 1L,
                                  run_dir = tempdir(),
                                  fixed_main_effect = FALSE) {
-  sp <- split_observations(sim, cv_fraction, seed)
+  sp <- prepare_scenario(sim, score_set)
 
   t0 <- Sys.time()
   mm <- fit_megalmm_both(sp$train, sim$G_oat, sim$G_pea,
@@ -490,11 +513,11 @@ run_scenario_megalmm <- function(sim, K, eigen_variance,
                interaction = NULL)
 
   scores <- dplyr::bind_rows(
-    score_predictions(mm,   sim, sp$held, "megalmm"),
-    score_predictions(mm_U, sim, sp$held, "megalmm_U")
+    score_predictions(mm,   sim, sp$idx, "megalmm",   train = sp$train),
+    score_predictions(mm_U, sim, sp$idx, "megalmm_U", train = sp$train)
   ) |>
     dplyr::mutate(seconds = c(t_mm, NA_real_),
-                  n_train = nrow(sp$train), n_held = nrow(sp$held),
+                  n_train = nrow(sp$train),
                   K = K, eigen_variance = eigen_variance,
                   fixed_main_effect = fixed_main_effect,
                   .after = model)

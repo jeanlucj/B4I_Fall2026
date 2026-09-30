@@ -69,16 +69,25 @@ var(sim$truth$producer);  sim$truth$V[["producer"]]
 var(as.vector(sim$truth$interaction)); sim$truth$V[["interaction"]]
 qr(sim$truth$interaction)$rank                    # == n_factors
 
-# S5 Cross validation splits
+# S5 Training table and scoring cells
+#
+# Nothing is held out: all observed plots are fitted, and the per-cell metrics
+# are scored on the cells that were never observed. So the things to check are
+# that the training table really is everything, and that the scored cells really
+# are disjoint from it.
 arm_evaluation("sim_split")
-a <- split_observations(sim, SIM_CV_FRACTION, seed = 7)
+a <- prepare_scenario(sim)
 disarm_evaluation()
-b <- split_observations(sim, SIM_CV_FRACTION, seed = 7)
+b <- prepare_scenario(sim)
 
-identical(a$held$cell, b$held$cell)               # TRUE -- the load-bearing one
-nrow(a$train); nrow(a$held)
-min(table(a$train$oat)); min(table(a$train$pea))
-length(intersect(a$train$cell, a$held$cell))      # 0
+nrow(a$train) == nrow(sim$obs)                    # TRUE -- nothing withheld
+identical(a$idx, b$idx)                           # TRUE -- deterministic
+nrow(a$idx)                                       # cells scored
+nrow(a$idx) / prod(dim(sim$truth$I_oat))          # ~ 1 - sparsity
+# no scored cell was observed
+obs_cells <- paste(sim$obs$oat, sim$obs$pea)
+sum(paste(a$idx[, 1], a$idx[, 2]) %in% obs_cells)  # 0
+nrow(scoring_index(sim, "all"))                    # the other option
 
 # S6 Kronecker basis
 arm_evaluation("sim_basis")

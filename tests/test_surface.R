@@ -72,12 +72,16 @@ check_near(colMeans(surface_oat) - mean(colMeans(surface_oat)),
            "the column margin of the oat-yield surface IS the pea associate effect")
 
 # ------------------------------------------------------------
-# 3. Masking: determinism, floors, disjointness
+# 3. The scoring set: determinism, disjointness, and the right size
 #
-# Both halves of a scenario call split_observations() with the same seed, and
-# they are fitted in different processes. If it ever stopped being deterministic
-# every head-to-head comparison would silently be between models scored on
-# different data.
+# Nothing is held out. Both halves of a scenario are fitted in separate
+# processes and must score the SAME cells, or every head-to-head comparison is
+# silently between models scored on different data -- so determinism is the
+# load-bearing property, exactly as it was for the old holdout.
+#
+# The other two are what the redesign is for: the scored cells must be the ones
+# that were NEVER observed, and there must be (1 - sparsity) of them, so that a
+# scenario labelled 4.8% observed is fitted at 4.8% rather than at 0.8 x 4.8%.
 # ------------------------------------------------------------
 
 make_panel <- function(n, tag) {
@@ -90,25 +94,35 @@ sim <- simulate_experiment(make_panel(50, "o"), make_panel(50, "p"),
                            sparsity = 0.30, n_factors = 1,
                            interaction_pct = 0.20, n_envs = 1)
 
-a <- split_observations(sim, 0.2, seed = 7)
-b <- split_observations(sim, 0.2, seed = 7)
-check(identical(a$held$cell, b$held$cell),
-      "the same seed gives the same split -- both halves see one split")
-check(identical(a$train$cell, b$train$cell), "and the same training set")
+a <- prepare_scenario(sim)
+b <- prepare_scenario(sim)
+check(identical(a$idx, b$idx),
+      "the scoring set is deterministic -- both halves score the same cells")
 
-c2 <- split_observations(sim, 0.2, seed = 8)
-check(!identical(a$held$cell, c2$held$cell), "a different seed gives a different split")
+check(nrow(a$train) == nrow(sim$obs),
+      "NOTHING is held out: every observed plot is used for fitting")
+check_near(nrow(a$idx) / (50 * 50), 1 - 0.30, tol = 1e-12,
+           "and exactly (1 - sparsity) of the matrix is scored")
 
-check(length(intersect(a$train$cell, a$held$cell)) == 0,
-      "train and held are disjoint")
-check(nrow(a$train) + nrow(a$held) == nrow(sim$obs),
-      "and together they are everything")
-check(min(table(a$train$oat)) >= SIM_FLOOR_OBS,
-      "every oat keeps at least the floor in training")
-check(min(table(a$train$pea)) >= SIM_FLOOR_OBS,
-      "every pea keeps at least the floor in training")
-check(abs(nrow(a$held) / nrow(sim$obs) - 0.2) < 0.02,
-      "the held-out share is close to the fraction asked for")
+observed <- paste(sim$obs$oat, sim$obs$pea)
+check(sum(paste(a$idx[, 1], a$idx[, 2]) %in% observed) == 0,
+      "no scored cell was ever observed -- they are the prediction target")
+
+# the other option, and that it is a superset
+check(nrow(scoring_index(sim, "all")) == 50 * 50,
+      "scoring_index(\"all\") returns every cell")
+check(nrow(scoring_index(sim, "all")) > nrow(a$idx),
+      "and is a superset of the unobserved set")
+check_error(scoring_index(sim, "held_out"),
+            "an unknown scoring set is refused rather than silently defaulted")
+
+# a fully observed matrix leaves nothing to score, and must say so rather than
+# returning a correlation over two cells
+dense <- simulate_experiment(make_panel(12, "o"), make_panel(12, "p"),
+                             sparsity = 0.99, n_factors = 0,
+                             interaction_pct = 0, n_envs = 1)
+check_error(scoring_index(dense, "unobserved"),
+            "a matrix with almost nothing unobserved is refused")
 
 check(all(c("y_oat_std", "y_pea_std") %in% names(a$train)),
       "both traits are standardised")
@@ -142,7 +156,7 @@ perfect <- list(
     pea = outer(tr$oat_assoc, tr$pea_prod, "+") + tr$I_pea),
   interaction = NULL)
 
-sc <- score_predictions(perfect, sim, a$held, "perfect")
+sc <- score_predictions(perfect, sim, a$idx, "perfect", train = a$train)
 for (col in c("r_total_oat", "r_gma_oat", "r_int_oat",
               "r_total_pea", "r_gma_pea", "r_int_pea",
               "r_oat_prod", "r_oat_assoc", "r_pea_prod", "r_pea_assoc",
@@ -151,6 +165,25 @@ for (col in c("r_total_oat", "r_gma_oat", "r_int_oat",
   check_near(sc[[col]], 1, tol = 1e-6,
              paste("a perfect predictor scores 1 on", col))
 }
+check(sc$n_scored == nrow(a$idx),
+      "and records how many cells it scored")
+
+# r_fit is a FIT statistic against a noisy phenotype, so even the truth cannot
+# score 1 on it -- it is capped by the square root of heritability. Pinning this
+# is what stops it being read as a prediction accuracy.
+check(!is.na(sc$r_fit_oat) && sc$r_fit_oat > 0.3 && sc$r_fit_oat < 0.95,
+      sprintf("r_fit_oat is bounded well below 1 even for the truth (%.3f)",
+              sc$r_fit_oat))
+
+# r_gma_oat and r_oat_gma are DIFFERENT quantities that the naming invites
+# confusing: the first is the additive part of oat YIELD (oat producer + pea
+# associate), the second is an oat ACCESSION's total contribution (oat producer +
+# oat associate). Both are 1 for a perfect predictor, so equality there proves
+# nothing -- the test is that they are built from different truth vectors.
+surf_oat <- outer(tr$oat_prod, tr$pea_assoc, "+")
+check(abs(stats::cor(tr$pea_assoc, tr$oat_assoc)) < 0.9,
+      "the two associate effects are distinct vectors, so r_gma_oat and r_oat_gma
+       cannot be the same quantity")
 
 # and a pure-noise predictor must score near zero, not near one
 noise <- list(surface = list(oat = matrix(rnorm(50 * 50), 50, 50,
@@ -158,7 +191,7 @@ noise <- list(surface = list(oat = matrix(rnorm(50 * 50), 50, 50,
                              pea = matrix(rnorm(50 * 50), 50, 50,
                                           dimnames = dimnames(tr$I_pea))),
               interaction = NULL)
-sn <- score_predictions(noise, sim, a$held, "noise")
+sn <- score_predictions(noise, sim, a$idx, "noise", train = a$train)
 check(abs(sn$r_total_oat) < 0.2, "a noise predictor scores near zero on r_total_oat")
 check(abs(sn$r_oat_prod) < 0.3, "and near zero on r_oat_prod")
 

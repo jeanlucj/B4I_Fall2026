@@ -205,7 +205,7 @@ Masking for cross-validation carries the same floor.
 
 ## What is fitted
 
-Three models, all shown identical data and scored on identical held-out cells:
+Three models, all shown identical data and scored on identical cells:
 
 | model | what it fits |
 |---|---|
@@ -319,8 +319,22 @@ M  =  additive_part(M)  +  interaction_part(M)
 additive_part(M) = outer(rowMeans(M), colMeans(M), "+") - mean(M)
 ```
 
-**Per trait, at the held-out cells** (suffix `_oat` for oat yield, `_pea` for
-pea yield):
+**Nothing is held out.** Every observed plot is fitted, so a scenario labelled
+4.8% observed is fitted at 4.8%, and the per-cell metrics are scored on the cells
+that were **never observed** — the prediction target, with known truth like every
+other cell. `SIM_SCORE_SET` switches to `"all"` if the observed cells should be
+included too.
+
+> Before 30 September 2026 a 20% share of the *observed* cells was held out and
+> the per-cell metrics were scored there, so the models were fitted at
+> **0.8 × the labelled sparsity** with nothing in the output saying so, and the
+> metrics used a small fraction of the available cells (72 against 3,240 at 10%
+> observed). `output/simulation_results.csv` from the September Ceres run is on
+> the old scheme and has not been regenerated. The cache filename carries `v2`
+> from the change onward, so the two schemes cannot be combined.
+
+**Per trait, over the never-observed cells** (suffix `_oat` for oat yield, `_pea`
+for pea yield):
 
 - **`r_total_*`** — against the true genetic value `Pr + As + I` for that trait.
   What a breeder ranking on predicted performance would care about.
@@ -332,8 +346,14 @@ pea yield):
   terms, so row and column means are stripped from the predicted surface and
   from the truth alike. An additive model residualises to exactly zero, which is
   the correct answer for it.
-- **`r_obs_*`** — against the held-out observation, noise included. The ceiling
-  any model faces in practice.
+- **`r_fit_*`** — against the observed phenotype, at the cells that *were*
+  observed. A goodness of **fit**, not an accuracy, and named accordingly: with
+  nothing held out there is no out-of-sample phenotype to correlate against. It
+  is bounded well below 1 by residual noise (the truth itself scores about 0.69),
+  and is kept because a surface that does not track its own training data has
+  gone wrong in a way the truth-based metrics can hide. The pre-October
+  `r_obs_*` was the same quantity computed out of sample, where it *was* an
+  accuracy.
 
 **Effect recovery — all four, each from the margin that carries it:**
 
@@ -347,6 +367,13 @@ pea yield):
 and **`r_oat_gma` / `r_pea_gma`** for each species' producer plus associate,
 assembled across the two surfaces. Taking every effect as a surface margin is
 what asks the three frameworks the same question the same way.
+
+**`r_gma_oat` and `r_oat_gma` are not the same quantity**, despite the names.
+The first is per cell and is the additive part of oat *yield* — oat producer plus
+**pea** associate. The second is per accession and is an oat's total contribution
+— oat producer plus **oat** associate. They share only the producer effect, and
+the two associate vectors correlate at about 0.14. See
+[SIMULATION_GLOSSARY.md](SIMULATION_GLOSSARY.md#-r_gma_oat-and-r_oat_gma-are-different-quantities).
 
 **Two diagnostics of the fixed-loading factor**, not estimates of a main
 effect:
@@ -366,7 +393,7 @@ effect:
   main-effect SD rather than at 1, because `remove_nuisance_parameters`
   rescales `Lambda`.
 - **`n_dropped`** — accessions with no training observation, padded back with
-  zero. Should be 0; if it is not, some held-out cells are being predicted as
+  zero. Should be 0; if it is not, whole rows or columns of the surface are
   exactly zero and the correlations are diluted.
 
 ## Running it
@@ -646,7 +673,9 @@ disjoint for the same reason.
 ## Reading the results
 
 `simulation_results.csv` has one row per scenario × replicate × model, with
-`r_total`, `r_interaction`, `r_observed`, `seconds`, `n_train` and `n_held`.
+`r_total`, `r_interaction`, `r_observed`, `seconds`, `n_train` and `n_held` --
+all of them pre-October names; the current columns are in
+[SIMULATION_GLOSSARY.md](SIMULATION_GLOSSARY.md).
 The runner prints three summaries: accuracy for the total, accuracy for the
 interaction, and a head-to-head of MegaLMM minus DGE-IGE.
 

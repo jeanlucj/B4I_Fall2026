@@ -73,21 +73,52 @@ parameterisation, not a failure of the fit. `megalmm` is the row to quote;
 
 ---
 
-## Per-trait accuracy, at the held-out cells
+## Which cells the metrics are computed on
 
-Four columns per trait, computed **only at the 20% of observed cells held out**
-(`idx` in the code). Suffix `_oat` means the oat-yield surface, `_pea` the
+**Nothing is held out.** Every observed plot is used for fitting, so a scenario
+labelled 4.8% observed is fitted at 4.8%. The per-cell metrics are scored on the
+cells that were **never observed** — which is the prediction target, has known
+truth like every other cell, and is what the model is for.
+
+> **This changed on 30 September 2026.** Before that, 20% of the *observed* cells
+> were held out and the per-cell metrics were scored there — so the models were
+> fitted at **0.8 × the labelled sparsity** (4.8% trained at 3.84%, 16% at 12.8%)
+> with nothing in the output saying so, and the metrics were estimated on a
+> fraction of the available cells. At 10% observed that meant 72 held-out cells
+> against 3,240 never-observed ones. Measured on one scenario, `r_int` came out
+> 0.017 on the held-out cells and 0.144 on the never-observed ones — the former
+> being mostly noise.
+>
+> `output/simulation_results.csv` from the September Ceres run predates the
+> change and is on the old scheme; its `r_obs_*` column is the old `r_fit_*`. The
+> cache filename carries `v2` from the change onward so the two can never be
+> combined. `SIM_SCORE_SET` selects `"unobserved"` (the default) or `"all"`.
+
+So there are three kinds of column, and they differ in what they are computed
+over:
+
+| kind | computed over | columns |
+|---|---|---|
+| **per-cell** | the never-observed cells | `r_total_*`, `r_gma_*`, `r_int_*` |
+| **per-accession** | the full-panel margins | `r_*_prod`, `r_*_assoc`, `r_*_gma` |
+| **fit** | the observed cells | `r_fit_*` |
+
+`n_scored` records how many cells the per-cell metrics used.
+
+## Per-cell accuracy
+
+Three columns per trait. Suffix `_oat` means the oat-yield surface, `_pea` the
 pea-yield surface.
 
 | column | correlation between | what it answers |
 |---|---|---|
-| `r_total_oat` | predicted oat-yield surface, and **true producer + associate + interaction** | Everything the model could in principle know about a held-out cell. The headline accuracy. |
-| `r_gma_oat` | `additive_part(surface)`, and **true producer + associate** | Accuracy on the additive part alone, with the interaction residualised out of both sides. |
+| `r_total_oat` | predicted oat-yield surface, and **true producer + associate + interaction** | Everything the model could in principle know about a cell nobody grew. The headline accuracy. |
+| `r_gma_oat` | `additive_part(surface)`, and **true oat producer + true pea associate** | Accuracy on the additive part of **oat yield**, with the interaction residualised out of both sides. Note whose effects these are — see the warning below. |
 | `r_int_oat` | `interaction_part(surface)`, and `interaction_part(true I_oat)` | Accuracy on the specific-combination part alone. **`NA` for `additive`, `row_mean` and `both_means`**, which have no interaction: an exactly additive surface residualises to exactly zero, so the correlation is undefined rather than small. |
-| `r_obs_oat` | predicted surface, and the **standardised observed yield** | The only column comparable to a real-data cross-validation number, because it is scored against a noisy phenotype rather than against a noise-free truth. Bounded above by the square root of heritability, so it is always much lower than `r_total_oat` and the two must never be quoted as if they were the same quantity. |
 
-`r_total_pea`, `r_gma_pea`, `r_int_pea` and `r_obs_pea` are the exact mirror on
-the pea-yield surface.
+`r_total_pea`, `r_gma_pea` and `r_int_pea` are the exact mirror on the pea-yield
+surface — so `r_gma_pea` is the true **pea** producer plus the true **oat**
+associate.
 
 **The truth these are scored against is the stable effects plus the
 interaction.** Environment-specific deviations are unpredictable by construction
@@ -96,10 +127,25 @@ and so count against every model equally.
 `additive_part(M)` is `M` reduced to its two margins; `interaction_part(M)` is
 what is left, `M − additive_part(M)`, which has exactly zero row and column
 means. The two sum to `M` to machine precision — `tests/test_surface.R` asserts
-it at `1e-12`, because every column in this section is a margin or a residual of
-that decomposition and a wrong split would corrupt all of them together.
+it at `1e-12`, because every per-cell column is a margin or a residual of that
+decomposition and a wrong split would corrupt all of them together.
 
----
+## `r_fit_oat` and `r_fit_pea` are not accuracy
+
+Correlation between the predicted surface and the **observed, standardised
+phenotype**, at the cells that were observed — that is, the cells the model was
+fitted to. It is a **goodness of fit**, not a prediction accuracy, and it is
+named `r_fit_` rather than `r_obs_` to stop it being read as one.
+
+It cannot reach 1 even for a perfect predictor, because the phenotype contains
+residual noise: the truth itself scores about 0.69 on it at the simulation's
+variance budget. It is kept because a model whose surface does not track its own
+training data has gone wrong in a way the truth-based metrics can hide.
+
+(The pre-October `r_obs_*` column was the same quantity computed on held-out
+cells, where it *was* a prediction accuracy and was the one number comparable to
+a real-data cross-validation figure. There is no such column now. If one is
+wanted, it needs a holdout, and a holdout costs what is described above.)
 
 ## Effect recovery, over the whole panel
 
@@ -121,6 +167,34 @@ breeding actually asks.
 total, its own yield plus its effect on its partner's. Each species' GMA is
 assembled across the two orientations — one component from each — which is the
 main reason both orientations are fitted.
+
+### ⚠ `r_gma_oat` and `r_oat_gma` are different quantities
+
+The names are two words in a different order and the meanings are not close. This
+is the easiest thing in the table to get wrong.
+
+| | `r_gma_oat` | `r_oat_gma` |
+|---|---|---|
+| a property of | oat **yield** | oat **accessions** |
+| unit | one value per cell | one value per oat |
+| true quantity | oat producer **+ pea associate** | oat producer **+ oat associate** |
+| computed over | the never-observed cells | the full-panel margins |
+| answers | how well can the additive part of oat yield be predicted? | how well can oats be ranked on their total contribution? |
+
+They share only the oat producer effect. The other half of each is a *different
+vector* — the pea's associate effect against the oat's own — and in the
+simulation those two correlate at about 0.14, so there is no sense in which the
+two columns measure the same thing.
+
+They can nonetheless come out close, because both are usually dominated by how
+well the oat producer effect is recovered. Measured on one dense scenario: 0.9028
+against 0.9071. **That closeness is a coincidence of that scenario, not an
+identity**, and it will not hold where the two associate effects differ in how
+recoverable they are — which is precisely the regime the sparsity axis explores.
+
+For selection decisions, `r_oat_gma` is the relevant one: it is the accuracy of
+ranking oat accessions on what they contribute overall. `r_gma_oat` is a
+statement about predicting a yield surface.
 
 ### The prediction to test here
 
@@ -160,7 +234,9 @@ machinery is not earning its keep for that quantity.
 | column | meaning |
 |---|---|
 | `seconds` | Wall-clock time for that fit. `NA` on rows that share a fit with the row above — the baselines, and `megalmm_U`. |
-| `n_train`, `n_held` | Plots in the training and held-out sets, per trait. |
+| `sparsity` | The fraction of the oat × pea matrix observed, and now also the fraction actually fitted. |
+| `n_train` | Plots used for fitting, per trait. Equal to the total observed, since nothing is held out. |
+| `n_scored` | Cells the per-cell metrics were computed on — the never-observed cells, so about `(1 − sparsity) × n_acc²`. |
 | `n_dropped` | Accessions MegaLMM dropped for having too few observations. |
 | `fixed_ok_oat`, `fixed_ok_pea` | Whether the fixed main-effect factor was successfully pinned in that orientation. `FALSE` makes `r_mainfactor_*` uninterpretable for that row. |
 | `scenario` | The data scenario's name, `n<acc>_sp<sparsity×1000>_f<n_factors>_i<interaction_pct>_e<n_envs>_g<gxe_cor×100>`. Encodes only the design, never the seed. A name **without** the trailing `_g###` is from the pre-September-2026 single-trait grid and does not belong in the same table. |

@@ -29,6 +29,16 @@ that sparsity alone drives from r = 0.15 to r = 0.91.
 correlation points at the comparator's own mean, which is where the comparison
 actually sits.
 
+> **These results are from the September 2026 Ceres run, which used the
+> pre-October scoring scheme**: 20% of the observed cells held out, so the models
+> were fitted at 0.8 × the labelled sparsity and the per-cell metrics were scored
+> on the held-out cells rather than on the never-observed ones. Read every
+> sparsity level as 0.8 × its label — the density gate quoted as "between 4.8%
+> and 16%" is between **3.84% and 12.8%** actually fitted. The scheme has since
+> changed (see [SIMULATION_GLOSSARY.md](../SIMULATION_GLOSSARY.md)); these
+> analyses have not been rerun, because the conclusions they support do not turn
+> on it.
+
 **Replicate 1 is excluded** — it holds two sets of cache files under different
 seeds. 480 scenario-replicates remain, every one of which has both BGLR fits and
 at least one MegaLMM run.
