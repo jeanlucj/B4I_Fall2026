@@ -138,6 +138,8 @@ against something other than another model.
 | `sim_generate.R` | simulates one experiment under a known truth |
 | `sim_fit.R` | fits both frameworks to a simulated experiment and scores them |
 | `sim_run.R` | drives the simulation grid, with per-scenario caching |
+| `sim_filter_results.R` | drops rows in `simulation_results.csv` that are not from the current grid. Needed because the CSV is rebuilt by globbing the cache |
+| `sim_anova.R` | split-plot ANOVA of the MegaLMM results: which factors move accuracy, with effect sizes and expected mean squares |
 | `validation_functions.R` | shared machinery for the validation trial: pool construction, the field design, power. Sourced, not run |
 | `validate_pool_selection.R` | builds the As+ / As- pools and diffs them against the previous vintage |
 | `validate_power.R` | analytic and simulation power, plus the false-positive check |

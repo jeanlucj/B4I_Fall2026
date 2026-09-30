@@ -393,6 +393,16 @@ receives. `--check` and `--pilot` are the two to run before anything long.
 On a cluster the grid runs as a SLURM job array; see
 [code/scinet/README.md](code/scinet/README.md).
 
+**Before reading any results table, filter it.** `simulation_results.csv` is
+rebuilt by globbing the cache, so rows from an earlier grid join it silently:
+
+```bash
+Rscript code/sim_filter_results.R --infer-design
+```
+
+Every column is defined in
+[SIMULATION_GLOSSARY.md](SIMULATION_GLOSSARY.md).
+
 ### What it writes
 
 | path | what it is |

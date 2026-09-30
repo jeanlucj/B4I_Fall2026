@@ -33,6 +33,8 @@ matches the question you have.
 | document | what it is for |
 |---|---|
 | [SIMULATION.md](SIMULATION.md) | when either framework *would* work: the bivariate generator, the 120-scenario design, the D-optimal fraction, and how to read a fractional design |
+| [SIMULATION_GLOSSARY.md](SIMULATION_GLOSSARY.md) | every column in `simulation_results.csv`: what each of the six models is, and what each `r_*` metric measures. Read this before reading results |
+| [docs/MegaLMM_anova.md](docs/MegaLMM_anova.md) | which factors actually move MegaLMM's accuracy, and by how much — the split-plot ANOVA of the simulation, with expected mean squares |
 | [docs/MegaLMM_sparsity_challenge.md](docs/MegaLMM_sparsity_challenge.md) | why sparsity hurts the factor model so much more than a row average — the mechanism behind the simulation's headline result |
 | [code/scinet/README.md](code/scinet/README.md) | running the grid as a SLURM job array on Ceres: install, shake-out, submission, and how to read a job that produced no output |
 
