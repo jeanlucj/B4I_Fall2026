@@ -88,10 +88,10 @@ if (check) {
   sd_ <- score_predictions(d,  sim, sp$idx, "dge_ige", train = sp$train)
   sm  <- score_predictions(mm, sim, sp$idx, "megalmm", train = sp$train)
   print(dplyr::bind_rows(sd_, sm) |>
-          dplyr::select(model, r_int_oat, r_int_pea, r_gma_oat, r_gma_pea))
+          dplyr::select(model, r_int_oat, r_int_pea, r_addsurf_oat, r_addsurf_pea))
 
   ok_int <- sm$r_int_oat > sd_$r_int_oat
-  ok_gma <- sd_$r_gma_oat > 0.7
+  ok_gma <- sd_$r_addsurf_oat > 0.7
   if (!ok_int) {
     stop("MegaLMM did NOT beat dge_ige on r_int in the dense rank-1 case ",
          sprintf("(%.3f vs %.3f). The comparison is mis-wired.",
@@ -99,10 +99,10 @@ if (check) {
   }
   if (!ok_gma) {
     stop(sprintf("dge_ige recovered GMA at only %.3f in a dense scenario.",
-                 sd_$r_gma_oat), call. = FALSE)
+                 sd_$r_addsurf_oat), call. = FALSE)
   }
-  message(sprintf("OK: r_int megalmm %.3f > dge_ige %.3f; dge_ige r_gma %.3f",
-                  sm$r_int_oat, sd_$r_int_oat, sd_$r_gma_oat))
+  message(sprintf("OK: r_int megalmm %.3f > dge_ige %.3f; dge_ige r_addsurf %.3f",
+                  sm$r_int_oat, sd_$r_int_oat, sd_$r_addsurf_oat))
   quit(save = "no")
 }
 
@@ -160,7 +160,11 @@ if (!is.na(task) && !is.na(ntasks)) {
 # mix the two silently -- which is the class of bug this project has already been
 # bitten by twice. Marking the scheme in the filename means old files simply miss
 # and are recomputed, and the combine glob below will not pick them up.
-SIM_CACHE_SCHEME <- "v2"
+# v3: r_gma_oat / r_gma_pea were renamed to r_addsurf_oat / r_addsurf_pea. A
+# column rename is a change to the cached objects' schema, so it has to move the
+# marker -- bind_rows() over a mixed cache would produce BOTH columns, each half
+# NA, which is precisely the silent mixing the marker exists to prevent.
+SIM_CACHE_SCHEME <- "v3"
 
 cache_path <- function(scenario, rep, seed, suffix) {
   file.path(cache_dir,
@@ -265,7 +269,7 @@ gap <- results |>
   dplyr::filter(model %in% c("dge_ige", "megalmm")) |>
   dplyr::select(model, scenario, rep, n_acc, sparsity, n_factors,
                 interaction_pct, n_envs, fixed_main_effect,
-                r_int_oat, r_int_pea, r_gma_oat, r_gma_pea) |>
+                r_int_oat, r_int_pea, r_addsurf_oat, r_addsurf_pea) |>
   tidyr::pivot_longer(dplyr::starts_with("r_"), names_to = "response",
                       values_to = "r") |>
   dplyr::filter(!is.na(r)) |>

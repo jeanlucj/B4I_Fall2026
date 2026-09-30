@@ -113,7 +113,7 @@ prints a small positive number and looks like *something*.
 
 ### Worked on the real numbers
 
-`r_gma_oat`, whole-plot stratum. `MS_error = 0.01105` on 756 df, so a null term
+`r_addsurf_oat`, whole-plot stratum. `MS_error = 0.01105` on 756 df, so a null term
 with 1 df is expected to collect `SS ≈ 0.011` just from noise:
 
 | term | df | SS | SS a null term would get | partial η² | partial ω² |
@@ -196,8 +196,8 @@ Fitted values:
 
 | response | MS whole-plot err | MS subplot err | σ²_run | σ²_sub | run share of noise |
 |---|---|---|---|---|---|
-| `r_gma_oat` | 0.0111 | 0.0334 | 0.0027 | 0.0167 | 14% |
-| `r_gma_pea` | 0.0099 | 0.0294 | 0.0025 | 0.0147 | 15% |
+| `r_addsurf_oat` | 0.0111 | 0.0334 | 0.0027 | 0.0167 | 14% |
+| `r_addsurf_pea` | 0.0099 | 0.0294 | 0.0025 | 0.0147 | 15% |
 | `r_int_oat` | 0.0432 | 0.0033 | 0.0424 | 0.0016 | **96%** |
 | `r_int_pea` | 0.0444 | 0.0040 | 0.0434 | 0.0020 | **96%** |
 
@@ -213,7 +213,7 @@ in the factor structure, which `U` does keep.
 
 Partial ω², whole-plot stratum, as planned (generative × data excluded):
 
-| term | df | `r_gma_oat` | `r_gma_pea` | `r_int_oat` | `r_int_pea` |
+| term | df | `r_addsurf_oat` | `r_addsurf_pea` | `r_int_oat` | `r_int_pea` |
 |---|---|---|---|---|---|
 | **sparsity** | 3 | **0.965** | **0.969** | **0.889** | **0.879** |
 | **n_acc** | 1 | 0.561 | 0.611 | 0.209 | 0.222 |
@@ -233,7 +233,7 @@ Four readings:
    else is within an order of magnitude.
 2. **The generative factors separate cleanly by response, as they should.** The
    simulated interaction drives `r_int` (ω² ≈ 0.42) and is nearly irrelevant to
-   `r_gma` (0.004–0.018). `environment` is the mirror: it matters for GMA (0.48)
+   `r_addsurf` (0.004–0.018). `environment` is the mirror: it matters for GMA (0.48)
    and not for the interaction (0.007–0.015). That is a sanity check passing —
    each response responds to the thing it is supposed to measure.
 3. **Of the three analysis levers, one matters, one is marginal, one is
@@ -247,7 +247,7 @@ Four readings:
 
 ### The one interaction that matters
 
-Marginal means on the r scale, `r_gma_oat`:
+Marginal means on the r scale, `r_addsurf_oat`:
 
 | observed | `fixed_main_effect = FALSE` | `TRUE` | gain from pinning |
 |---|---|---|---|
@@ -268,7 +268,7 @@ how sparse the data is.
 
 ### The other levers, for the record
 
-| lever | level | `r_gma_oat` | `r_int_oat` |
+| lever | level | `r_addsurf_oat` | `r_int_oat` |
 |---|---|---|---|
 | K | 5 | 0.718 | 0.511 |
 | | 10 | 0.691 | 0.493 |
@@ -285,16 +285,16 @@ hurts, not the number of environments** — which is the axis worth keeping.
 
 ### Eta versus U
 
-Subplot stratum. The readout main effect is worth Δr = 0.30 on `r_gma_oat` and
-0.21 on `r_gma_pea`, but only 0.03 on `r_int`. Eta is much better for general
+Subplot stratum. The readout main effect is worth Δr = 0.30 on `r_addsurf_oat` and
+0.21 on `r_addsurf_pea`, but only 0.03 on `r_int`. Eta is much better for general
 mixing ability and no better for the interaction, exactly as the parameterisation
 predicts: `U` omits the per-column intercept where the column species' associate
 effect lives, and GMA contains that effect while the interaction part does not.
 
-`readout × sparsity` is the largest subplot term (ω² = 0.886 on `r_gma_oat`,
+`readout × sparsity` is the largest subplot term (ω² = 0.886 on `r_addsurf_oat`,
 Δr = 0.66): the Eta-over-U advantage is itself strongly sparsity-dependent.
 
-Mean `r_gma` by readout and sparsity (observed means, 192–208 runs per cell;
+Mean `r_addsurf` by readout and sparsity (observed means, 192–208 runs per cell;
 written by `code/sim_anova.R` to `output/simulation_anova_eta_vs_u.csv`):
 
 | observed | Eta oat | U oat | **gap oat** | Eta pea | U pea | **gap pea** |
@@ -373,7 +373,7 @@ however much of it there is.
 The plan excluded **generative × data** interactions, on the grounds that they
 are a question about the simulation rather than about MegaLMM. That is
 defensible, but it is not free: those terms are real and large (F = 16.6 on
-`r_gma_oat`), so their sum of squares goes into the whole-plot error and inflates
+`r_addsurf_oat`), so their sum of squares goes into the whole-plot error and inflates
 it by about 50% — from MS 0.0074 to 0.0111. **Every test in the table above is
 therefore conservative.**
 

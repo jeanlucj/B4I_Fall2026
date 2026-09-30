@@ -102,7 +102,7 @@ if (check) {
                          eigen_variance = SIM_EIGEN_VARIANCE, seed = 7,
                          run_dir = file.path(run_dir, "check"))$scores
   )
-  key <- c("model", "r_total_oat", "r_gma_oat", "r_int_oat",
+  key <- c("model", "r_total_oat", "r_addsurf_oat", "r_int_oat",
            "r_total_pea", "r_oat_prod", "r_oat_assoc",
            "r_pea_prod", "r_pea_assoc")
   print(as.data.frame(scores[, intersect(key, names(scores))]),
@@ -228,7 +228,11 @@ if (!is.na(task) && !is.na(ntasks)) {
 # mix the two silently -- which is the class of bug this project has already been
 # bitten by twice. Marking the scheme in the filename means old files simply miss
 # and are recomputed, and the combine glob below will not pick them up.
-SIM_CACHE_SCHEME <- "v2"
+# v3: r_gma_oat / r_gma_pea were renamed to r_addsurf_oat / r_addsurf_pea. A
+# column rename is a change to the cached objects' schema, so it has to move the
+# marker -- bind_rows() over a mixed cache would produce BOTH columns, each half
+# NA, which is precisely the silent mixing the marker exists to prevent.
+SIM_CACHE_SCHEME <- "v3"
 
 cache_path <- function(scenario, rep, seed, suffix) {
   file.path(cache_dir,
@@ -369,8 +373,8 @@ readr::write_csv(results, file.path(out_dir, "simulation_results.csv"))
 # no per-scenario maximum to take any more.
 # ------------------------------------------------------------
 
-outcomes <- c("r_total_oat", "r_gma_oat", "r_int_oat",
-              "r_total_pea", "r_gma_pea", "r_int_pea",
+outcomes <- c("r_total_oat", "r_addsurf_oat", "r_int_oat",
+              "r_total_pea", "r_addsurf_pea", "r_int_pea",
               "r_oat_prod", "r_oat_assoc", "r_pea_prod", "r_pea_assoc",
               "r_oat_gma", "r_pea_gma")
 outcomes <- intersect(outcomes, names(results))

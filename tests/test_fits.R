@@ -121,7 +121,7 @@ for (col in c("r_oat_prod", "r_oat_assoc", "r_pea_prod", "r_pea_assoc")) {
         sprintf("and is no worse than the cell-mean baseline on %s (%.2f vs %.2f)",
                 col, s_dge[[col]], s_mean[[col]]))
 }
-for (col in c("r_total_oat", "r_total_pea", "r_gma_oat", "r_gma_pea")) {
+for (col in c("r_total_oat", "r_total_pea", "r_addsurf_oat", "r_addsurf_pea")) {
   check(s_dge[[col]] > 0.3, sprintf("and recovers %s (got %.2f)", col, s_dge[[col]]))
 }
 
@@ -132,7 +132,7 @@ check(!is.na(s_dge$r_int_oat) && s_dge$r_int_oat > 0,
               s_dge$r_int_oat))
 check(is.na(s_add$r_int_oat) || abs(s_add$r_int_oat) < 1e-8,
       "the additive model has no interaction to score")
-check(abs(s_dge$r_gma_oat - s_add$r_gma_oat) < 0.25,
+check(abs(s_dge$r_addsurf_oat - s_add$r_addsurf_oat) < 0.25,
       "adding the interaction does not move the additive part much")
 
 # ------------------------------------------------------------
@@ -182,7 +182,7 @@ check(g_oat_row$cor_PrAs < 0.4 && g_pea_row$cor_PrAs < 0.4,
 # chance (measured: median 0.13, max 0.55 over 40 pairs). So the null is averaged
 # over several draws, where it concentrates on zero and a leak cannot hide.
 null_cols <- c("r_oat_prod", "r_oat_assoc", "r_pea_prod", "r_pea_assoc",
-               "r_gma_oat", "r_gma_pea")
+               "r_addsurf_oat", "r_addsurf_pea")
 null_runs <- purrr::map(seq_len(8), \(i) {
   other <- simulate_experiment(G_oat, G_pea, sparsity = 0.48, n_factors = 1,
                                interaction_pct = 0.20, n_envs = 1)

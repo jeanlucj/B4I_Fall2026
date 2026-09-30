@@ -55,7 +55,24 @@ ifz <- tanh
 PREFER_K   <- 5
 prefer_pin <- function(sparsity) sparsity <= 0.048
 
-raw <- readr::read_csv(res_path, show_col_types = FALSE) |> dplyr::filter(rep > 1)
+# Results written before the rename carry r_gma_oat / r_gma_pea for what is now
+# r_addsurf_oat / r_addsurf_pea. Same quantity -- the additive part of that
+# trait's yield surface -- renamed because `r_gma_oat` and `r_oat_gma` are
+# different things and two words in a different order was too fine a distinction
+# to hang that on. Renaming on read keeps the September Ceres results usable.
+read_sim_results <- function(path) {
+  x <- readr::read_csv(path, show_col_types = FALSE)
+  old <- c(r_addsurf_oat = "r_gma_oat", r_addsurf_pea = "r_gma_pea")
+  present <- old[old %in% names(x) & !names(old) %in% names(x)]
+  if (length(present) > 0) {
+    message("renaming ", paste(present, collapse = ", "),
+            " from a pre-rename results file")
+    x <- dplyr::rename(x, !!!present)
+  }
+  x
+}
+
+raw <- read_sim_results(res_path) |> dplyr::filter(rep > 1)
 
 # NOTE ON THE INPUT. These read the September 2026 Ceres results, which used the
 # pre-October scoring scheme: 20% of the observed cells held out, so the models
@@ -65,7 +82,7 @@ raw <- readr::read_csv(res_path, show_col_types = FALSE) |> dplyr::filter(rep > 
 # labelled density; they also name the fit statistic r_fit_ rather than r_obs_.
 # See SIMULATION_GLOSSARY.md.
 
-RESP <- c("r_gma_oat", "r_gma_pea", "r_int_oat", "r_int_pea")
+RESP <- c("r_addsurf_oat", "r_addsurf_pea", "r_int_oat", "r_int_pea")
 
 long <- raw |>
   dplyr::select(model, scenario, rep, dplyr::all_of(c(GEN, DAT, SET)),

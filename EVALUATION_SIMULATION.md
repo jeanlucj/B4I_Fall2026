@@ -323,7 +323,7 @@ rowMeans(additive_part(M)) == rowMeans(M)
 ```
 
 That is what makes the metrics comparable across frameworks, and it is where
-`r_gma` (the additive part against `Pr + As`), `r_oat_prod` (`rowMeans` against
+`r_addsurf` (the additive part against `Pr + As`), `r_oat_prod` (`rowMeans` against
 the true producer effect) and `r_pea_assoc` (`colMeans` against the true
 associate effect) come from. Note which effect `r_pea_assoc` is: the response
 is **oat yield**, so the column margin is the **pea's** effect on the oat. The

@@ -71,7 +71,7 @@ res_path <- arg_value("--results",
 # labelled density; they also name the fit statistic r_fit_ rather than r_obs_.
 # See SIMULATION_GLOSSARY.md.
 
-RESPONSES <- c("r_gma_oat", "r_gma_pea", "r_int_oat", "r_int_pea")
+RESPONSES <- c("r_addsurf_oat", "r_addsurf_pea", "r_int_oat", "r_int_pea")
 GEN <- c("interaction", "environment")                    # the generative model
 DAT <- c("n_acc", "sparsity")                             # how much data
 ANA <- c("K", "eigen_variance", "fixed_main_effect")      # the analysis model
@@ -81,7 +81,24 @@ WHOLE <- c(GEN, DAT, ANA)
 # Data
 # ------------------------------------------------------------
 
-raw <- readr::read_csv(res_path, show_col_types = FALSE) |>
+# Results written before the rename carry r_gma_oat / r_gma_pea for what is now
+# r_addsurf_oat / r_addsurf_pea. Same quantity -- the additive part of that
+# trait's yield surface -- renamed because `r_gma_oat` and `r_oat_gma` are
+# different things and two words in a different order was too fine a distinction
+# to hang that on. Renaming on read keeps the September Ceres results usable.
+read_sim_results <- function(path) {
+  x <- readr::read_csv(path, show_col_types = FALSE)
+  old <- c(r_addsurf_oat = "r_gma_oat", r_addsurf_pea = "r_gma_pea")
+  present <- old[old %in% names(x) & !names(old) %in% names(x)]
+  if (length(present) > 0) {
+    message("renaming ", paste(present, collapse = ", "),
+            " from a pre-rename results file")
+    x <- dplyr::rename(x, !!!present)
+  }
+  x
+}
+
+raw <- read_sim_results(res_path) |>
   dplyr::filter(stringr::str_starts(model, "megalmm"), rep > 1)
 
 stopifnot(all(RESPONSES %in% names(raw)))
@@ -137,7 +154,7 @@ two_way <- function(a, b) as.vector(outer(a, b, paste, sep = ":"))
 #
 # Leaving it out is defensible -- it is a question about the SIMULATION rather
 # than about MegaLMM -- but it is not free: those terms are real and large
-# (F = 16.6 on r_gma_oat), so omitting them pushes their sum of squares into the
+# (F = 16.6 on r_addsurf_oat), so omitting them pushes their sum of squares into the
 # whole-plot error and inflates it by about 50%. Every test in the table is then
 # conservative. Reported both ways so the cost is visible rather than implicit.
 all_two_way <- "--all-two-way" %in% args
@@ -442,18 +459,18 @@ message("\nwrote the EMS and marginal-mean tables")
 # needs no explaining.
 # ------------------------------------------------------------
 
-cat("\n", strrep("=", 78), "\nEta vs U across sparsity: mean r_gma\n",
+cat("\n", strrep("=", 78), "\nEta vs U across sparsity: mean r_addsurf\n",
     strrep("=", 78), "\n", sep = "")
 eta_u <- raw |>
   dplyr::mutate(readout = dplyr::if_else(model == "megalmm", "Eta", "U")) |>
   dplyr::group_by(sparsity, readout) |>
   dplyr::summarise(n = dplyr::n(),
-                   r_gma_oat = mean(r_gma_oat, na.rm = TRUE),
-                   r_gma_pea = mean(r_gma_pea, na.rm = TRUE), .groups = "drop") |>
+                   r_addsurf_oat = mean(r_addsurf_oat, na.rm = TRUE),
+                   r_addsurf_pea = mean(r_addsurf_pea, na.rm = TRUE), .groups = "drop") |>
   tidyr::pivot_wider(names_from = readout,
-                     values_from = c(n, r_gma_oat, r_gma_pea)) |>
-  dplyr::mutate(gap_oat = r_gma_oat_Eta - r_gma_oat_U,
-                gap_pea = r_gma_pea_Eta - r_gma_pea_U) |>
+                     values_from = c(n, r_addsurf_oat, r_addsurf_pea)) |>
+  dplyr::mutate(gap_oat = r_addsurf_oat_Eta - r_addsurf_oat_U,
+                gap_pea = r_addsurf_pea_Eta - r_addsurf_pea_U) |>
   dplyr::mutate(dplyr::across(dplyr::where(is.numeric) & !dplyr::starts_with("n_"),
                               ~ round(.x, 3)))
 print(eta_u, width = 200)

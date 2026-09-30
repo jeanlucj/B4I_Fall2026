@@ -80,10 +80,10 @@ MegaLMM minus BGLR, so negative favours BGLR.
 
 | response | comparator | gap (r), subset | gap (r), all data | MegaLMM wins |
 |---|---|---|---|---|
-| `r_gma_oat` | `additive` | −0.072 | −0.088 | 5% |
-| `r_gma_oat` | `dge_ige` | −0.073 | −0.089 | 3% |
-| `r_gma_pea` | `additive` | −0.079 | −0.098 | 3% |
-| `r_gma_pea` | `dge_ige` | −0.080 | −0.099 | 1% |
+| `r_addsurf_oat` | `additive` | −0.072 | −0.088 | 5% |
+| `r_addsurf_oat` | `dge_ige` | −0.073 | −0.089 | 3% |
+| `r_addsurf_pea` | `additive` | −0.079 | −0.098 | 3% |
+| `r_addsurf_pea` | `dge_ige` | −0.080 | −0.099 | 1% |
 
 MegaLMM wins 1–5% of scenarios. All p < 10⁻¹⁶.
 
@@ -204,8 +204,8 @@ flatters MegaLMM. Quantified three ways — on the r scale, MegaLMM minus BGLR:
 
 | response | rule | average of all settings | per-cell oracle | rule − average | oracle − rule |
 |---|---|---|---|---|---|
-| `r_gma_oat` vs `dge_ige` | −0.073 | −0.099 | −0.089 | +0.026 | −0.016 |
-| `r_gma_pea` vs `dge_ige` | −0.080 | −0.110 | −0.099 | +0.030 | −0.019 |
+| `r_addsurf_oat` vs `dge_ige` | −0.073 | −0.099 | −0.089 | +0.026 | −0.016 |
+| `r_addsurf_pea` vs `dge_ige` | −0.080 | −0.110 | −0.099 | +0.030 | −0.019 |
 | `r_int_oat` vs `dge_ige` | +0.189 | +0.129 | +0.153 | +0.060 | −0.036 |
 | `r_int_pea` vs `dge_ige` | +0.162 | +0.109 | +0.134 | +0.053 | −0.028 |
 

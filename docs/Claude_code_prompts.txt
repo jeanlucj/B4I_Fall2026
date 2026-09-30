@@ -177,3 +177,11 @@ Rscript tests/test_design.R 2&gt;&amp;1 | tail -3 &amp;&amp; Rscript tests/run_a
 </task-notification>
 [2026-09-30 12:27:14] Here are questions I should have asked before I had you churn on the sim_int code (also, please document how to run the sim_int code). Just to understand further, from the glossary.  There are some correlations that you calculate only on the held-out data, kind of simulating a cross validation, and some correlations that you calculate on the full panel.  Is there a reason why you can't calculate the same set of correlations both ways?  On the whole, given that this is a simulation, I don't see the need for the held out data.  Also, does the fact that there is held out data mean that the sparsity is actually lower than the nominal value?  That would be confusing.
 [2026-09-30 12:39:12] Implement the defensible redesign for both the initial general simulation that tested all of the MegaLMM analysis options and for the BGLR vs Best_MegaLMM that we have not run yet.  HOWEVER, for now I do not want to rerun the general simulation nor do I want you to redo the MegaLMM_anova analysis. The results we have there are good enough for now.  This just means that the sim_int simulation will be slightly different and we will want to analyze r_int_* and r_gma_* estimated on the full panel.  Note that r_gma_* and r_*_gma will now be the same thing.  Keep the r_gma_* name.  Revise the SIMULATION_GLOSSARY.
+[2026-09-30 13:32:05] Please change r_gma_* to r_addsurf_* everywhere it occurs, commit and push.
+[2026-09-30 13:39:54] <task-notification>
+<task-id>btnsrdik2</task-id>
+<tool-use-id>toolu_01SV9MXG7jKYemAEc4qdUuhz</tool-use-id>
+<output-file>/private/tmp/claude-1334918876/-Users-jj332-Documents-GitRepo-B4I-Fall2026/9648120b-4509-444c-a67d-53a3892cdcf3/tasks/btnsrdik2.output</output-file>
+<status>completed</status>
+<summary>Background command "for i in $(seq 1 10); do sleep 25; grep -q "pilot exit=" /tmp/ip.log 2&gt;/dev/null &amp;&amp; break; done; grep -E "exit=|rows -&gt;|Error" /tmp/ip.log | head -3; echo "=== fresh output column names ==="; head -1 output/simulation_int_results.csv | tr ',' '\n' | grep -nE "^r_addsurf|^r_gma|^r_oat_gma|^r_pea_gma|^r_fit|n_scored"; echo "=== cache filenames carry v3 ==="; ls output/simulation_int/ | head -3" completed (exit code 0)</summary>
+</task-notification>

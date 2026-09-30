@@ -90,16 +90,21 @@ truth like every other cell, and is what the model is for.
 > being mostly noise.
 >
 > `output/simulation_results.csv` from the September Ceres run predates the
-> change and is on the old scheme; its `r_obs_*` column is the old `r_fit_*`. The
-> cache filename carries `v2` from the change onward so the two can never be
-> combined. `SIM_SCORE_SET` selects `"unobserved"` (the default) or `"all"`.
+> change and is on the old scheme. Two columns were also renamed: its `r_obs_*`
+> is the current `r_fit_*`, and its **`r_gma_oat` / `r_gma_pea` are the current
+> `r_addsurf_oat` / `r_addsurf_pea`** — the same quantity, renamed because
+> `r_gma_oat` and `r_oat_gma` were two words in a different order for two
+> unrelated quantities. `code/sim_anova.R` and `code/sim_compare.R` rename on
+> read, so old files stay usable. The cache filename carries `v2` from the change
+> onward so the two schemes can never be combined. `SIM_SCORE_SET` selects
+> `"unobserved"` (the default) or `"all"`.
 
 So there are three kinds of column, and they differ in what they are computed
 over:
 
 | kind | computed over | columns |
 |---|---|---|
-| **per-cell** | the never-observed cells | `r_total_*`, `r_gma_*`, `r_int_*` |
+| **per-cell** | the never-observed cells | `r_total_*`, `r_addsurf_*`, `r_int_*` |
 | **per-accession** | the full-panel margins | `r_*_prod`, `r_*_assoc`, `r_*_gma` |
 | **fit** | the observed cells | `r_fit_*` |
 
@@ -113,11 +118,11 @@ pea-yield surface.
 | column | correlation between | what it answers |
 |---|---|---|
 | `r_total_oat` | predicted oat-yield surface, and **true producer + associate + interaction** | Everything the model could in principle know about a cell nobody grew. The headline accuracy. |
-| `r_gma_oat` | `additive_part(surface)`, and **true oat producer + true pea associate** | Accuracy on the additive part of **oat yield**, with the interaction residualised out of both sides. Note whose effects these are — see the warning below. |
+| `r_addsurf_oat` | `additive_part(surface)`, and **true oat producer + true pea associate** | Accuracy on the additive part of **oat yield**, with the interaction residualised out of both sides. Note whose effects these are — see the warning below. |
 | `r_int_oat` | `interaction_part(surface)`, and `interaction_part(true I_oat)` | Accuracy on the specific-combination part alone. **`NA` for `additive`, `row_mean` and `both_means`**, which have no interaction: an exactly additive surface residualises to exactly zero, so the correlation is undefined rather than small. |
 
-`r_total_pea`, `r_gma_pea` and `r_int_pea` are the exact mirror on the pea-yield
-surface — so `r_gma_pea` is the true **pea** producer plus the true **oat**
+`r_total_pea`, `r_addsurf_pea` and `r_int_pea` are the exact mirror on the pea-yield
+surface — so `r_addsurf_pea` is the true **pea** producer plus the true **oat**
 associate.
 
 **The truth these are scored against is the stable effects plus the
@@ -168,12 +173,14 @@ total, its own yield plus its effect on its partner's. Each species' GMA is
 assembled across the two orientations — one component from each — which is the
 main reason both orientations are fitted.
 
-### ⚠ `r_gma_oat` and `r_oat_gma` are different quantities
+### `r_addsurf_oat` and `r_oat_gma` are different quantities
 
-The names are two words in a different order and the meanings are not close. This
-is the easiest thing in the table to get wrong.
+These were `r_gma_oat` and `r_oat_gma` until the rename — two words in a different
+order for two unrelated quantities, which made this the easiest thing in the table
+to get wrong. The per-cell one is now named for what it is: the **add**itive part
+of a **surf**ace.
 
-| | `r_gma_oat` | `r_oat_gma` |
+| | `r_addsurf_oat` | `r_oat_gma` |
 |---|---|---|
 | a property of | oat **yield** | oat **accessions** |
 | unit | one value per cell | one value per oat |
@@ -193,7 +200,7 @@ identity**, and it will not hold where the two associate effects differ in how
 recoverable they are — which is precisely the regime the sparsity axis explores.
 
 For selection decisions, `r_oat_gma` is the relevant one: it is the accuracy of
-ranking oat accessions on what they contribute overall. `r_gma_oat` is a
+ranking oat accessions on what they contribute overall. `r_addsurf_oat` is a
 statement about predicting a yield surface.
 
 ### The prediction to test here

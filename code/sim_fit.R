@@ -387,10 +387,10 @@ score_predictions <- function(pred, sim, idx, label, train = NULL) {
     model = label,
     n_scored = nrow(idx),
     # oat yield
-    r_total_oat = oat_trait[["total"]], r_gma_oat = oat_trait[["gma"]],
+    r_total_oat = oat_trait[["total"]], r_addsurf_oat = oat_trait[["gma"]],
     r_int_oat = oat_trait[["interaction"]], r_fit_oat = fit_r[["oat"]],
     # pea yield
-    r_total_pea = pea_trait[["total"]], r_gma_pea = pea_trait[["gma"]],
+    r_total_pea = pea_trait[["total"]], r_addsurf_pea = pea_trait[["gma"]],
     r_int_pea = pea_trait[["interaction"]], r_fit_pea = fit_r[["pea"]],
     # the four effects
     r_oat_prod  = safe_cor(oat_prod_hat,  t$oat_prod),
@@ -398,7 +398,7 @@ score_predictions <- function(pred, sim, idx, label, train = NULL) {
     r_pea_prod  = safe_cor(pea_prod_hat,  t$pea_prod),
     r_pea_assoc = safe_cor(pea_assoc_hat, t$pea_assoc),
     # general mixing ability per SPECIES: producer + associate, each taken from
-    # whichever surface carries it. Not the same quantity as r_gma_oat above,
+    # whichever surface carries it. Not the same quantity as r_addsurf_oat above,
     # which is the additive part of oat YIELD -- see SIMULATION_GLOSSARY.md.
     r_oat_gma = safe_cor(oat_prod_hat + oat_assoc_hat,
                          t$oat_prod + t$oat_assoc),

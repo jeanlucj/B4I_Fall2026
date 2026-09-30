@@ -338,7 +338,7 @@ for pea yield):
 
 - **`r_total_*`** — against the true genetic value `Pr + As + I` for that trait.
   What a breeder ranking on predicted performance would care about.
-- **`r_gma_*`** — against `Pr + As`, the interaction removed from prediction and
+- **`r_addsurf_*`** — against `Pr + As`, the interaction removed from prediction and
   truth alike. General mixing ability: the quantity that matters when specific
   combinations will not be chosen, only good general partners.
 - **`r_int_*`** — against the true interaction alone. **The metric the
@@ -368,12 +368,12 @@ and **`r_oat_gma` / `r_pea_gma`** for each species' producer plus associate,
 assembled across the two surfaces. Taking every effect as a surface margin is
 what asks the three frameworks the same question the same way.
 
-**`r_gma_oat` and `r_oat_gma` are not the same quantity**, despite the names.
+**`r_addsurf_oat` and `r_oat_gma` are not the same quantity.**
 The first is per cell and is the additive part of oat *yield* — oat producer plus
 **pea** associate. The second is per accession and is an oat's total contribution
 — oat producer plus **oat** associate. They share only the producer effect, and
 the two associate vectors correlate at about 0.14. See
-[SIMULATION_GLOSSARY.md](SIMULATION_GLOSSARY.md#-r_gma_oat-and-r_oat_gma-are-different-quantities).
+[SIMULATION_GLOSSARY.md](SIMULATION_GLOSSARY.md#r_addsurf_oat-and-r_oat_gma-are-different-quantities).
 
 **Two diagnostics of the fixed-loading factor**, not estimates of a main
 effect:
@@ -610,7 +610,7 @@ is indistinguishable from `dge_ige`.
 
 **Pinning is crossed rather than fixed because there is no single right answer.**
 It helps GMA when sparse and costs interaction recovery at every density, so the
-rule that is right for `r_gma` is wrong for `r_int` — and nobody knows which way
+rule that is right for `r_addsurf` is wrong for `r_int` — and nobody knows which way
 it goes at 9%. Crossing it makes the simulation answer that rather than assume
 it.
 

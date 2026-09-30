@@ -4,7 +4,7 @@
 # masking that decides which cells are scored.
 #
 # Every model returns two oat x pea surfaces and each reported effect is a margin
-# of one of them, so if the decomposition is wrong then r_gma, r_interaction and
+# of one of them, so if the decomposition is wrong then r_addsurf, r_interaction and
 # all four effect-recovery numbers are wrong together, in a way no single
 # comparison would reveal. These are algebraic identities, so the tolerances are
 # machine precision, not "close enough".
@@ -157,8 +157,8 @@ perfect <- list(
   interaction = NULL)
 
 sc <- score_predictions(perfect, sim, a$idx, "perfect", train = a$train)
-for (col in c("r_total_oat", "r_gma_oat", "r_int_oat",
-              "r_total_pea", "r_gma_pea", "r_int_pea",
+for (col in c("r_total_oat", "r_addsurf_oat", "r_int_oat",
+              "r_total_pea", "r_addsurf_pea", "r_int_pea",
               "r_oat_prod", "r_oat_assoc", "r_pea_prod", "r_pea_assoc",
               "r_oat_gma", "r_pea_gma")) {
   check(col %in% names(sc), paste("score_predictions reports", col))
@@ -175,14 +175,14 @@ check(!is.na(sc$r_fit_oat) && sc$r_fit_oat > 0.3 && sc$r_fit_oat < 0.95,
       sprintf("r_fit_oat is bounded well below 1 even for the truth (%.3f)",
               sc$r_fit_oat))
 
-# r_gma_oat and r_oat_gma are DIFFERENT quantities that the naming invites
+# r_addsurf_oat and r_oat_gma are DIFFERENT quantities that the naming invites
 # confusing: the first is the additive part of oat YIELD (oat producer + pea
 # associate), the second is an oat ACCESSION's total contribution (oat producer +
 # oat associate). Both are 1 for a perfect predictor, so equality there proves
 # nothing -- the test is that they are built from different truth vectors.
 surf_oat <- outer(tr$oat_prod, tr$pea_assoc, "+")
 check(abs(stats::cor(tr$pea_assoc, tr$oat_assoc)) < 0.9,
-      "the two associate effects are distinct vectors, so r_gma_oat and r_oat_gma
+      "the two associate effects are distinct vectors, so r_addsurf_oat and r_oat_gma
        cannot be the same quantity")
 
 # and a pure-noise predictor must score near zero, not near one

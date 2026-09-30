@@ -68,7 +68,7 @@ loading the analysis alongside it is now harmless.
       function.
 - [ ] **S9 `sim_score`** — `M == additive_part(M) + interaction_part(M)` to
       machine precision; `interaction_part()` residualises a purely additive
-      surface to zero; know which of `r_total` / `r_gma` / `r_interaction` /
+      surface to zero; know which of `r_total` / `r_addsurf` / `r_interaction` /
       `r_observed` you are quoting, and that `r_pea_assoc` is the **pea's**
       effect on oat yield; count the `NA`s feeding each mean.
 

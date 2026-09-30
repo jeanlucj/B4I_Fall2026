@@ -38,7 +38,7 @@
 #                 NEGATIVE on all four responses, i.e. it explained less than its
 #                 one degree of freedom would by chance.
 #   environment   one / ten_gxe only. `ten_stable` was indistinguishable from
-#                 `one` (0.735 vs 0.740 on r_gma_oat), so the level that costs
+#                 `one` (0.735 vs 0.740 on r_addsurf_oat), so the level that costs
 #                 accuracy is GxE, not the number of environments. Dropping the
 #                 middle level halves the grid at no cost to the question.
 #   additive      not fitted. See run_scenario_bglr(models = ).
