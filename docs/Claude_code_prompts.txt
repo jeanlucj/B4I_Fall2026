@@ -175,3 +175,4 @@ open(p, "w").write(s)
 PY
 Rscript tests/test_design.R 2&gt;&amp;1 | tail -3 &amp;&amp; Rscript tests/run_all.R 2&gt;&amp;1 | tail -3" completed (exit code 0)</summary>
 </task-notification>
+[2026-09-30 12:27:14] Here are questions I should have asked before I had you churn on the sim_int code (also, please document how to run the sim_int code). Just to understand further, from the glossary.  There are some correlations that you calculate only on the held-out data, kind of simulating a cross validation, and some correlations that you calculate on the full panel.  Is there a reason why you can't calculate the same set of correlations both ways?  On the whole, given that this is a simulation, I don't see the need for the held out data.  Also, does the fact that there is held out data mean that the sparsity is actually lower than the nominal value?  That would be confusing.

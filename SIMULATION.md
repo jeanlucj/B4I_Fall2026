@@ -550,6 +550,99 @@ effects explicitly while MegaLMM absorbs the pea main effect into a per-column
 intercept that never reaches `U`. A framework can win the question it was built
 for and still lose the one the breeder asks.
 
+## The interaction-focused design
+
+A second, smaller simulation answers one question the main grid raised but could
+not settle: **where** are the two boundaries at which MegaLMM starts to beat the
+Kronecker kernel at recovering the oat × pea interaction? See
+[docs/BGLR_vs_MegaLMM.md](docs/BGLR_vs_MegaLMM.md) for the finding that motivates
+it.
+
+It exists as a separate design rather than as more of this one because the main
+MegaLMM sweep is a **D-optimal fraction**. That was right for its own question —
+every main effect and two-way interaction of seven factors at a fifth of the cost
+— but it means most scenarios were never given most settings, so any analysis
+conditioned on a particular configuration keeps only 40% of the scenarios, and
+the survivors are unbalanced across exactly the axis in question. A conditional
+question needs a design where the condition is present everywhere, so this one is
+a **full factorial**.
+
+| factor | levels | why |
+|---|---|---|
+| `n_acc` | 200, 400 | as before |
+| `sparsity` | 1.6, 4.8, **9**, 16, 48% | 9% is new: the density gate lies between 4.8% and 16% |
+| `n_factors` | 1, **3**, 5 | rank 3 is new: the rank boundary lies between 1 and 5 |
+| `interaction_pct` | 10, 20% | as before |
+| `n_envs` | 1, 10 (with GxE) | `ten_stable` behaved like `one`, so it is dropped |
+| `fixed_main_effect` | FALSE, TRUE | **crossed, not fixed** — the open question |
+| `K` | 5 | settled by the ANOVA |
+| `eigen_variance` | 0.75 | settled: inert, negative partial ω² |
+
+`additive` is not fitted: it has no interaction term, and on the additive part it
+is indistinguishable from `dge_ige`.
+
+**Pinning is crossed rather than fixed because there is no single right answer.**
+It helps GMA when sparse and costs interaction recovery at every density, so the
+rule that is right for `r_gma` is wrong for `r_int` — and nobody knows which way
+it goes at 9%. Crossing it makes the simulation answer that rather than assume
+it.
+
+120 data scenarios × 3 replicates, each with one BGLR `dge_ige` fit and two
+MegaLMM runs. About **65 single-core hours**.
+
+### Running it
+
+```bash
+Rscript code/sim_int_run.R --check      # positive control -- always run first
+Rscript code/sim_int_run.R --pilot      # two cheap scenarios, end to end
+Rscript code/sim_int_run.R              # 120 scenarios x 3 replicates
+```
+
+`--check` is a **positive control**, not a smoke test: it fits a dense, rank-1
+scenario in which MegaLMM *must* beat `dge_ige` on `r_int`, and stops with an
+error if it does not. If that comparison is mis-wired, every boundary this design
+reports is an artefact. It currently returns 0.870 against 0.453, and takes about
+a minute.
+
+Other flags, all behaving as in `sim_run.R`:
+
+```bash
+Rscript code/sim_int_run.R --reps 5                     # additive: reuses reps 1-3
+Rscript code/sim_int_run.R --filter "sparsity >= 0.09"  # an R expression over the design
+Rscript code/sim_int_run.R --refresh                    # ignore the cache
+Rscript code/sim_int_run.R --task 3 --ntasks 20         # one slice, for a job array
+Rscript code/sim_int_run.R --combine                    # rebuild the CSV, fit nothing
+```
+
+On a cluster:
+
+```bash
+mkdir -p logs                                           # SLURM will not create it
+sbatch -A <account> --qos=debug --time=00:30:00 --array=1-1 \
+       code/scinet/sim_int_array.sbatch --check
+sbatch -A <account> code/scinet/sim_int_array.sbatch
+```
+
+~3.3 h per task at `--array=1-20`. **MegaLMM dominates the cost here**, not BGLR,
+because it runs twice per scenario and in both orientations.
+
+### What it writes
+
+| path | what it is |
+|---|---|
+| `output/simulation_int/<scenario>_rep<k>_s<seed>_<half>.rds` | the cache, one file per scenario per half |
+| `output/simulation_int_results.csv` | the combined table, same columns as the main one |
+| `output/simulation_int_design.csv` | the run list. Written only by a run, never by `--combine` |
+| `output/simulation_int_paired.csv` | MegaLMM minus `dge_ige`, paired within scenario |
+
+`--combine` also prints the two tables the design exists for: the gap by density
+and rank, and whether pinning helps, per response and density.
+
+Scenario names are prefixed `int_` and the cache lives in its own directory, so
+the two designs can never be globbed into one table — which matters, because they
+sweep different levels and the mixing would be silent. Their seed ranges are
+disjoint for the same reason.
+
 ## Reading the results
 
 `simulation_results.csv` has one row per scenario × replicate × model, with
