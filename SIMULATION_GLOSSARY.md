@@ -164,21 +164,26 @@ machinery is not earning its keep for that quantity.
 | `n_dropped` | Accessions MegaLMM dropped for having too few observations. |
 | `fixed_ok_oat`, `fixed_ok_pea` | Whether the fixed main-effect factor was successfully pinned in that orientation. `FALSE` makes `r_mainfactor_*` uninterpretable for that row. |
 | `scenario` | The data scenario's name, `n<acc>_sp<sparsity×1000>_f<n_factors>_i<interaction_pct>_e<n_envs>_g<gxe_cor×100>`. Encodes only the design, never the seed. A name **without** the trailing `_g###` is from the pre-September-2026 single-trait grid and does not belong in the same table. |
-| `rep` | Replicate index. See the warning below. |
+| `rep` | Replicate index. |
+| `seed` | The RNG seed that generated this scenario's data. See the note below. |
 | `n_acc`, `sparsity` | Panel size per species, and the fraction of the oat × pea matrix observed. |
 | `interaction` | Composite level: `none`, `f1_i10`, `f1_i20`, `f5_i10`, `f5_i20` — interaction rank and the share of variance it carries. |
 | `environment` | Composite level: `one`, `ten_stable`, `ten_gxe`. |
 | `n_factors`, `interaction_pct`, `n_envs`, `gxe_cor` | The underlying levels the two composites decode to, as the generator receives them. |
 | `K`, `eigen_variance`, `fixed_main_effect` | The three MegaLMM levers. **`NA` on the BGLR and baseline rows**, which do not depend on them and are fitted once per data scenario — so any filter that keys on these columns for every row will delete the entire comparator side of the experiment. |
 
-There is **no `seed` column**, although the cache filename carries one. Two runs
-that assign different seeds to the same `(scenario, rep)` are therefore
-indistinguishable in this table. That is not hypothetical: `rep` is the *inner*
-index of the seed numbering (`code/sim_config.R:258`), so rep 1 of a `--reps 5`
-run is not rep 1 of a `--reps 1` run, and adding replicates to a finished grid
-leaves both in the cache calling themselves rep 1.
-`code/sim_filter_results.R` detects and counts the collisions; it cannot resolve
-them.
+`seed` identifies which draw produced the row, and is what distinguishes two
+cache files that would otherwise both call themselves the same `(scenario, rep)`.
+It is `SIM_BASE_SEED + (rep - 1) * n_scenarios + scenario_index`, so it changes
+when the grid changes but **not** when more replicates are requested — which is
+what makes `--reps` additive.
+
+> **Results generated before 30 September 2026 do not have this column**, and
+> were produced under a numbering that varied `rep` fastest. In those tables two
+> different draws can both appear as `rep 1` and cannot be told apart; the
+> September run has 138 such rows. `code/sim_filter_results.R` detects and counts
+> them, and recovers the seed from the cache filename where the column is
+> missing, but it cannot resolve a collision in a CSV that never recorded one.
 
 ---
 

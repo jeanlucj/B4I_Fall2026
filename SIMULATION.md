@@ -421,12 +421,35 @@ Because the cache is per scenario and per MegaLMM setting, the grid can be run
 in pieces, interrupted and resumed. Re-running picks up where it stopped;
 `--refresh` ignores the cache and refits.
 
-**The seed is part of the cache key, not just of the contents.** A scenario's
-seed is `SIM_BASE_SEED` plus its row number over the whole grid, so adding a
-level to any axis renumbers every row and changes every seed — while the
-scenario *name*, which encodes only the design, does not. Putting the seed in
-the filename means those files simply miss and are recomputed, rather than being
-silently reused under a seed the current grid would never have assigned.
+**The seed is part of the cache key, not just of the contents**, and it is also
+a column in the results. A scenario's seed is
+
+```
+SIM_BASE_SEED + (rep - 1) * n_scenarios + scenario_index
+```
+
+Two properties follow, and both matter.
+
+**Adding replicates is additive.** `rep` is the *slow* index, so a scenario's
+seed does not depend on how many replicates were requested: replicate 1 of
+`--reps 5` has the same seed as replicate 1 of `--reps 1`, and replicates 2…n are
+simply new work. Running `--reps 5` over a finished single-replicate grid reuses
+what is there and fits only the rest.
+
+**Changing the grid is not.** Adding a level to any axis renumbers
+`scenario_index` and so changes every seed downstream of it — while the scenario
+*name*, which encodes only the design, does not change. That is deliberate: those
+cache files should miss and be recomputed rather than be reused under a seed the
+current grid would never have assigned.
+
+> **This numbering changed on 30 September 2026.** It previously varied `rep`
+> fastest, which made replicate 1 of `--reps 5` a *different* seed from replicate
+> 1 of `--reps 1` — so adding replicates silently refitted the whole grid and
+> left the old files in the cache, where they still globbed into the combined CSV
+> calling themselves replicate 1. Any cache written before that date is under the
+> old numbering. **Clear `output/simulation/` before the next run**, or the two
+> schemes will coexist and duplicate replicate 1. `tests/test_design.R` pins the
+> additivity property.
 
 ### How long it takes
 

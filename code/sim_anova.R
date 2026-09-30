@@ -419,3 +419,62 @@ print(dplyr::filter(marg, factor == "sparsity:fixed_main_effect") |>
         tidyr::pivot_wider(names_from = response, values_from = r), n = 20)
 readr::write_csv(marg, file.path(out_dir, paste0("simulation_anova_means", suffix, ".csv")))
 message("\nwrote the EMS and marginal-mean tables")
+
+# ------------------------------------------------------------
+# Two cross-tabulations worth having as numbers rather than as effect sizes
+#
+# partial omega^2 says how much of the explainable variation a term owns; it
+# says nothing about what the cells actually look like. For the two terms whose
+# mechanism matters most -- the readout x sparsity interaction and the
+# architecture x size structure of the simulated interaction -- the cell means
+# are the useful output.
+#
+# These are OBSERVED means on the r scale, not marginal means from the model:
+# both layouts are near enough balanced that the two agree, and an observed mean
+# needs no explaining.
+# ------------------------------------------------------------
+
+cat("\n", strrep("=", 78), "\nEta vs U across sparsity: mean r_gma\n",
+    strrep("=", 78), "\n", sep = "")
+eta_u <- raw |>
+  dplyr::mutate(readout = dplyr::if_else(model == "megalmm", "Eta", "U")) |>
+  dplyr::group_by(sparsity, readout) |>
+  dplyr::summarise(n = dplyr::n(),
+                   r_gma_oat = mean(r_gma_oat, na.rm = TRUE),
+                   r_gma_pea = mean(r_gma_pea, na.rm = TRUE), .groups = "drop") |>
+  tidyr::pivot_wider(names_from = readout,
+                     values_from = c(n, r_gma_oat, r_gma_pea)) |>
+  dplyr::mutate(gap_oat = r_gma_oat_Eta - r_gma_oat_U,
+                gap_pea = r_gma_pea_Eta - r_gma_pea_U) |>
+  dplyr::mutate(dplyr::across(dplyr::where(is.numeric) & !dplyr::starts_with("n_"),
+                              ~ round(.x, 3)))
+print(eta_u, width = 200)
+cat("\nThe gap WIDENS with data rather than closing: the per-column intercept U\n",
+    "discards is the part more data estimates best. U is not a noisy Eta, it is\n",
+    "missing a component.\n")
+readr::write_csv(eta_u, file.path(out_dir, paste0("simulation_anova_eta_vs_u", suffix, ".csv")))
+
+cat("\n", strrep("=", 78),
+    "\nInteraction architecture x size: mean r_int\n", strrep("=", 78), "\n", sep = "")
+arch_size <- raw |>
+  dplyr::filter(interaction != "none") |>
+  dplyr::mutate(
+    architecture = paste0(stringr::str_match(interaction, "^f(\\d+)")[, 2], " factor(s)"),
+    size = paste0(as.integer(stringr::str_match(interaction, "_i(\\d+)$")[, 2]), "%")) |>
+  dplyr::group_by(architecture, size) |>
+  dplyr::summarise(n = dplyr::n(),
+                   r_int_oat = round(mean(r_int_oat, na.rm = TRUE), 3),
+                   r_int_pea = round(mean(r_int_pea, na.rm = TRUE), 3),
+                   .groups = "drop")
+print(arch_size)
+cat("\nmargins:\n")
+print(dplyr::group_by(arch_size, architecture) |>
+        dplyr::summarise(dplyr::across(c(r_int_oat, r_int_pea),
+                                       ~ round(mean(.x), 3)), .groups = "drop"))
+print(dplyr::group_by(arch_size, size) |>
+        dplyr::summarise(dplyr::across(c(r_int_oat, r_int_pea),
+                                       ~ round(mean(.x), 3)), .groups = "drop"))
+cat("\nRank costs roughly twice what variance share buys, and the two are\n",
+    "additive -- which matters because a programme can influence how much\n",
+    "specific combining ability there is far more easily than its rank.\n")
+readr::write_csv(arch_size, file.path(out_dir, paste0("simulation_anova_arch_size", suffix, ".csv")))

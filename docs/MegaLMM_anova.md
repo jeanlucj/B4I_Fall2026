@@ -57,6 +57,97 @@ With 800 runs almost every term clears p < 0.05. The table therefore leads with
 
 ---
 
+## What partial ω² is, and why not η² or p
+
+Three quantities get confused here, so they are worth separating.
+
+**η² (eta squared)** is the obvious thing: the share of total variation a term
+accounts for, `SS_effect / SS_total`. It has two problems. It depends on what
+else is in the model — add a big factor and every other term's η² shrinks,
+without anything about those terms having changed. And it is **biased upward**,
+for a reason that matters here.
+
+**The bias.** A term that does nothing at all still collects sum of squares,
+because it soaks up noise along its degrees of freedom. In expectation a null
+term with `df` degrees of freedom has
+
+```
+E(SS_effect) = df x MS_error
+```
+
+So η² is never zero even for a factor with no effect, and the more degrees of
+freedom you give it the larger it looks. With 19 terms in this table, several of
+them with 3 or 4 df, that is not a rounding problem.
+
+**ω² (omega squared)** subtracts the noise a null term would have collected:
+
+```
+                    SS_effect - df_effect x MS_error
+omega2_p  =  ----------------------------------------------------
+             SS_effect - df_effect x MS_error + (df_error + 1) x MS_error
+```
+
+The **partial** in "partial ω²" is the denominator: it is this term plus the
+error, *not* the total. So it answers "of the variation this term and the noise
+between them could explain, how much is the term?" — which is comparable across
+terms and across the four responses, and does not move when an unrelated factor
+is added. The consequence is that **partial ω² values do not sum to 1**, and
+should not be expected to.
+
+**Why it can be negative.** If a term collects *less* sum of squares than its
+degrees of freedom would collect by chance, the numerator goes negative. That is
+not a defect, it is the informative case: it says the term is not merely small
+but indistinguishable from — indeed below — what a null factor would produce.
+η² cannot do this. It is bounded at zero, so a completely inert factor still
+prints a small positive number and looks like *something*.
+
+### Worked on the real numbers
+
+`r_gma_oat`, whole-plot stratum. `MS_error = 0.01105` on 756 df, so a null term
+with 1 df is expected to collect `SS ≈ 0.011` just from noise:
+
+| term | df | SS | SS a null term would get | partial η² | partial ω² |
+|---|---|---|---|---|---|
+| `sparsity` | 3 | 233.4 | 0.033 | 0.965 | **0.965** |
+| `fixed_main_effect` | 1 | 1.313 | 0.011 | 0.136 | **0.135** |
+| `K` | 1 | 0.554 | 0.011 | 0.062 | **0.061** |
+| `eigen_variance` | 1 | 0.0003 | 0.011 | 0.000 | **−0.001** |
+
+For `sparsity` the correction is irrelevant — 233 against 0.03 of expected noise.
+For `eigen_variance` it is the whole story: its sum of squares is **thirty times
+smaller than a factor with no effect would be expected to produce**. Partial η²
+rounds that to 0.000, which reads as "very small". Partial ω² makes it negative,
+which reads correctly as "this lever does nothing, and we have enough data to say
+so".
+
+### Why Δr sits next to it
+
+Partial ω² is a **share of variance, on the Fisher-z scale**. It says how much of
+the explainable variation a term accounts for, and nothing about how big the
+effect is in units anyone cares about. A term can own a large share of a small
+amount of variation.
+
+Δr is the other half: the spread the term produces **in correlation points**.
+Read them together —
+
+- **high ω², high Δr** — `sparsity` (0.965, 0.76). Dominant and consequential.
+- **moderate ω², small Δr** — `K` (0.061, 0.027). Real and reproducible, worth
+  2–3 correlation points. Statistically solid, practically marginal.
+- **low ω², moderate Δr** would mean a large effect measured imprecisely. Nothing
+  in this table is in that cell, which is itself worth knowing.
+- **negative ω²** — `eigen_variance`. Nothing there.
+
+Neither is a p-value, and deliberately so: with 800 runs, `K` sits at
+p = 3 × 10⁻¹² and moves `r` by 0.027. The p-value tells you the effect is real.
+It does not tell you it matters.
+
+**A caution on rules of thumb.** The conventional 0.01/0.06/0.14 =
+small/medium/large bands come from psychology, where effects are weak and noise
+is large. They are useless here: a designed simulation with 800 runs and a factor
+that spans a thirtyfold range in data volume puts `sparsity` at 0.97, which no
+band accommodates. Compare terms against **each other** in this table, not
+against an external convention.
+
 ## Expected mean squares
 
 For run *i*, readout *j*:
@@ -193,6 +284,36 @@ effect lives, and GMA contains that effect while the interaction part does not.
 `readout × sparsity` is the largest subplot term (ω² = 0.886 on `r_gma_oat`,
 Δr = 0.66): the Eta-over-U advantage is itself strongly sparsity-dependent.
 
+Mean `r_gma` by readout and sparsity (observed means, 192–208 runs per cell;
+written by `code/sim_anova.R` to `output/simulation_anova_eta_vs_u.csv`):
+
+| observed | Eta oat | U oat | **gap oat** | Eta pea | U pea | **gap pea** |
+|---|---|---|---|---|---|---|
+| 1.6% | 0.173 | 0.110 | **+0.063** | 0.161 | 0.184 | **−0.023** |
+| 4.8% | 0.547 | 0.439 | **+0.108** | 0.505 | 0.515 | **−0.010** |
+| 16% | 0.912 | 0.676 | **+0.236** | 0.900 | 0.726 | **+0.174** |
+| 48% | 0.969 | 0.706 | **+0.263** | 0.964 | 0.764 | **+0.200** |
+
+Two things to take from this.
+
+**The gap widens with data, it does not close.** One might expect `U` to catch up
+once there is enough information — it does the opposite. From 1.6% to 48% Eta
+gains 0.80 while U gains only 0.60, because the per-column intercept that `U`
+discards is precisely the part that more data estimates best. `U` is not a noisy
+version of Eta; it is missing a component, and the missing component becomes more
+recoverable, not less, as the matrix fills.
+
+**At the sparse end for pea, U is very slightly ahead** (−0.023 and −0.010).
+With 1.6–4.8% observed the per-column intercept is estimated from almost nothing,
+so including it adds more noise than signal, and dropping it is marginally
+better. The crossover is somewhere between 4.8% and 16% observed. This is small
+and worth not over-reading, but it is the same story from the other side: the
+intercept is an unshrunk fixed effect, so it helps exactly when it can be
+estimated and hurts when it cannot.
+
+Either way, **report Eta**. The one regime where `U` competes is the regime where
+neither is usable.
+
 ### Size versus architecture of the simulated interaction
 
 `interaction_pct` and `n_factors` are **nested, not crossed** — there is no "0%
@@ -207,9 +328,33 @@ a 2 × 2, and there they separate:
 | size × architecture | 1 | 0.002 | 0.003 |
 
 **Architecture matters about twice as much as size**, and they do not interact.
-A rank-5 interaction is much harder to recover than a rank-1 one of the same
-total variance — which is the more interesting finding, because rank is the thing
-a real breeding programme has no control over.
+
+The cell means make the size of that difference concrete. Mean `r_int` by
+architecture and size (312–328 runs per cell; written to
+`output/simulation_anova_arch_size.csv`):
+
+| | size 10% | size 20% | **mean** |
+|---|---|---|---|
+| **1 factor**, oat | 0.401 | 0.481 | **0.441** |
+| **5 factors**, oat | 0.258 | 0.320 | **0.289** |
+| **1 factor**, pea | 0.387 | 0.472 | **0.430** |
+| **5 factors**, pea | 0.246 | 0.307 | **0.276** |
+| **mean**, oat | 0.330 | 0.400 | |
+| **mean**, pea | 0.316 | 0.389 | |
+
+Going from rank 1 to rank 5 costs about **0.15** in `r_int`; doubling the
+interaction's share of variance from 10% to 20% buys about **0.07**. So rank
+costs roughly twice what variance share buys, and the two are additive — the
+absence of a size × architecture term means the penalty for rank 5 is the same
+whether the interaction is large or small (0.143 at 10%, 0.161 at 20% for oat).
+
+This is the more consequential finding of the two, because **the variance share
+is something a breeding programme can partly influence and the rank is not**. A
+rank-5 interaction of 20% (r = 0.320) is harder to recover than a rank-1
+interaction of only 10% (r = 0.401): spreading the same specific-combination
+variance across more independent directions hurts more than halving it. If real
+oat × pea specific combining ability is high-rank, it will be hard to predict
+however much of it there is.
 
 ---
 

@@ -185,7 +185,18 @@ if (nrow(runs) == 0) { message("nothing to run"); quit(save = "no") }
 
 dir.create(cache_dir, showWarnings = FALSE, recursive = TRUE)
 dir.create(run_dir, showWarnings = FALSE, recursive = TRUE)
-readr::write_csv(runs, file.path(out_dir, "simulation_design.csv"))
+
+# The design file records what was RUN, so only a run may write it.
+#
+# `--combine` fits nothing; it rebuilds the CSV from the cache. If it rewrote
+# this file it would overwrite the real design with whatever --reps that
+# invocation happened to be given -- so `sim_run.R --combine` after a
+# `--reps 5` grid used to leave a one-replicate design sitting beside
+# five-replicate results, and any later filtering against it deleted four
+# fifths of the data.
+if (!combine_only) {
+  readr::write_csv(runs, file.path(out_dir, "simulation_design.csv"))
+}
 
 # A job array hands each task a slice of the DATA SCENARIOS, not of the runs,
 # so a scenario's simulated experiment is generated once and both halves stay
@@ -217,8 +228,14 @@ cache_path <- function(scenario, rep, seed, suffix) {
 #' One data scenario: generate it, fit the DGE-IGE half, and fit whichever
 #' MegaLMM settings the design asked for on this scenario.
 run_scenario <- function(sc_row, sc_runs) {
+  # `seed` is carried into the scores, not just into the filename. Without it
+  # two cache files generated under different seeds are indistinguishable once
+  # combined -- both say `rep 1` -- and there is no way to tell a stale result
+  # from a current one, or to spot that the grid was renumbered underneath a
+  # half-finished run.
   design_cols <- tibble::tibble(
-    scenario = sc_row$scenario, rep = sc_row$rep, n_acc = sc_row$n_acc,
+    scenario = sc_row$scenario, rep = sc_row$rep, seed = sc_row$seed,
+    n_acc = sc_row$n_acc,
     sparsity = sc_row$sparsity, interaction = sc_row$interaction,
     environment = sc_row$environment, n_factors = sc_row$n_factors,
     interaction_pct = sc_row$interaction_pct, n_envs = sc_row$n_envs,
@@ -303,9 +320,20 @@ if (!combine_only) {
 
 # Always rebuild the combined table from the cache rather than from this run:
 # with a job array, no single process sees every scenario.
-results <- list.files(cache_dir, pattern = "_(bglr|mm_K[0-9]+_ev[0-9]+_fx[01])\\.rds$",
-                      full.names = TRUE) |>
-  purrr::map(readRDS) |>
+cache_files <- list.files(cache_dir,
+                          pattern = "_(bglr|mm_K[0-9]+_ev[0-9]+_fx[01])\\.rds$",
+                          full.names = TRUE)
+
+# Cache files written before `seed` was carried in the scores do not have the
+# column. The filename always has it, so recover it there rather than leaving a
+# hole: a partly-old cache is exactly the situation the column exists for.
+results <- purrr::map(cache_files, function(f) {
+  x <- readRDS(f)
+  if (!"seed" %in% names(x) || all(is.na(x$seed))) {
+    x$seed <- as.integer(stringr::str_match(basename(f), "_s(\\d+)_")[, 2])
+  }
+  x
+}) |>
   purrr::list_rbind()
 
 if (nrow(results) == 0) {

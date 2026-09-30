@@ -123,3 +123,17 @@ Can you use the data that we have to estimate the power of the validation experi
 I first want to find out if there is anything I can understand about the different MegaLMM models and when to use them.  I distinguish three axes in the simulation: the first is the generative model.  Factors affecting the generative model are the size of the oat / pea interaction (0% - 10% - 20%), the architecture of that interaction (1 or 5 factors), and the environments (1, 10 with no GxE, 10 with GxE).  The second is the amount of data as affected by the panel size and its sparsity.  The third is the analysis model as affected by Eta vs U, K (5 or 10), eigen variance (25% or 75%), and fixed main (no or yes).  Critique this plan, but here's my first idea: univariate analysis of variance where the four possible response variables are r_gma_oat, r_gma_pea, r_int_oat, and r_int_pea.  All of the factors above should have main effects.  For two-way interactions, I only want to look at interactions between generative model x analysis model and data amount x analysis model.  That will still make for a lot of two-way interactions.  If it makes sense to you, implement that analysis and present an ANOVA table including the expected mean squares.  It may be that everything is "significant" but I would still want to know if there were some interactions that are dramatically significant versus others that are statistically significant but not practically important.  This analysis would only be on the MegaLMM and MegaLMM_U rows of results.
 </pasted_content id="663e">
 [2026-09-29 23:07:40] Commit and push
+[2026-09-30 11:10:23] Make those three fixes.  Also: 
+
+<pasted_content id="663e">
+I am not familiar with the partial omega^2, bias-corrected variance explained.  Please add a section that explains more about it.
+Eta vs U.  You show there is a readout x sparsity interaction.  Include a table that shows the average r_gma_oat and r_gma_pea for the cross levels of that interaction.
+Size versus architecture of the interaction.  In the table for that section, you give the partial omega^2.  I would be interested to see average r_int_oat and r_int_pea for the cross levels of architecture and size, even though there is not an interaction.
+</pasted_content id="663e">
+[2026-09-30 11:16:54] <task-notification>
+<task-id>b0dgal9ag</task-id>
+<tool-use-id>toolu_019oKG97CyUF6gA17w61q6Lv</tool-use-id>
+<output-file>/private/tmp/claude-1334918876/-Users-jj332-Documents-GitRepo-B4I-Fall2026/9648120b-4509-444c-a67d-53a3892cdcf3/tasks/b0dgal9ag.output</output-file>
+<status>completed</status>
+<summary>Background command "rm -rf output/simulation output/simulation_design.csv output/simulation_results.csv &amp;&amp; Rscript code/sim_run.R --pilot &gt; /tmp/p1.log 2&gt;&amp;1; echo "pilot exit=$?"; echo "design after run:"; wc -l &lt; output/simulation_design.csv; echo "seed column in results?"; head -1 output/simulation_results.csv | tr ',' '\n' | grep -n "^seed$"; echo; echo "--- now --combine with NO --reps: must not touch the design ---"; md5 -q output/simulation_design.csv; Rscript code/sim_run.R --combine &gt; /tmp/p2.log 2&gt;&amp;1; echo "combine exit=$?"; md5 -q output/simulation_design.csv; wc -l &lt; output/simulation_design.csv" completed (exit code 0)</summary>
+</task-notification>

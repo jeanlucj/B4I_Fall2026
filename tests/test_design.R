@@ -159,4 +159,48 @@ check(nrow(d3$scenarios) == 2 * nrow(g), "two replicates double the scenarios")
 check(dplyr::n_distinct(d3$scenarios$seed) == nrow(d3$scenarios),
       "and every replicate gets its own seed")
 
+# ------------------------------------------------------------
+# 5. --reps is ADDITIVE
+#
+# The load-bearing property of the seed numbering, and the one that is easy to
+# lose. `rep` is the SLOW index, so a scenario's seed does not depend on how
+# many replicates were requested. Get this wrong -- number the rows of
+# expand_grid(scenarios, rep), which varies rep fastest -- and replicate 1 of
+# --reps 5 is a different seed from replicate 1 of --reps 1. Adding replicates
+# to a finished grid then silently refits all of it and leaves the old cache
+# behind as orphans that still glob into the combined CSV, both calling
+# themselves replicate 1 and indistinguishable once there.
+#
+# This is not hypothetical: it happened on the September 2026 run and put 138
+# duplicated rows in the results.
+# ------------------------------------------------------------
+
+rep1_of_1 <- dplyr::arrange(sim_design(n_runs = SIM_DESIGN_RUNS, n_reps = 1)$scenarios,
+                            scenario)
+for (n in c(2L, 5L)) {
+  d_n <- sim_design(n_runs = SIM_DESIGN_RUNS, n_reps = n)
+  rep1 <- dplyr::arrange(dplyr::filter(d_n$scenarios, rep == 1), scenario)
+
+  check(identical(rep1$scenario, rep1_of_1$scenario),
+        sprintf("n_reps = %d covers the same scenarios in replicate 1", n))
+  check(identical(rep1$seed, rep1_of_1$seed),
+        sprintf("and gives them the SAME seeds as n_reps = 1 -- so --reps %d is additive", n))
+  check(length(intersect(dplyr::filter(d_n$scenarios, rep > 1)$seed,
+                         rep1_of_1$seed)) == 0,
+        sprintf("while replicates 2..%d are entirely new seeds", n))
+  check(dplyr::n_distinct(d_n$scenarios$seed) == nrow(d_n$scenarios),
+        sprintf("every seed is distinct at n_reps = %d", n))
+}
+
+# The seed must still move when the GRID changes, which is the reason it is in
+# the cache key at all: a renumbered grid must MISS its old files rather than
+# reuse them under a seed it would never have assigned.
+smaller <- modifyList(SIM_LEVELS, list(sparsity = SIM_LEVELS$sparsity[-1]))
+d_small <- sim_design(levels = smaller, n_runs = SIM_DESIGN_RUNS)
+shared <- dplyr::inner_join(
+  dplyr::select(d_small$scenarios, scenario, seed),
+  dplyr::select(rep1_of_1, scenario, seed_full = seed), by = "scenario")
+check(nrow(shared) > 0 && any(shared$seed != shared$seed_full),
+      "dropping a level renumbers seeds, so stale cache files miss rather than being reused")
+
 finish("design tests")

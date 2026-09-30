@@ -255,8 +255,29 @@ sim_design <- function(levels = SIM_LEVELS, mm_levels = SIM_MEGALMM_LEVELS,
       .before = 1
     )
 
-  scenarios <- tidyr::expand_grid(scenarios, rep = seq_len(n_reps)) |>
-    dplyr::mutate(seed = SIM_BASE_SEED + dplyr::row_number())
+  # Replicate is the SLOW index of the seed numbering, so a scenario's seed
+  # depends on its position in the grid and on which replicate it is, but NOT on
+  # how many replicates were asked for:
+  #
+  #     seed = SIM_BASE_SEED + (rep - 1) * n_scenarios + scenario_index
+  #
+  # That is what makes --reps additive. Under the obvious alternative --
+  # expand_grid(scenarios, rep) numbered by row, which varies rep fastest --
+  # replicate 1 of `--reps 5` gets a different seed from replicate 1 of
+  # `--reps 1`, so adding replicates to a finished grid silently recomputes all
+  # of it and leaves the old cache behind as orphans that still glob into the
+  # combined CSV calling themselves replicate 1. Numbering this way, replicates
+  # 2..n are simply new work and replicate 1 is untouched.
+  #
+  # The seed still moves when the GRID changes -- adding a level renumbers
+  # scenario_index -- and that is deliberate: those cache files should miss and
+  # be recomputed rather than be reused under a seed the current grid would
+  # never have assigned.
+  n_scenarios <- nrow(scenarios)
+  scenarios <- tidyr::expand_grid(rep = seq_len(n_reps), scenarios) |>
+    dplyr::mutate(seed = SIM_BASE_SEED + (rep - 1L) * n_scenarios +
+                    rep(seq_len(n_scenarios), times = n_reps)) |>
+    dplyr::relocate(rep, seed, .after = scenario)
 
   runs <- chosen |>
     dplyr::left_join(dplyr::select(scenarios, scenario, rep, seed,
