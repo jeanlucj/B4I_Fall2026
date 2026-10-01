@@ -361,10 +361,38 @@ of the trace would need ~187 and ~204 directions, a basis of ~38,000 columns.
 So "MegaLMM beats a Kronecker kernel at recovering the interaction" is, strictly,
 "beats a **rank-30-truncated** Kronecker kernel". The basis is chosen by GRM
 eigenvalue, not by where the interaction actually lives, so a rank-1 or rank-5
-true interaction may fall largely outside it. **This could account for some or
-all of finding 6, and it has not been tested.** Raising `SIM_KRON_RANK` and
-seeing whether the gap narrows would separate the two; the cost is quadratic, so
-rank 60 is 3,600 columns.
+true interaction may fall largely outside it.
+
+**`code/sim_kron_study.R` settles this, and it needs no extrapolation.** The
+trick is that "full rank" is reachable after all. The *exact* kernel cannot be
+used — it is defined only over observed combinations, so it returns nothing for
+the never-observed cells where `r_int` is scored (measured: it gives `NA`). But at
+`kron_rank = n_acc` the two bases span their whole spaces, so their row-wise
+Kronecker product spans the **entire** Kronecker space: trace retained = 1,
+nothing truncated, and still a full surface. At n = 60 that is 3,600 columns and
+takes 18 seconds.
+
+So the decision rule is direct. Define `delta(rank) = r_int(megalmm) −
+r_int(dge_ige at rank)`; the published finding is `delta > 0`. Run at
+`rank = n_acc` and you have `delta` at the **ceiling** — no truncated basis can
+beat it. If `delta(full) > 0`, **no value of `SIM_KRON_RANK` can flip that
+cell.**
+
+A single-replicate check at n = 60, 48% observed, rank-1 interaction already
+points one way:
+
+| `kron_rank` | trace kept | `r_int_oat` |
+|---|---|---|
+| 10 | 24.5% | 0.259 |
+| **60 (full)** | **100%** | **0.343** |
+| `megalmm` | — | **0.815** |
+
+Going from a quarter of the trace to **all** of it gains `dge_ige` 0.084, against
+a gap of 0.47–0.56. If that holds up across cells and replicates, the truncation
+costs `dge_ige` something real but nowhere near enough to explain the gap, and
+finding 6 stands as stated. **One replicate of one cell is not the answer** — the
+full design sweeps n = 60/100/200, 16% and 48% observed, and interaction ranks 1
+and 5.
 
 Note this affects the **simulation only**. The real analysis uses `kron_rank =
 NA`, the exact kernel `G_oat[i,i'] · G_pea[j,j']` over observed combinations, with
@@ -454,10 +482,13 @@ oat accession's total contribution (oat producer + **oat** associate). They were
 
 ### What to run next, in order
 
-- [ ] **Raise `SIM_KRON_RANK` and re-measure the interaction gap.** This is the
-      cheapest thing that could overturn a headline finding, and it should be
-      settled before `sim_int` is run at scale, because `sim_int` inherits the
-      truncation.
+- [ ] **`Rscript code/sim_kron_study.R`** — the full-rank comparison above. The
+      cheapest thing that could overturn a headline finding. `--check` is one
+      cell in about a minute; the full design is n = 60/100/200 x two densities x
+      two interaction ranks x 3 replicates.
+- [ ] **`Rscript code/cross_validate_combinations.R`** — a proper 5-fold run.
+      The `--quick` pass only verified the plumbing, and one oddity in it needs
+      resolving (see [CROSS_VALIDATION.md](../CROSS_VALIDATION.md#status)).
 - [ ] **Run `sim_int`** (120 scenarios × 3 replicates, ~65 single-core hours,
       ~3.3 h per task at `--array=1-20`). Clear `output/simulation_int/` on Ceres
       first: the existing cache predates both the seed renumbering and the scoring

@@ -385,6 +385,50 @@ Pool membership should be frozen at the last moment compatible with seed
 logistics, on the largest dataset available. Everything before that is
 provisional.
 
+### How to re-issue it
+
+**One command runs the whole chain:**
+
+```bash
+Rscript code/validate_refresh.R --dry-run    # see the plan, run nothing
+Rscript code/validate_refresh.R              # the whole chain
+```
+
+It drives the ten existing scripts in dependency order — trial discovery,
+curation, assembly, the BGLR fit, then the four `validate_*` scripts — stops at
+the first failure, and writes a per-step log under `output/refresh_logs/`. The
+thing to read on a failure is the step's own log, not the driver.
+
+Steps 1–3 talk to T3 and need `T3_USERNAME` / `T3_PASSWORD` in `.Renviron`; the
+driver checks for them **before** starting a twenty-minute download rather than
+after. Everything from `assemble` onward is offline, so if the download has
+already happened:
+
+```bash
+Rscript code/validate_refresh.R --from assemble
+Rscript code/validate_refresh.R --only validate   # just the four validate_* scripts
+```
+
+Budget roughly an hour, most of it in trial discovery and the BGLR fit.
+
+**What it deliberately does not touch: the simulation's parameters.**
+`SIM_VAR_SHARES`, `SIM_PR_AS_COR` and `SIM_RESID_COR` in `code/sim_config.R` are
+frozen at the values the six-trial fit gave on 2026-09-21, so that simulation
+results stay comparable across data vintages. New variance components will appear
+in `output/BGLR_variance_components.csv` and the power calculation *will* use
+them — that is the point of refreshing — but nothing in the chain edits
+`sim_config.R`. Refreshing those constants is a separate, deliberate act that
+invalidates every cached simulation result.
+
+When it finishes, read in this order:
+
+| file | what it tells you |
+|---|---|
+| `output/validation/<date>/pool_diff.csv` | **who entered and left each pool.** Read this first: it is the stability check |
+| `output/validation/<date>/pool_summary.csv` | the new pools |
+| `output/validation/<date>/power_grid.csv` | power at the new variance components |
+| `output/validation/<date>/field_book.csv` | the layout to hand to the stations |
+
 ---
 
 ## 8. Open decisions

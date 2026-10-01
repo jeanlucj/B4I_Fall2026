@@ -201,6 +201,55 @@ DGE_IGE_ROLES <- list(
 #'   blockNumberF.  Factors should already be droplevels()'d.
 #' @param G_oat,G_pea Relationship matrices, already collapsed onto the
 #'   analysis names.  Subset to the accessions in `dat` here.
+#' The B4I plot table in the shape fit_producer_associate() expects.
+#'
+#' Mirrors the preparation inside code/BGLR_multi_trait_model.R so that the
+#' cross-validation fits the same model on the same data. (That script still has
+#' its own copy; unify them the next time it is touched -- doing it now would
+#' mean editing the production fit two days before a data refresh.)
+#'
+#' `mixID` is built from the two accession names rather than taken from the data,
+#' so that a combination kernel over it is exactly G_oat (x) G_pea on the
+#' observed combinations.
+#'
+#' @param pheno_file The assembled plot table.
+#' @param grms Named list(oat, pea) of relationship matrices. Accessions absent
+#'   from a GRM are DROPPED, with a count, because fit_producer_associate()
+#'   refuses them -- eight B4I accessions have no marker data.
+b4i_plot_table <- function(pheno_file = here::here("output",
+                                                   "B4I_intercrop_pheno.rds"),
+                           grms,
+                           monoculture_labels = c("oat monoculture",
+                                                  "pea monoculture",
+                                                  "no intercrop", "none")) {
+  dat <- readRDS(pheno_file) |>
+    dplyr::filter(!germplasmName %in% monoculture_labels,
+                  !intercropGermplasmName %in% monoculture_labels) |>
+    dplyr::transmute(
+      oatAcc       = as.character(germplasmName),
+      peaAcc       = as.character(intercropGermplasmName),
+      mixID        = paste(oatAcc, peaAcc, sep = "::"),
+      oatYield     = oat_yield,
+      peaYield     = pea_yield,
+      trialF       = factor(studyName),
+      blockNumberF = factor(paste(studyYear, studyName, blockNumber))
+    ) |>
+    dplyr::filter(!is.na(oatYield), !is.na(peaYield),
+                  !is.na(oatAcc), !is.na(peaAcc))
+
+  drop_oat <- setdiff(unique(dat$oatAcc), rownames(grms$oat))
+  drop_pea <- setdiff(unique(dat$peaAcc), rownames(grms$pea))
+  if (length(drop_oat) || length(drop_pea)) {
+    n0 <- nrow(dat)
+    dat <- dplyr::filter(dat, !oatAcc %in% drop_oat, !peaAcc %in% drop_pea)
+    message("dropped ", n0 - nrow(dat), " plot(s) whose accessions are not in ",
+            "the GRMs (", length(drop_oat), " oat, ", length(drop_pea), " pea)")
+  }
+
+  dplyr::mutate(dat, trialF = droplevels(trialF),
+                blockNumberF = droplevels(blockNumberF))
+}
+
 #' @param fit_mix_term The specific-combination term.  Off by default: it is
 #'   estimable only when combinations are replicated.
 #' @param kron_rank How to build that term. `NA` uses the EXACT kernel

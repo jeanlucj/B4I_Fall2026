@@ -44,7 +44,7 @@ matches the question you have.
 
 | document | what it is for |
 |---|---|
-| [VALIDATION_DESIGN.md](VALIDATION_DESIGN.md) | the proposed trial to test whether the producer and associate effects are real: pool selection, the field design, and the power it gives |
+| [VALIDATION_DESIGN.md](VALIDATION_DESIGN.md) | the proposed trial to test whether the producer and associate effects are real: pool selection, the field design, and the power it gives. **§7 is how to re-issue it when new trials land** — one command, `code/validate_refresh.R` |
 
 **Checking the work**
 

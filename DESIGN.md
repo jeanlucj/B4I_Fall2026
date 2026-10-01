@@ -141,9 +141,12 @@ against something other than another model.
 | `sim_filter_results.R` | drops rows in `simulation_results.csv` that are not from the current grid. Needed because the CSV is rebuilt by globbing the cache |
 | `sim_anova.R` | split-plot ANOVA of the MegaLMM results: which factors move accuracy, with effect sizes and expected mean squares |
 | `sim_compare.R` | paired head-to-head of the two BGLR models against MegaLMM at its best settings |
+| `sim_kron_study.R` | is the interaction result an artefact of `SIM_KRON_RANK`? Runs dge_ige at full rank, where no truncated basis can beat it |
+| `cross_validate_combinations.R` | cross-validation over held-out oat x pea COMBINATIONS, both components kept in training |
 | `sim_int_config.R` | the interaction-focused design: a full factorial, where the main grid is a fraction |
 | `sim_int_run.R` | drives it. Shares the generator, fitters and scorer with `sim_run.R`; only the design and the output names differ |
 | `validation_functions.R` | shared machinery for the validation trial: pool construction, the field design, power. Sourced, not run |
+| `validate_refresh.R` | the single entry point: drives the whole chain from T3 discovery to the field book when new trials land |
 | `validate_pool_selection.R` | builds the As+ / As- pools and diffs them against the previous vintage |
 | `validate_power.R` | analytic and simulation power, plus the false-positive check |
 | `validate_design.R` | field book for the validation trial, with balance checks |

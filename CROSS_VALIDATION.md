@@ -170,6 +170,77 @@ prediction problem, not an estimate of heritability.
 
 ---
 
+## Cross-validation over new combinations
+
+This is the use case the programme actually faces: oat and pea accessions have
+been evaluated in **some** combinations, and we want to predict combinations
+nobody has grown. `code/cross_validate_combinations.R` measures it.
+
+```bash
+Rscript code/cross_validate_combinations.R --quick   # 2 folds, short chains
+Rscript code/cross_validate_combinations.R           # 5 folds
+Rscript code/cross_validate_combinations.R --folds 10 --kron-rank 80
+```
+
+### Why the masking is not at random
+
+90.8% of the 2,059 observed combinations occur in a **single plot**. So a random
+plot holdout mostly leaves the combination itself in training through its other
+plots, and where it does not, the component accessions can vanish from training
+altogether — which measures a different and much harder problem. Instead:
+
+- **the unit is the combination.** All plots of a held-out combination go out
+  together, or the model has seen that exact pairing;
+- **both components must survive.** A combination is maskable only if each of its
+  two accessions keeps at least `--min-train-combos` other combinations in
+  training. Folds are built greedily under that constraint;
+- **what cannot be masked is reported.** 1,904 of 2,059 combinations are maskable;
+  the 155 that are not belong to the 99 oat and 84 pea accessions with a single
+  partner, whose producer and associate effects are aliased anyway. Their
+  exclusion is a property of the design, not of the script.
+
+### What is compared
+
+The bivariate producer–associate model **with and without** the
+specific-combination term, plus an `own_mean` baseline (each accession's own
+training mean, no borrowing).
+
+The interaction uses the **low-rank Kronecker basis, not the exact kernel.** This
+is forced, not a preference: the exact kernel is defined only over *observed*
+combinations and so returns nothing for a held-out one — which is the entire
+question here. `--kron-rank` sets the rank.
+
+### How accuracy is scored
+
+Predictions are genetic values; the observations carry trial and block effects.
+Both sides are centred within block before correlating, which removes the field
+effects without reconstructing fitted coefficients for them. Blocks hold 50 plots
+at the median, so little genetic signal goes with them.
+
+### Accuracy as a function of support
+
+The script bins held-out combinations by how many **other** combinations each
+component has in training, and reports accuracy per bin — which answers the
+question behind the question: how many partners does an accession need before its
+contribution to a new combination can be predicted?
+
+### Status
+
+The script runs end to end and is verified on a `--quick` pass (2 folds, 3,000
+iterations): `additive` reached r = 0.24 (oat) and 0.30 (pea) against 0.06 and
+0.12 for `own_mean`, with `dge_ige` slightly behind `additive` — consistent with
+the simulation, where the interaction term does not pay at this density.
+
+**Those numbers are plumbing verification, not results.** Two folds means
+training on half the data, and the short chain has not converged. A proper run
+has not yet been done. One thing to look at when it is: in the quick pass,
+accuracy did **not** fall monotonically with support — the scarcest bin scored
+highest on pea — which is either a real effect of which accessions are
+single-partner, or an artefact of the fold structure, and is worth resolving
+before the numbers are quoted.
+
+---
+
 ## What is not validated
 
 ### The bivariate DGE-IGE model has no cross-validation
