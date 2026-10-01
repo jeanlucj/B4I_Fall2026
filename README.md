@@ -53,7 +53,7 @@ matches the question you have.
 | [tests/README.md](tests/README.md) | the unit-test suite: what each file pins, the oracles it uses, and the bugs it has caught |
 | [EVALUATION.md](EVALUATION.md) | stepping through the *analysis* by hand, module by module, with what each one should produce — plus its [checklist](EVALUATION_CHECKLIST.md) |
 | [EVALUATION_SIMULATION.md](EVALUATION_SIMULATION.md) | the same for the *simulation*, where every number can be checked against a simulated truth — plus its [checklist](EVALUATION_SIMULATION_CHECKLIST.md) |
-| [docs/B4I_followups.md](docs/B4I_followups.md) | open questions, and the ones the data has since settled |
+| [docs/B4I_followups.md](docs/B4I_followups.md) | open questions, and the ones the data has since settled. **Item 8 is the brief on where the model comparison stands** — the reasoning, what is settled, and what is ripe for work. Start there if you have been away from this |
 
 `code/README.md`, `data/README.md` and `output/README.md` are short notes on what
 belongs in each directory; `data/README.md` also lists the derived files that are

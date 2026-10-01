@@ -172,10 +172,27 @@ at both ranks.
 So the hoped-for outcome — use MegaLMM to decompose the interaction into
 something biologically interpretable — is **not supported by the current data**,
 and the simulation says so in the specific way that is most useful: it is not
-that the method is wrong, it is that the design is too sparse for it. At 1.6–4.8%
-MegaLMM recovers the interaction *worse* than the Kronecker kernel does, and the
-Kronecker kernel at that density is itself recovering almost nothing (r ≈ 0.07 at
-4.8%).
+that the method is wrong, it is that the design is too sparse for it.
+
+And the two models fail differently, which matters:
+
+| observed | `dge_ige` `r_int_oat` | `megalmm` `r_int_oat` |
+|---|---|---|
+| 1.6% | **0.205** | −0.002 |
+| 4.8% | **0.285** | 0.029 |
+| 16% | 0.416 | **0.549** |
+| 48% | 0.479 | **0.852** |
+
+The Kronecker kernel **degrades gracefully** — it still recovers the interaction
+at r ≈ 0.2–0.3 where only a few percent of cells are observed, which is what a
+kernel does: it borrows across relatives rather than needing to see structure
+repeated. MegaLMM is at **zero** there, and then overtakes sharply once there is
+enough to find factors in.
+
+So below the gate the right thing to do is not "give up on the interaction", it is
+"use the Kronecker kernel and do not expect axes you can interpret". The kernel
+gives a covariance with real signal at B4I's density; what is unavailable is the
+*decomposition*.
 
 This lines up with what the real data already said from two directions: 91% of
 observed oat × pea combinations occur in a single plot, `fit_mix_term` is off in

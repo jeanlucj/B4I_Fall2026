@@ -1,7 +1,11 @@
 # B4I follow-ups
 
 Answers where the data settled it, open items where it did not.
-Written 2026-09-19. Item 3 has since been folded into the curation scripts; the rest are open.
+
+Items 1–7 were written 2026-09-19; item 3 has since been folded into the curation
+scripts and the rest are open. **Item 8, added 2026-09-30, is the brief on where
+the model comparison stands** — written to be read cold, so it recaps the
+reasoning rather than only the conclusions.
 
 ---
 
@@ -210,3 +214,258 @@ breeding values per crop, which needs whole **accessions** held out, not cells.
       the model does.
 
 The design is sketched in [CROSS_VALIDATION.md](../CROSS_VALIDATION.md#what-a-cross-validation-of-it-would-look-like).
+
+---
+
+## 8. Where the model comparison stands — a brief, 2026-09-30
+
+Written to be read cold. If you have forgotten everything else, read this
+section and then
+[docs/BGLR_vs_MegaLMM.md](BGLR_vs_MegaLMM.md).
+
+### The question
+
+Two frameworks can estimate what an accession does for itself (**producer**) and
+what it does to its partner (**associate**) in an oat–pea intercrop:
+
+- **Bivariate DGE-IGE**, `BGLR::Multitrait`. Both yields analysed jointly, four
+  genetic effects, kinship on all four through `Σ ⊗ G`. This is
+  `code/BGLR_multi_trait_model.R`, the production analysis.
+- **The MegaLMM factor model.** Treats the oat × pea matrix as a multi-trait
+  problem — one species on the rows with kinship, the other as "environments" —
+  and finds low-rank latent structure.
+
+The hope for MegaLMM was never better general mixing ability. It was that a
+factor model might **decompose the oat × pea interaction** into a few
+interpretable dimensions, which a Kronecker kernel cannot do: a kernel gives you
+a covariance, not a set of axes you could look at biologically.
+
+### Why answering it needed a rewrite
+
+The original simulation drew only **two** effects and one response — the oat's
+producer effect and the *pea's* associate effect, both on oat yield. The oat's
+associate effect and the pea's producer effect were not simulated at all, so half
+the producer–associate model was untested and the DGE-IGE comparator had to be
+univariate. It also ran MegaLMM in one orientation, which cannot see an oat's
+associate effect, because that effect is read on **pea** yield.
+
+So the generator went bivariate (four effects, two responses, a low-rank
+interaction per trait), DGE-IGE became the real `Multitrait` production model,
+and MegaLMM is now fitted in **both** orientations with each species' GMA
+assembled across the two.
+
+### The structural fact that explains most of the results
+
+**MegaLMM has a per-column intercept and no per-row one.** So in either
+orientation:
+
+| | row species | column species |
+|---|---|---|
+| which effect is the margin | **producer** | **associate** |
+| how it is estimated | latent factors + `U_R`, **kinship-shrunk** | the per-column intercept, **fixed and unshrunk** |
+
+Almost everything below follows from this. It is why `megalmm_U` — scored on `U`,
+which excludes that intercept — recovers the associate effect at r ≈ 0 while
+`megalmm` does not; why the Eta-over-U gap **widens** with more data (0.06 → 0.26
+on oat GMA from 1.6% to 48% observed) rather than closing, since the intercept is
+the part more data estimates best; and why pinning the main effect helps when data
+is scarce.
+
+`Multitrait` has no such asymmetry: kinship is on all four effects. When there is
+little information per accession, shrinkage is worth a great deal — which is the
+whole GMA result in one sentence.
+
+### What is settled
+
+**1. Sparsity is not one factor among several. It is the experiment.** Partial
+ω² = 0.97 on GMA, and r runs from 0.15 at 1.6% observed to 0.91 at 48%. Nothing
+else is within an order of magnitude. ([docs/MegaLMM_anova.md](MegaLMM_anova.md))
+
+**2. For GMA, use the BGLR `Multitrait` model.** It beats MegaLMM in 95–99% of
+scenarios, and the gap is **largest where B4I sits**: −0.24 at 1.6% observed,
+−0.006 at 48%. The two BGLR models (`additive` and `dge_ige`) are
+indistinguishable from each other on GMA, which is the expected sanity check —
+adding a specific-combination term should not disturb the main effects.
+
+**3. Of MegaLMM's three levers, one matters, one is marginal, one is inert.**
+`fixed_main_effect` is real (ω² 0.14), `K` is small but consistent with K = 5
+ahead of 10 (ω² 0.06–0.10), and **`eigen_variance` does nothing at all** —
+negative partial ω² on all four responses, meaning it explains less than its one
+degree of freedom would by chance. 0.25 and 0.75 give 0.705 and 0.704.
+
+**4. Pin the main effect when sparse, not when dense — and not at all if you want
+the interaction.** On GMA, pinning is worth +0.11 at 1.6% observed and +0.20 at
+4.8%, then stops helping by 16%. On interaction recovery it *costs* accuracy at
+every density (0.525 → 0.478). There is no single rule that is right for both
+responses.
+
+**5. GxE hurts; the number of environments does not.** Ten *stable* environments
+cost essentially nothing against one, and ten with GxE cost about 0.06 — and this
+holds for both frameworks, so it is a property of the data rather than of either
+model. Raw means of `r_addsurf_oat`:
+
+| | one | ten_stable | ten_gxe |
+|---|---|---|---|
+| `dge_ige` | 0.903 | 0.907 | 0.844 |
+| `megalmm` | 0.673 | 0.670 | 0.602 |
+
+**6. MegaLMM does win on the interaction — conditionally.** Above a density
+threshold and at low rank:
+
+| `r_int_oat` gap (MegaLMM − `dge_ige`) | 1.6% | 4.8% | 16% | 48% |
+|---|---|---|---|---|
+| **rank 1** | −0.19 | −0.19 | **+0.37** | **+0.57** |
+| **rank 5** | −0.21 | −0.32 | +0.04 | +0.36 |
+
+Density is a **gate, not a modifier**: below it MegaLMM is worse at either rank.
+Above it, rank sets the size of the win.
+
+**7. Therefore the biological-*decomposition* hope is not available from the
+current data — but the interaction itself is not out of reach.** B4I observes
+about 3% of the matrix, with 91% of observed combinations in a single plot, which
+is below the gate. The two models fail differently there, and the difference is
+the actionable part:
+
+| observed | `dge_ige` `r_int_oat` | `megalmm` `r_int_oat` |
+|---|---|---|
+| 1.6% | **0.205** | −0.002 |
+| 4.8% | **0.285** | 0.029 |
+| 16% | 0.416 | **0.549** |
+| 48% | 0.479 | **0.852** |
+
+The Kronecker kernel **degrades gracefully** — still r ≈ 0.2–0.3 at a few percent
+observed, because it borrows across relatives rather than needing structure
+repeated. MegaLMM is at **zero** there and then overtakes sharply. So below the
+gate the move is not "abandon the interaction" but "use the kernel, and do not
+expect interpretable axes". Reaching roughly 16% observed is what would buy the
+decomposition, and it would be MegaLMM specifically that delivered it — a
+statement about designing the next round of trials.
+
+**8. Rank costs about twice what variance share buys.** Going rank 1 → 5 costs
+~0.15 in `r_int`; doubling the interaction's variance share 10% → 20% buys ~0.07,
+additively. A rank-5 interaction at 20% is harder to recover than a rank-1 one at
+10%. This matters because a programme can influence how much specific combining
+ability there is far more easily than its rank.
+
+### What is unsettled, worst first
+
+**1. The interaction comparison has a live confound: `dge_ige`'s Kronecker term
+is severely rank-truncated and MegaLMM's is not.**
+
+`SIM_KRON_RANK = 30` takes the 30 leading eigenvectors of each GRM, giving a
+900-column basis. Measured on a 400-accession panel, 30 directions capture 62.7%
+of the oat GRM's trace and 54.8% of the pea's — so the term can represent about
+**34% of the Kronecker covariance, and 900 of 160,000 dimensions**. Reaching 95%
+of the trace would need ~187 and ~204 directions, a basis of ~38,000 columns.
+
+So "MegaLMM beats a Kronecker kernel at recovering the interaction" is, strictly,
+"beats a **rank-30-truncated** Kronecker kernel". The basis is chosen by GRM
+eigenvalue, not by where the interaction actually lives, so a rank-1 or rank-5
+true interaction may fall largely outside it. **This could account for some or
+all of finding 6, and it has not been tested.** Raising `SIM_KRON_RANK` and
+seeing whether the gap narrows would separate the two; the cost is quadratic, so
+rank 60 is 3,600 columns.
+
+Note this affects the **simulation only**. The real analysis uses `kron_rank =
+NA`, the exact kernel `G_oat[i,i'] · G_pea[j,j']` over observed combinations, with
+no truncation beyond numerically null directions — tractable only because there
+are 2,059 combinations.
+
+**2. The gate's location, and the rank boundary, are both unlocated.** Four
+sparsity levels cannot say where between 4.8% and 16% the switch happens, and
+rank 1 against rank 5 says nothing about what lies between.
+`code/sim_int_run.R` is the full factorial built to settle both — it adds 9%
+sparsity and rank 3, and crosses the pinning switch instead of fixing it.
+**It has not been run.**
+
+**3. Everything in finding 6 and in MegaLMM_anova.md was measured under the old
+scoring scheme.** Until 30 September the simulation held out 20% of the
+*observed* cells, so models were fitted at **0.8 × the labelled sparsity** and
+the per-cell metrics were scored on a small held-out subset. Read every sparsity
+level in those documents as 0.8 × its label: the gate quoted as "between 4.8% and
+16%" is between **3.84% and 12.8%** actually fitted. The scheme has since changed
+— all observed plots are fitted and the metrics are scored on the never-observed
+cells — but **the general simulation has not been rerun and the ANOVA has not
+been redone**, by choice. `sim_int` uses the new scheme, so its 4.8% and 9% levels
+both fall inside the old gate interval, which is convenient.
+
+**4. Why MegaLMM collapses to zero on the interaction below the gate is not
+established.** It is not that the task is impossible there — the Kronecker kernel
+manages r ≈ 0.2–0.3 at the same densities (finding 7). Something specific about
+the factor model fails, and the candidates have not been separated: too few
+observations per column to estimate the loadings; the factors being spent on the
+main effects instead; or the per-column intercept absorbing signal that should
+have gone to the factors. `r_mainfactor_*` against `r_rowmean_*` is the diagnostic
+already in the output and has not been looked at for this purpose. Knowing which
+it is would say whether the gate can be moved by changing the model rather than
+the design.
+
+**5. `cor(I_oat, I_pea)` is set to zero in the simulation, and is unknown in
+reality.** The two interaction surfaces are drawn independently, by choice,
+because the real data cannot identify the parameter: 1,869 of 2,059 combinations
+occur once, so `fit_mix_term` is off in production and specific-combination
+covariance cannot be separated from plot error. The fitted residual correlation
+between the two yields, −0.122, is a mixture of the two. **The validation trial's
+anchor plots are the only replicated combinations in the programme and would be
+the first clean measurement** — which was not why they were put there.
+
+**6. There is no longer any number comparable to a real-data cross-validation.**
+Dropping the holdout turned `r_obs_*` into `r_fit_*`, a goodness of fit measured
+on the cells the model was fitted to. If a bridge to real-data accuracy is
+wanted, it needs a holdout, and a holdout costs what item 3 describes.
+
+**7. Three-way interactions are not estimable** under the 150-run fraction, so
+whether the pinning crossover itself moves with panel size or with GxE is unknown.
+That was the right trade at the time; it is the boundary of what that design
+supports.
+
+**8. The tuning advantage was measured on the data that chose it.** Giving
+MegaLMM its best settings is worth 0.026–0.030 on GMA and 0.053–0.060 on the
+interaction against an arbitrary choice. Too small to overturn the GMA result —
+BGLR's margin is 0.07–0.10 — but it is a tuned-on-test figure and should be
+quoted as such.
+
+**9. [BOTH_ORIENTATIONS.md](../BOTH_ORIENTATIONS.md) idea 1 is unimplemented**:
+carrying each species' kinship-shrunk main effect from its own orientation into
+the other as a covariate. The orientation asymmetry above gives it a measurable
+target.
+
+### Traps in the plumbing, so they are not rediscovered
+
+Three cost real time and all three are now guarded, but the guards are only
+obvious once you know why they exist:
+
+- **`simulation_results.csv` is rebuilt by globbing the cache**, so results from
+  an earlier grid join it silently. 8,400 of 12,998 rows in the September run were
+  from the pre-bivariate design. Always run
+  `Rscript code/sim_filter_results.R --infer-design` before reading results.
+- **Seeds are part of the cache key, and `rep` is the slow index** so that
+  `--reps` is additive. It was not always: adding replicates to a finished grid
+  used to renumber every seed and leave orphans that still globbed in, which put
+  138 duplicated replicate-1 rows in the September results.
+- **The cache filename carries a scheme marker** (`v3`). A change to what is
+  scored, or to a column name, has to move it, or `bind_rows()` over a mixed cache
+  produces both columns with half the rows `NA` in each.
+
+Also: `r_addsurf_oat` and `r_oat_gma` are **different quantities** — the first is
+the additive part of oat *yield* (oat producer + **pea** associate), the second an
+oat accession's total contribution (oat producer + **oat** associate). They were
+`r_gma_oat` and `r_oat_gma` until the names were judged too close to be safe.
+
+### What to run next, in order
+
+- [ ] **Raise `SIM_KRON_RANK` and re-measure the interaction gap.** This is the
+      cheapest thing that could overturn a headline finding, and it should be
+      settled before `sim_int` is run at scale, because `sim_int` inherits the
+      truncation.
+- [ ] **Run `sim_int`** (120 scenarios × 3 replicates, ~65 single-core hours,
+      ~3.3 h per task at `--array=1-20`). Clear `output/simulation_int/` on Ceres
+      first: the existing cache predates both the seed renumbering and the scoring
+      change.
+- [ ] **Decide whether to rerun the general simulation** under the new scoring
+      scheme. The conclusions do not appear to turn on it, but every sparsity
+      figure in two documents currently needs a mental 0.8 ×.
+- [ ] **Re-run `validate_power.R`.** Its null rejection rates (0.028 oat, 0.022
+      pea) predate the anchor fix, which made replication slightly less even.
+- [ ] **Accession-wise cross-validation of the bivariate model** — still item 7
+      above, still the thing sub-objective 1.4 actually asks for.
