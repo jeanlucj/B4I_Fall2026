@@ -191,3 +191,585 @@ When those new trials are uploaded to T3, I need you to rerun the analyses that 
 You refer to Sub-objective 1.4 of the grant proposal as requiring cross validation, which we have not done yet.  The real use-case that needs to be assessed by cross validation is the case where oat and pea accessions have been evaluated in some combinations and then we are seeking to predict the performance of new combinations that have not been evaluated yet.  So the objective of the cross validation will be to mask some fraction of observed combinations while ensuring that the oat and pea components of those test combinations remain in the training data, just in different training combinations.  Presumably, the data will allow us to assess accuracy of the prediction of the test combinations as a function of how many training combinations the component accessions have been evaluated in.  The cross validation should test the BGLR model with and without an interaction term.  I don't think scripts for this cross validation analysis have been written. So, I lied: I do want you to do some coding.
 Finally, you have talked about the need to address this sim_kron_rank confound in the simulation analyses.  It's not clear to me how to do that.  I suppose if you raise sim_kron_rank and the results do not change at all, that will suggest that the value of 30 is adequate to capture all of the interaction and so sim_kron_rank = 30 is the same as using full rank.  Presumably, the results will change at least a little bit in favor of the dge_ige model when sim_kron_rank goes up.  Is there a way to determine a level of change of the results at which we can say "given this level of change, regardless of the value given to sim_kron_rank, the relative merits of the two models will persist at where they are now?  BTW, I have launched sim_int_run on Ceres.  I just don't have access to it from home, so I can't give you the results just yet.  But plan for an experiment to assess the impact of the sim_kron_rank confound.
 </pasted_content id="663e">
+[2026-10-01 10:28:30] Thanks for the validation_refresh script.  For the new combination cross validation, those numbers will change once the new trials are in.  There will be more combinations and more of them will have been repeated. Is the sim_kron simulation to understand the impact of the confound a big job?  That is, it needs to go on Ceres?  I have put the results of the simulation_int run in output > simulation_int.  Two files simulation_int_results and simulation_int_paired.  I don't know what the latter is.  Anyway, the main question to be answered is "when does MegaLMM do better than dge_ige at predicting the interaction".  Other questions would be "Does MegaLMM give a signal that might be interpretable biologically".  That would come from one of the MegaLMM factors explaining a high fraction of the interaction.  Also "Can the analysis from the oat orientation inform an analysis on the pea orientation and vice versa?"
+[2026-10-01 11:44:56] Using the existing simulation_int data, please make a more complete version of the table under 'does MegaLMM beat dge-ige' that shows for each sparsity and each n_factors the correlation for MegaLMM and dge_ige.  Make a csv from it.
+[2026-10-01 11:53:42] just for r_int_oat, run an ANOVA that includes all two-way interactions. Model sparsity and n_factors as single degree of freedom continuous predictors.  Give the EMS and/or omega^2 values to distinguish what is important from what is merely significant.
+[2026-10-01 12:10:44] Sure, go ahead and put the anova script into code/ and change so sparsity and n_factors are full factors.  Nevertheless, as we have discussed, the important interaction is model x sparsity and model x n_factors.  What I'm trying to understand is if I need to worry about other factors affecting those interactions or if I'm ok looking at those interactions averaged over n_acc, interaction_pct, n_envs, and fixed_main. Also, I need a little explainer for the ANOVA table.  I understand the difference between models is on a subplot basis. So then to get the interaction between model and a whole plot factor I need to look at that factors subplot effect?  I'm confused.
+[2026-10-01 12:39:55] We have considered sparsity and n_acc as separate axes, and they are in a way, but they are both coupled to resource use in that they both affect how many plots you evaluate.  It looks to me like MegaLMM will be more powerful and give you access to the potentially biologically interpretable scores and loadings if you had n_acc = 50 and 80% sparsity than if you had n_acc = 200 and 5% sparsity even though both entail evaluating 2000 plots.  Please make the "where the gap crosses zero" table into a csv.  Make a similar one where the columns are n_factors.  At the moment, I don't want to explore the "optimal n_acc given a fixed plot evaluation budget" question further, but please add it to B4I_followup
+[2026-10-01 13:02:00] Other question: we have seen that dge_ige gives better accuracy on the interaction at low values of sparsity.  The numbers they dge_ige produces are not easily interpretable: it's just a value for an interaction for a specific combination, not something like a score that represents a sensitivity to a loading.  This begs the question, though, can we take a second step with the dge_ige values and calculate a low rank representation of it to obtain something like what MegaLMM provides?  The idea is simple but I'm sure it breaks all kinds of statistical best practices, like not doing secondary analyses on shrunken responses.  So there might need to be a "deregression" step first and then a weighting of each observation based on its expected error.  Consider what might be possible and develop a plan.
+[2026-10-01 13:10:19] <task-notification>
+<task-id>a2e31dfbd3d1a89de</task-id>
+<tool-use-id>toolu_013LKMzQNcRPwYjqgEJwCHG8</tool-use-id>
+<output-file>/private/tmp/claude-1334918876/-Users-jj332-Documents-GitRepo-B4I-Fall2026/e21c7a19-656a-4e24-96ad-8e665e19d591/tasks/a2e31dfbd3d1a89de.output</output-file>
+<status>completed</status>
+<summary>Agent "Explore interaction machinery" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Everything needed is gathered. Here is the inventory.
+
+---
+
+# 1. `code/dge_ige_functions.R` — the fitter and the Kronecker basis
+
+## Naming note
+There is no `fit_dge_ige()` in this file. The core fitter is **`fit_producer_associate()`** at `/Users/jj332/Documents/GitRepo/B4I_Fall2026/code/dge_ige_functions.R:266`. `fit_dge_ige()` is a **thin simulation wrapper** in `code/sim_fit.R:123` (see §2).
+
+## `fit_producer_associate()` signature — `dge_ige_functions.R:266-269`
+```r
+fit_producer_associate &lt;- function(dat, G_oat, G_pea, seed = 12567,
+                                   nIter = 20000, burnIn = 3000, thin = 10,
+                                   fit_mix_term = FALSE, kron_rank = NA,
+                                   saveAt = NULL, verbose = FALSE) {
+```
+
+## Full returned list — `dge_ige_functions.R:371-404`
+| Element | Content | Line |
+|---|---|---|
+| `fit` | raw `BGLR::Multitrait` object | 372 |
+| `L_oat`, `L_pea` | `grm_factor()` square roots, rownames = accessions | 372 |
+| `L_mix` | `grm_factor(G_mix)` **only** in the exact-kernel branch; `NULL` for low-rank | 327, 340, 372 |
+| `effects$oat`, `effects$pea` | tibbles `accession, PrEff, AsEff, GMA` from `accession_effects()` | 373-378 |
+| `varcomp` | per-term `var_Pr, var_As, cov_PrAs, cor_PrAs` from `covariance_components()` | 364-366, 379 |
+| `resid_cov` | 1-row tibble `var_pea, var_oat, cov_pea_oat, cor_pea_oat` | 380-385 |
+| `accessions` | `list(oat = oatAccs, pea = peaAccs)` — the **sorted unique** names, which fix row/col order of everything | 271-272, 386 |
+| `interaction` | `list(oat = &lt;n_oat x n_pea&gt;, pea = &lt;n_oat x n_pea&gt;)` or `NULL` | 392-402 |
+| `n_plots`, `n_blocks_fitted` | counts | 403 |
+
+Accession ordering is `sort(unique(...))` (lines 271-272); `interaction` matrices are `dimnames(out) &lt;- list(oatAccs, peaAccs)` (line 398).
+
+## Kronecker interaction basis
+
+**Eigenvectors / scaling** — `grm_basis()` at `dge_ige_functions.R:140-151`:
+```r
+grm_basis &lt;- function(G, rank = NULL, variance = NULL) {
+  e &lt;- eigen(G, symmetric = TRUE)
+  vals &lt;- pmax(e$values, 0)
+  k &lt;- if (!is.null(rank)) { min(rank, sum(vals &gt; 1e-8 * max(vals))) }
+       else { which(cumsum(vals) / sum(vals) &gt;= variance)[1] }
+  V &lt;- sweep(e$vectors[, seq_len(k), drop = FALSE], 2, sqrt(vals[seq_len(k)]), "*")
+  rownames(V) &lt;- rownames(G)
+  V
+}
+```
+So: `eigen(G, symmetric = TRUE)` leading `k` eigenvectors, **scaled by `sqrt(eigenvalue)`** (i.e. `A = U Λ^½`, so `A A' = G`), eigenvalues floored at 0, rank capped at the non-null count. **`rownames` are set; `colnames` are NOT.**
+
+**Column ordering** — `kron_basis()` at `dge_ige_functions.R:168-172`:
+```r
+kron_basis &lt;- function(A, B, oat_idx, pea_idx) {
+  ka &lt;- ncol(A); kb &lt;- ncol(B)
+  A[oat_idx, rep(seq_len(ka), each  = kb), drop = FALSE] *
+    B[pea_idx, rep(seq_len(kb), times = ka), drop = FALSE]
+}
+```
+Column `c = (p-1)*kb + q` holds `A[,p] * B[,q]` — row-wise Kronecker / Khatri-Rao, **row-major in (oat index, pea index)**. Confirmed by the test at `tests/test_kronecker.R:46-52` and documented in `docs/specific-combination_kronecker.md` (step 2, the `rep()` table).
+
+**Column names do NOT encode the eigenvector pair.** `grm_basis()` sets no colnames, and `kron_basis()` returns a bare elementwise product of two subsetted matrices — the result has no column dimnames at all. The `(p, q)` pair is recoverable only from arithmetic on the position, and the companion reshape at `dge_ige_functions.R:395-396` relies on that:
+```r
+Beta &lt;- matrix(b[, match(trait, DGE_IGE_TRAITS)],
+               nrow = ncol(kron_A), ncol = ncol(kron_B), byrow = TRUE)
+```
+`byrow = TRUE` is load-bearing (comment at lines 388-391; "Why it is fragile" section of `docs/specific-combination_kronecker.md`).
+
+## BGLR model type for the interaction term
+**`BRR`**, both branches — `dge_ige_functions.R:342` (exact kernel) and `:349-350` (low-rank):
+```r
+ETA$G_mix &lt;- list(X = kron_basis(kron_A, kron_B, oat_idx, pea_idx),
+                  model = "BRR")
+```
+Never `RKHS`. The rationale is the file header (`dge_ige_functions.R:14-17`): a BRR on `Z L` keeps coefficients on the accession scale, while an RKHS term's coefficients "live in the eigenvector basis of the plot kernel and carry no accession identity". All other genetic terms are also `BRR` (`:319-320`); `trial` is `FIXED` (`:318`).
+
+## `saveAt`
+Passed, but **to a temp dir by default** — `dge_ige_functions.R:355-361`:
+```r
+  fit &lt;- BGLR::Multitrait(
+    y = Y, ETA = ETA, intercept = FALSE,
+    resCov = list(df0 = 4, S0 = NULL, type = "UN"),
+    nIter = nIter, burnIn = burnIn, thin = thin,
+    saveAt = saveAt %||% file.path(tempdir(), "dge_ige_"),
+    verbose = verbose
+  )
+```
+All three callers point it at `tempdir()`:
+- `code/sim_fit.R:144` — `saveAt = file.path(tempdir(), "sim_dge_")`
+- `code/cross_validate_combinations.R:184` — `file.path(tempdir(), paste0("cv_", mdl, "_", k, "_"))`
+
+Only the production script writes to a kept location: `code/BGLR_multi_trait_model.R:373`, `saveAt = file.path(out_dir, paste0("BGLR_seed_", seed_value, "_"))`. The actual files that landed there are **covariance samples only** — `output/BGLR_seed_12567_Omega_{2,3,4}.dat` and `..._R.dat`. There is no `*_beta.dat`: BGLR's `Multitrait` does not stream per-coefficient samples, so **MCMC samples of the interaction coefficients are never on disk** anywhere in this repo.
+
+## Posterior SDs / PEV
+**None retained from BGLR anywhere.** `accession_effects()` (`:117-128`) and the `interaction` surfaces (`:392-402`) use `fit$ETA[[term]]$beta` (the posterior mean) exclusively. No `SD.beta`, `getPostSd`, or credible interval is read in `dge_ige_functions.R`, `sim_fit.R`, or `cross_validate_combinations.R`. The only quantile work on BGLR samples in the repo is `code/pilot/pilot_dge_ige.R:230-266`, and that reads the saved `Omega`/`R` `.dat` files (variance components), not coefficients. For the one PEV path that does exist, see §5.
+
+---
+
+# 2. Reconstructing the fitted interaction surface for scoring
+
+## The reconstruction itself — `dge_ige_functions.R:392-402`
+```r
+    interaction = if (fit_mix_term &amp;&amp; !is.na(kron_rank)) {
+      b &lt;- fit$ETA$G_mix$beta
+      surf &lt;- function(trait) {
+        Beta &lt;- matrix(b[, match(trait, DGE_IGE_TRAITS)],
+                       nrow = ncol(kron_A), ncol = ncol(kron_B), byrow = TRUE)
+        out &lt;- kron_A %*% Beta %*% t(kron_B)
+        dimnames(out) &lt;- list(oatAccs, peaAccs)
+        out
+      }
+      list(oat = surf("oatYield"), pea = surf("peaYield"))
+    } else NULL,
+```
+This is what makes never-observed combinations free: `kron_A %*% Beta %*% t(kron_B)` is the **full** `n_oat x n_pea` surface, so any cell is a lookup. `b` is `kron_rank^2 x 2` (one column per trait, trait order `DGE_IGE_TRAITS = c("peaYield", "oatYield")` at `:190`).
+
+The **exact-kernel branch returns `interaction = NULL`** — guarded by `!is.na(kron_rank)`. `code/sim_kron_study.R:26-33` documents why: the exact kernel is defined only over observed combinations and "returns no value for a combination nobody grew", so `r_int` comes back `NA`.
+
+## Per-combination prediction, simulation side — `code/sim_fit.R:123-180`
+`fit_dge_ige()` pads to the full panel and adds the interaction into the surfaces:
+```r
+# sim_fit.R:161-176
+  surface_oat &lt;- outer(oat_prod, pea_assoc, "+")
+  surface_pea &lt;- outer(oat_assoc, pea_prod, "+")
+
+  interaction &lt;- NULL
+  if (with_interaction &amp;&amp; !is.null(f$interaction)) {
+    pad_mat &lt;- function(M) {
+      out &lt;- matrix(0, length(oat_names), length(pea_names),
+                    dimnames = list(oat_names, pea_names))
+      out[rownames(M), colnames(M)] &lt;- M
+      out
+    }
+    interaction &lt;- list(oat = pad_mat(f$interaction$oat),
+                        pea = pad_mat(f$interaction$pea))
+    surface_oat &lt;- surface_oat + interaction$oat
+    surface_pea &lt;- surface_pea + interaction$pea
+  }
+```
+Returns `list(surface = list(oat, pea), interaction = interaction, varcomp = f$varcomp)` (`:178-179`). Both surfaces are always **oat-rows x pea-cols** (header, `sim_fit.R:31-34`).
+
+## Per-combination prediction, real-data side — `code/cross_validate_combinations.R:201-215`
+```r
+    if (mdl == "dge_ige" &amp;&amp; !is.null(f$interaction)) {
+      io &lt;- f$interaction$oat; ip &lt;- f$interaction$pea
+      idx &lt;- cbind(match(held$oatAcc, rownames(io)),
+                   match(held$peaAcc, colnames(io)))
+      ok &lt;- !is.na(idx[, 1]) &amp; !is.na(idx[, 2])
+      add_o &lt;- numeric(nrow(held)); add_p &lt;- numeric(nrow(held))
+      add_o[ok] &lt;- io[idx[ok, , drop = FALSE]]
+      add_p[ok] &lt;- ip[idx[ok, , drop = FALSE]]
+      pred_oat &lt;- pred_oat + add_o
+      pred_pea &lt;- pred_pea + add_p
+    }
+```
+This is the only place a held-out (never-trained) combination's interaction is read off by name.
+
+## `interaction_part()` — `code/sim_fit.R:304-306`
+```r
+interaction_part &lt;- function(M) {
+  M - rowMeans(M) - rep(colMeans(M), each = nrow(M)) + mean(M)
+}
+```
+Its complement, `additive_part()` at `sim_fit.R:325-327`:
+```r
+additive_part &lt;- function(M) {
+  outer(rowMeans(M), colMeans(M), "+") - mean(M)
+}
+```
+Doc comments at `:296-303` and `:308-324` explain the purpose: both frameworks get put on the same footing by double-centring, and `rowMeans(M)` *is* the oat main effect of the surface. Algebraic identities for both are tested at `tests/test_surface.R:27-55` (exactness, zero margins, idempotence, orthogonality, additive-surface → exactly zero).
+
+## Where they are used in scoring — `sim_fit.R:343-352`
+```r
+  per_trait &lt;- function(surface, prod_vec, assoc_vec, I_true) {
+    truth_gma   &lt;- prod_vec[idx[, 1]] + assoc_vec[idx[, 2]]
+    truth_total &lt;- truth_gma + I_true[idx]
+    c(
+      total       = safe_cor(surface[idx], truth_total),
+      gma         = safe_cor(additive_part(surface)[idx], truth_gma),
+      interaction = safe_cor(interaction_part(surface)[idx],
+                             interaction_part(I_true)[idx])
+    )
+  }
+```
+Note `interaction_part()` is applied to the **whole surface** and to the **whole truth matrix**, then subset at `idx`. The scored cells come from `scoring_index()` at `sim_fit.R:90-104` — `SIM_SCORE_SET &lt;- "unobserved"` (`code/sim_config.R:424`), i.e. **never-observed cells are the default test set**, with the three-point rationale at `sim_fit.R:70-89`. `prepare_scenario()` at `sim_fit.R:455-458` bundles `train` + `idx`.
+
+## `code/evaluation.R` / `code/evaluation_snippets.R`
+- `evaluation.R:93-96` registers the debug groups: `sim_bglr = c("fit_dge_ige", "run_scenario_bglr")` and `sim_score = c("interaction_part", "score_predictions", "baseline_predictions")`. No reconstruction logic of its own.
+- `evaluation_snippets.R:92-111` is the hand-check for the basis and the reshape:
+```r
+# evaluation_snippets.R:98-102
+set.seed(3); Beta &lt;- matrix(rnorm(25), 5, 5)
+oi &lt;- c(1, 4, 9); pj &lt;- c(2, 7, 11)
+lhs &lt;- as.vector(kron_basis(A, B, oi, pj) %*% as.vector(t(Beta)))
+rhs &lt;- (A %*% Beta %*% t(B))[cbind(oi, pj)]
+max(abs(lhs - rhs))                               # 6.9e-18
+```
+**Stale reference:** `evaluation_snippets.R:110` reads `dim(add$total); max(abs(add$interaction))`. `fit_dge_ige()` has no `$total` element (it returns `surface`), so that line is out of date with `sim_fit.R:178-179`.
+
+---
+
+# 3. Simulation ground truth for the interaction — `code/sim_generate.R`
+
+## Construction from `n_factors` — `sim_generate.R:278-290`
+```r
+  draw_interaction &lt;- function() {
+    if (!(n_factors &gt; 0 &amp;&amp; V_I &gt; 0)) {
+      return(list(I = matrix(0, n_oat, n_pea), U = NULL, Lambda = NULL))
+    }
+    U   &lt;- vapply(seq_len(n_factors), \(f) draw_effect(L_oat, 1), numeric(n_oat))
+    Lam &lt;- vapply(seq_len(n_factors), \(f) draw_effect(L_pea, 1), numeric(n_pea))
+    I &lt;- (U %*% t(Lam)) / sqrt(n_factors)
+    I &lt;- I * sqrt(V_I / stats::var(as.vector(I)))
+    list(I = I, U = U, Lambda = Lam)
+  }
+  int_oat &lt;- draw_interaction()
+  int_pea &lt;- draw_interaction()
+```
+- `U` is `n_oat x n_factors`, **oat scores**, each column a `draw_effect(L_oat, 1)` — covariance `G_oat`, empirically rescaled to **variance exactly 1**, mean-centred (`draw_effect()` at `:64-69`).
+- `Lam` is `n_pea x n_factors`, **pea loadings**, same treatment with `L_pea`.
+- Two surfaces drawn **independently** (`int_oat`, `int_pea`) — rationale at `:272-277`.
+- **Important for any comparison:** the global rescaling `I * sqrt(V_I / var(vec(I)))` is folded into `I` only. The stored `U` and `Lambda` are *not* rescaled, so `U %*% t(Lambda)` does **not** equal `I`; it equals `I` up to the scalar `sqrt(n_factors) / sqrt(V_I/var(...))`. Comparison of a recovered score against `U_oat` is therefore valid only up to scale (and, for `n_factors &gt; 1`, up to rotation within the factor space).
+- When `n_factors == 0` or `interaction_pct == 0`, `U` and `Lambda` are `NULL` and `I` is an all-zero matrix.
+
+## `sim$truth` — `sim_generate.R:360-388`
+```r
+    truth = list(
+      oat_prod = oat_prod, oat_assoc = oat_assoc,
+      pea_prod = pea_prod, pea_assoc = pea_assoc,
+      I_oat = int_oat$I, I_pea = int_pea$I,
+      U_oat = int_oat$U, Lambda_oat = int_oat$Lambda,
+      U_pea = int_pea$U, Lambda_pea = int_pea$Lambda,
+      gxe = gxe_env,
+      env_scale = list(oat = ..., pea = ...),
+      env_mean  = list(oat = ..., pea = ...),
+      gxe_cor = rho, realised_gxe_cor = realised_gxe_cor,
+      V = list(oat = c(producer=, associate=, producer_env=, associate_env=,
+                       interaction=, residual=), pea = c(...)),
+      Sigma = list(oat = ..., pea = ..., R = R)
+    ),
+```
+Top-level return is `list(obs, truth, G_oat, G_pea, settings)` (`:355-393`); `settings` carries `n_oat, n_pea, sparsity, n_factors, interaction_pct, n_envs, gxe_cor` (`:390-392`).
+
+## Exactly which truth objects a recovered score/loading can be compared against
+- **`truth$U_oat`** — `n_oat x n_factors`, oat scores of the **oat-yield** interaction surface.
+- **`truth$Lambda_oat`** — `n_pea x n_factors`, pea loadings of the **oat-yield** surface.
+- **`truth$U_pea`** / **`truth$Lambda_pea`** — the same pair for the **pea-yield** surface (independent draw).
+- **`truth$I_oat`** / **`truth$I_pea`** — the `n_oat x n_pea` surfaces themselves (the only objects currently consumed anywhere).
+- **`truth$V$oat[["interaction"]]`** / `V$pea[["interaction"]]` — the interaction variance share, for a magnitude check.
+
+**`U_oat`, `Lambda_oat`, `U_pea`, `Lambda_pea` are written and never read.** A grep across `code/` and `tests/` returns only the two definition lines, `sim_generate.R:364-365`. Nothing in the repo currently scores a recovered score or loading against them. (`evaluation_snippets.R:69-70` references `sim$truth$interaction` and `sim$truth$producer`, which are also stale names — the current fields are `I_oat`/`I_pea` and `oat_prod`.)
+
+---
+
+# 4. SVD / eigen / Procrustes / varimax / low-rank — what exists
+
+**No `svd()`, no `prcomp()`/`princomp()`, no Procrustes, no varimax/promax, no `irlba`/`rsvd` anywhere in `code/`.** (`grep -rniE "svd\(|procrustes|varimax|promax|irlba|rsvd|prcomp|princomp" code/` → zero hits for all of those.)
+
+What exists is `eigen()` only:
+
+| File:line | What |
+|---|---|
+| `code/dge_ige_functions.R:62-72` | `grm_factor()` — full `eigen`, drops directions below `tol*max`, returns `U Λ^½`; `tcrossprod(L) == G` |
+| `code/dge_ige_functions.R:140-151` | `grm_basis()` — truncated `U Λ^½` by `rank` **or** by cumulative-variance `variance` |
+| `code/dge_ige_functions.R:168-172` | `kron_basis()` — row-wise Kronecker of two such bases |
+| `code/megalmm_build_inputs.R:233` | `grm_eigenvectors()` — pea GRM eigenvectors as `Lambda`-prior covariates |
+| `code/sim_kron_study.R:123-130` | `trace_retained(G_oat, G_pea, rank)` — `share(G_oat) * share(G_pea)`, the fraction of the Kronecker trace a given rank keeps; eigenvalues only |
+| `code/evaluation.R:461`, `code/create_GRMs_T3.R:208`, `code/BGLR_multi_trait_model.R:279`, `code/pilot/pilot_dge_ige.R:130` | min-eigenvalue PSD diagnostics |
+| `code/sim_fit.R:216-219` | `grm_basis(..., variance = eigen_variance)` feeding MegaLMM's `X_Env` |
+
+Reusable rank machinery: `grm_basis()`, `kron_basis()`, `trace_retained()`, `interaction_part()`/`additive_part()`, and the `byrow = TRUE` reshape at `dge_ige_functions.R:395-396`. The rank-truncation confound itself is written up at `code/sim_kron_study.R:1-70`.
+
+---
+
+# 5. Deregression / reliability / PEV / inverse-variance weighting
+
+**No deregression anywhere** (`grep -rniE "dereg"` → zero hits).
+
+Reliability and PEV exist in exactly one place, derived from variance components rather than from BGLR posterior spread — `code/validation_functions.R:152-172`:
+```r
+    # Var(true) = Var(BLUP) + E[PEV] for a conditionally unbiased predictor,
+    # so the reliability of the BLUPs and the PEV both follow from the fit.
+    # Clamped: a var(BLUP) above the component means the chains have not
+    # settled, and a negative PEV would silently flatter every power estimate.
+    rel &lt;- function(v_blup, sigma2) min(max(v_blup / sigma2, 1e-6), 0.999)
+    ...
+      rel_Pr       = rel(stats::var(acc$Pr), sigma2_Pr),
+      rel_As       = rel(stats::var(acc$As), sigma2_As),
+      PEV_As       = sigma2_As * (1 - rel(stats::var(acc$As), sigma2_As)),
+```
+`validation_inputs()` starts at `validation_functions.R:112`; it reads `output/BGLR_variance_components.csv` (`:116`) and the per-seed effect CSVs, averaging over MCMC seeds at `:141-144` ("the BLUP is the mean over MCMC chains"). Header context at `validation_functions.R:7`, `:26-27`.
+
+Consumers:
+- `code/validate_pool_selection.R:64`, `:88-89`, `:110-111` — prints and tabulates `PEV_As`, `reliability_As`.
+- `code/validate_power.R:10` — `N(BLUP, PEV)` simulation of true effects; `:380` notes the limiting factor is reliability, not plot count.
+- `code/validation_functions.R:475-480` — `sigma2_within` = "PEV + within-pool BLUP variance".
+- `code/validate_crossval.R:219` — PEV deliberately set to 0 for the constrained selection rule.
+
+**No inverse-variance weighting is implemented.** `grep` for `weight` yields only prose (`code/sim_anova.R:14` noting a plain ANOVA over-weights high cells; `code/validate_power.R:350` "weights by precision" as commentary; `validation_functions.R:414`; `sim_fit.R:323` about mean loadings). No `weights =` argument is passed to any model fit, and `BGLR::Multitrait` is called without weights at `dge_ige_functions.R:355-361` and `BGLR_multi_trait_model.R:364-376`.
+
+---
+
+# 6. MegaLMM factor scores and loadings
+
+## What is sampled / computed — `code/megalmm_setup.R:221-245`
+```r
+  sample_params &lt;- c("Lambda", "F_h2", "resid_h2", "tot_Eta_prec", "B1")
+  if (!is.null(envCov)) {
+    sample_params &lt;- c(sample_params,
+                       "U_F", "F", "B2_F", "Lambda_beta", "Lambda_beta_var")
+  }
+  MegaLMM_state$Posterior$posteriorSample_params &lt;- sample_params
+  MegaLMM_state$Posterior$posteriorMean_params   &lt;- "Eta_mean"
+
+  posterior_functions &lt;- list(
+    U_CV2noU_R = "U_F %*% Lambda",
+    U_CV2      = "U_F %*% Lambda + U_R",
+    G  = "t(Lambda) %*% diag(F_h2[1,]) %*% Lambda + diag(resid_h2[1,]/tot_Eta_prec[1,])",
+    R  = "t(Lambda) %*% diag(1-F_h2[1,]) %*% Lambda + diag((1-resid_h2[1,])/tot_Eta_prec[1,])",
+    h2 = "(colSums(F_h2[1,]*Lambda^2)+resid_h2[1,]/tot_Eta_prec[1,])/(colSums(Lambda^2)+1/tot_Eta_prec[1,])"
+  )
+```
+`U_F %*% Lambda` fixes the orientation: **`U_F` is `n_row x K` (accessions x factors), `Lambda` is `K x n_col` (factors x columns/partner-environments).**
+
+## Extraction — `megalmm_setup.R:290-321`
+```r
+megalmm_posterior &lt;- function(MegaLMM_state, accessions = NULL) {
+  .pm &lt;- function(p) MegaLMM::get_posterior_mean(
+    MegaLMM::load_posterior_param(MegaLMM_state, p))
+  ...
+  out &lt;- list(
+    Lambda   = .pm("Lambda"),
+    U        = .pm("U_CV2"),
+    U_noU_R  = .pm("U_CV2noU_R"),
+    Eta_mean = MegaLMM::load_posterior_param(MegaLMM_state, "Eta_mean"),
+    G = G, R = .pm("R"), h2 = .pm("h2"),
+    G_cor = stats::cov2cor(G)
+  )
+  ...
+  # U_F is the factor scores. Only saved when covariates are in play, and
+  # needed to look at a fixed factor's score directly.
+  if ("U_F" %in% MegaLMM_state$Posterior$posteriorSample_params) {
+    out$U_F &lt;- tryCatch(.pm("U_F"), error = function(e) NULL)
+  }
+  out$U       &lt;- .undecorate_rows(out$U, accessions)
+  out$U_noU_R &lt;- .undecorate_rows(out$U_noU_R, accessions)
+  out$U_F     &lt;- .undecorate_rows(out$U_F, accessions)
+```
+So **`U_F` can be `NULL`** when no `envCov` was supplied (guard at `:309`).
+
+## Naming
+`.undecorate_rows()` at `megalmm_setup.R:325-335` strips MegaLMM's `"&lt;level&gt;::&lt;term&gt;"` row suffix and **hard-errors** if the result does not match the accession names passed in:
+```r
+  rownames(m) &lt;- stringr::str_remove(rownames(m), "::.*$")
+  if (!is.null(accessions)) {
+    if (!identical(rownames(m), as.character(accessions))) {
+      stop("MegaLMM returned U rows that do not match the accessions passed ",
+           "in. Predictions would be attached to the wrong accessions.", ...)
+```
+Applied to `U`, `U_noU_R` and `U_F` — so **`U_F` rownames are accession names**. `Lambda` is *not* undecorated; its columns inherit the `wideData` column names (the partner species' accessions).
+
+## `factor_size` — `code/megalmm_oat_pea.R:289-296`
+```r
+cat("Lambda: ", nrow(post$Lambda), " factors x ", ncol(post$Lambda),
+    " pea environments\n", sep = "")
+
+# How much of each factor is actually used: the ARD prior shrinks surplus
+# factors towards zero, so this says whether K was generous enough.
+factor_size &lt;- rowSums(post$Lambda^2)
+cat("factor sizes (sum of squared loadings):\n")
+print(round(factor_size, 3))
+```
+`factor_size` is a **length-`K` vector, one entry per factor, `rowSums(Lambda^2)`** — the natural scale measure for a DGE-IGE-derived equivalent. It is a console print only; not saved to CSV. The whole posterior is persisted at `megalmm_oat_pea.R:304-308` as `output/megalmm_fit_&lt;fill&gt;.rds`.
+
+## Other factor-object touchpoints
+- `code/sim_fit.R:258-260` — `fit_megalmm_one()` returns `Lambda = post$Lambda, U_F = post$U_F` alongside the surface.
+- `code/sim_fit.R:249-255` — `stats::sd(post$Lambda[1, ])` checks the pinned factor's loadings are constant **across columns**, confirming `Lambda` is factors-by-columns.
+- `code/sim_fit.R:531-538` — `mainfactor()` correlates `side$U_F[, 1]` against the row species' true producer effect, matching `rownames(side$U_F)` into `rownames(G_row)`; takes `abs(r)` when the factor is free, because **a free factor's sign is arbitrary**. This is the closest existing precedent for comparing a recovered score to truth.
+- `code/megalmm_setup.R:87-106` and `:132` — the `Lambda_fixed &lt;- matrix(1, nrow = 1, ncol = ncol(wideData))` pinning mechanism and why row 1 comes back constant-but-not-1.
+
+---
+
+# 7. Repo conventions for a new script in `code/`
+
+Best templates: `code/sim_kron_study.R` (newest, Oct 1) and `code/cross_validate_combinations.R`.
+
+## Header comment block
+A `# ===...===` fence, a SHOUTING-CAPS title, then **the invocation lines first**, then prose in capitalised labelled paragraphs, then an `# Outputs:` manifest. From `code/sim_kron_study.R:1-6`:
+```r
+# ============================================================
+# DOES SIM_KRON_RANK DECIDE THE MegaLMM-vs-DGE-IGE RESULT?
+#
+#   Rscript code/sim_kron_study.R --check        # one cell, fast
+#   Rscript code/sim_kron_study.R                # the design
+#   Rscript code/sim_kron_study.R --n-acc 60,100 --ranks 10,20,30,full
+#
+# THE CONFOUND. ...
+```
+And the outputs manifest, `code/cross_validate_combinations.R:44-48`:
+```r
+# Outputs: output/crossval/&lt;date&gt;/predictions.csv
+#          output/crossval/&lt;date&gt;/accuracy.csv        overall, per model and trait
+#          output/crossval/&lt;date&gt;/accuracy_by_support.csv
+#          output/crossval/&lt;date&gt;/folds.csv
+```
+Shared-function files say **`# Sourced, not run.`** instead (`dge_ige_functions.R:19`, `sim_generate.R:54`, `sim_fit.R:36`), which is the marker `evaluation.R:117-130` uses to decide what is safe to `source()` (`EVAL_SOURCES`).
+
+## `here::i_am` and sourcing — `code/sim_kron_study.R:72-80`
+```r
+library(tidyverse)
+
+here::i_am("code/sim_kron_study.R")
+
+source(here::here("code", "dge_ige_functions.R"))
+source(here::here("code", "sim_config.R"))
+source(here::here("code", "sim_generate.R"))
+source(here::here("code", "sim_fit.R"))
+source(here::here("code", "megalmm_setup.R"))
+```
+`library(tidyverse)` bare in scripts; `suppressPackageStartupMessages(library(tidyverse))` in sourced function files; everything else namespaced (`dplyr::`, `purrr::`, `readr::`, `stats::`, `tibble::`).
+
+## The standard arg-parsing idiom — `code/sim_kron_study.R:82-98`
+```r
+args &lt;- commandArgs(trailingOnly = TRUE)
+arg_value &lt;- function(flag, default) {
+  i &lt;- match(flag, args)
+  if (is.na(i) || i == length(args)) default else args[i + 1]
+}
+check   &lt;- "--check" %in% args
+refresh &lt;- "--refresh" %in% args
+
+ranks   &lt;- strsplit(arg_value("--ranks", "10,20,30,full"), ",")[[1]]
+n_accs  &lt;- as.integer(strsplit(arg_value("--n-acc", "60,100,200"), ",")[[1]])
+n_reps  &lt;- as.integer(arg_value("--reps", "3"))
+n_iter  &lt;- as.integer(arg_value("--n-iter", "6000"))
+burn_in &lt;- as.integer(arg_value("--burn-in", "1000"))
+```
+Defaults are **strings** coerced with `as.integer`/`as.numeric`; comma lists via `strsplit(...)[[1]]`. The richer variant (`code/sim_run.R:56-61`, `code/sim_int_run.R:47-61`) uses `default = NULL` plus a `has_flag()` helper:
+```r
+arg_value &lt;- function(flag, default = NULL) {
+  i &lt;- match(flag, args)
+  if (is.na(i) || i == length(args)) default else args[i + 1]
+}
+has_flag &lt;- function(flag) flag %in% args
+```
+Conditional defaults by mode: `code/cross_validate_combinations.R:66-67` — `as.integer(arg_value("--n-iter", if (quick) "3000" else "12000"))`. Standard flags across the repo: `--check`, `--quick`, `--pilot`, `--refresh`, `--combine`, `--reps`, `--filter`, `--seed`, `--n-iter`, `--burn-in`, `--task`/`--ntasks`.
+
+## Caching to `output/`
+Three directory variables declared together — `code/sim_run.R:47-49`, mirrored at `sim_int_run.R:43-45` and `sim_kron_study.R:105-107`:
+```r
+out_dir   &lt;- here::here("output")
+cache_dir &lt;- here::here("output", "simulation_kron")
+dir.create(cache_dir, showWarnings = FALSE, recursive = TRUE)
+```
+Per-cell RDS cache keyed by scenario/rep/seed, honouring `--refresh` — `code/sim_kron_study.R:132-138, 195-196`:
+```r
+run_cell &lt;- function(row) {
+  f &lt;- file.path(cache_dir, paste0(row$scenario, "_rep", row$rep, "_s",
+                                   row$seed, ".rds"))
+  if (!refresh &amp;&amp; file.exists(f)) {
+    message("  cached: ", row$scenario, " rep ", row$rep)
+    return(readRDS(f))
+  }
+  ...
+  saveRDS(out, f)
+  out
+}
+```
+Scenario names via `sprintf` with zero-padded numbers — `sim_kron_study.R:114-116`:
+```r
+    scenario = sprintf("kron_n%d_sp%03d_f%d", n_acc, round(sparsity * 1000),
+                       n_factors),
+    seed = BASE_SEED + dplyr::row_number())
+```
+with a documented seed block per design (`BASE_SEED &lt;- 20280000L   # clear of both other designs`, `:109`).
+
+## Where results CSVs go
+Flat into `output/`, named `&lt;pipeline&gt;_&lt;topic&gt;.csv`, written with `readr::write_csv` — `code/sim_kron_study.R:201`:
+```r
+readr::write_csv(res, file.path(out_dir, "simulation_kron_study.csv"))
+```
+Existing names: `output/simulation_kron_study.csv`, `output/simulation_int_results.csv`, `output/simulation_int_design.csv`, `output/simulation_results.csv`, `output/simulation_design_effects.csv`, `output/simulation_anova*.csv`, `output/simulation_compare*.csv`, `output/BGLR_variance_components.csv`, `output/megalmm_cv_results.csv`. Date-stamped subdirectories only for cross-validation: `code/cross_validate_combinations.R:70-71`:
+```r
+out_dir &lt;- here::here("output", "crossval", format(Sys.Date(), "%Y-%m-%d"))
+dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+```
+Scripts close with a console report (`cat("\n", strrep("=", 76), ...)` then `print(..., n = 60, width = 200)`, `sim_kron_study.R:209-217`) and a final `message("\nwrote:\n  output/...")` manifest (`megalmm_oat_pea.R:338-340`). Early exit uses `quit(save = "no")` (`sim_kron_study.R:207`).
+
+## Registration obligations for a new script
+- If it defines reusable functions with no side effects, mark it `# Sourced, not run.` and add it to `EVAL_SOURCES` in `code/evaluation.R:117-130`; otherwise consider `EVAL_DEFS_FILES` (`:133+`).
+- New functions get a `debug()` group in `EVAL_GROUPS` (`code/evaluation.R:41-96`) and a slot in `EVAL_ORDER_SIM` / `EVAL_ORDER_ANALYSIS` (`:99-110`).
+- Algebraic identities go in `tests/test_*.R` using `tests/helper.R`'s `check()` / `check_near()` and `load_code()`; the suite is aggregated by `tests/run_all.R`. `tests/test_kronecker.R:7-13` states the house style: oracles must be independent identities, deliberately non-square/non-equal-rank inputs, and negative tests that assert the wrong version is detectably wrong.</result>
+<usage><subagent_tokens>120021</subagent_tokens><tool_uses>32</tool_uses><duration_ms>271658</duration_ms></usage>
+</task-notification>
+[2026-10-01 13:24:00] <task-notification>
+<task-id>a17d24470dc5b3dd4</task-id>
+<tool-use-id>toolu_01CWzXBb2oWaHQuhHKsJzSys</tool-use-id>
+<output-file>/private/tmp/claude-1334918876/-Users-jj332-Documents-GitRepo-B4I-Fall2026/e21c7a19-656a-4e24-96ad-8e665e19d591/tasks/a17d24470dc5b3dd4.output</output-file>
+<status>completed</status>
+<summary>Agent "Pressure-test implementation plan" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>## 1. Implementation sequence
+
+**Step 1 — new `code/interaction_decomp.R`** (`# Sourced, not run.`, long `# ===` header stating the identity and why no deregression is needed). Write and test this before touching any fitting code; it needs no MCMC.
+
+- `decompose_bilinear(A, Beta, B, centre = TRUE, rank = NULL)` → `list(d, scores, loadings, share, rank)`. Fast path: column-centre `A` and `B`, `qr()` each, `M &lt;- R_a %*% Beta %*% t(R_b)`, `svd(M)`, `scores = Q_a %*% U`, `loadings = Q_b %*% V`.
+- `decompose_surface(M, centre = TRUE, rank = NULL)` — dense `svd(interaction_part(M))`. Make this the *reference implementation* and the QR route the fast path, with a test that they agree. This also buys the MegaLMM side for free: no `U_F`/`Lambda` needed (and `U_F` is `NULL` in some runs), and "the same orthogonalising operator applied to both models" becomes literally the same function call.
+- `read_beta_draws(prefix, name = "ETA_G_mix", nIter, burnIn, thin, storage_mode, p, traits)` → `[n_keep, p, traits]`, dropping the first `floor(burnIn/thin)` rows and asserting file size `== 24 + (nIter/thin)*p*traits*size` and `!anyNA`.
+- `align_to_reference(U, V, d, ref, gap_tol = 0.05)` → signed permutation across well-separated components, **block** orthogonal Procrustes inside near-degenerate blocks; returns diagnostics (`gap_ratio`, `rot_diag`, `switched`).
+- `subspace_cors(X, Y)` (canonical correlations via `svd(t(qr.Q(qr(X))) %*% qr.Q(qr(Y)))`), `effective_rank(d)` (participation ratio `(Σd²)²/Σd⁴` plus `n90`), `projection_ceiling(truth_U, A)`.
+- `decompose_draws(A, draws, B, rank, reference, centre)` → per-draw `d`, aligned score mean/sd, diagnostics. Never average unaligned scores.
+
+**Step 2 — `code/dge_ige_functions.R:266`.** Add `save_effects = FALSE`, `storage_mode = "double"`. Set `ETA$G_mix$saveEffects &lt;- TRUE` and `$storageMode` only on `G_mix` (BGLR will happily save `G_oat`, `G_pea` and the FIXED trial term too). Return `kron = list(A = kron_A, B = kron_B)`, `mcmc = list(nIter, burnIn, thin)`, and `effects_file = paste0(saveAt_prefix, "ETA_G_mix_beta.bin")`. Document that `saveAt` is a **filename prefix**, not a directory (BGLR does `paste(saveAt, Name, "_beta.bin")`).
+
+**Step 3 — `code/sim_fit.R:123`.** Thread `save_effects`/`saveAt`/`decomp_rank` through `fit_dge_ige`; return the **zero-row-padded bases**, not just the padded surface. This matters: `pad_mat(A Beta B') == pad_rows(A) Beta pad_rows(B)'`, so bilinearity survives padding, but decomposing the *unpadded* surface uses a different centring operator than `score_predictions` does, and the variance shares then aren't shares of the thing that was scored.
+
+**Step 4 — one-cell `--check`** proving the plumbing (see §4) before any sweep.
+
+**Step 5 — new `code/sim_decomp_run.R`.** `here::i_am`, `arg_value()`, flags `--check --pilot --reps --rank --filter --task --ntasks --refresh --combine`. **Reuse `sim_int_grid()` and `SIM_INT_BASE_SEED` unchanged** — same `(scenario, rep, seed)` keys — or the decomposition rows cannot be joined to the existing `r_int` rows and the head-to-head dies. Cache `output/simulation_decomp/&lt;scenario&gt;_rep&lt;k&gt;_s&lt;seed&gt;_v1_decomp.rds`; outputs `output/simulation_decomp_results.csv` (one row per cell/trait/model) and `output/simulation_decomp_spectrum.csv` (long, one row per component).
+
+**Step 6 — `tests/test_decomp.R`** (§4), **`code/evaluation.R`**: add `code/interaction_decomp.R` to `EVAL_SOURCES$simulation` (after `sim_fit.R`) and `$analysis`; `EVAL_GROUPS$sim_decomp &lt;- c("decompose_bilinear","decompose_surface","read_beta_draws","align_to_reference","subspace_cors","effective_rank","projection_ceiling","decompose_draws")`; append `"sim_decomp"` to `EVAL_ORDER_SIM` and to the `sim_pipeline` union.
+
+**Step 7 — `code/scinet/sim_decomp_array.sbatch`**, a copy of `sim_int_array.sbatch` with new names and a corrected hour estimate.
+
+## 2. Risks you haven't named
+
+**The burn-in trap (highest severity, silent).** In `BGLR::Multitrait` the `saveEffects` `writeBin` sits inside `if (iter %% thin == 0)` (deparsed line 332), *not* inside the `(iter &gt; burnIn) &amp; (iter %% thin == 0)` accumulation block (line 346). The header records `nRow = nIter/thin`, and `readBinMatMultitrait` hands back **all** of them, burn-in included. At the current `nIter = 6000, burnIn = 1000, thin = 10` that is 600 rows of which the first 100 are burn-in — not the "400–1000 draws" in your note. Forget the offset and every posterior SD inflates and the spectrum flattens, which is indistinguishable from the §(c) bias you are trying to measure.
+
+**Also verified, so you can rely on it:** `storageMode` defaults to `"double"` (`setLT.BRR_mt`), compression is opt-in (`compressEffects`, default off) and `gzfile` reads uncompressed anyway, `as.vector(beta)` on a `p × traits` matrix is column-major and the reader's `for k in 1:traits { Beta[j,,k] &lt;- readBin(n = p) }` matches it, and `fit$ETA$G_mix$beta` is the posterior *mean* (`$beta &lt;- $post_beta`, line 419). That last fact gives you a decisive test.
+
+**(a) Alignment.** Signed permutation is enough only where the spectrum separates. Near-ties produce a *continuous* rotation of the degenerate block that a signed permutation cannot represent; it will report large posterior SD on individual scores while the subspace is perfectly well determined. Near the noise floor nothing helps. So: make the rotation-invariant quantities primary (the `d_k²` shares and the top-`r` subspace), use block-diagonal Procrustes (full `Q` from `svd(U_ref' U_draw)` within blocks where `(d_k - d_{k+1})/d_1 &lt; 0.05`, signed permutation between blocks), and take the reference from the decomposition of the posterior-**mean** surface, not draw 1. Report four diagnostics: posterior distribution of the gap ratio; mean `|diag(Q)|` (1 = stable); posterior mean principal angles between each draw's top-`r` subspace and the reference (alignment-free); and the label-switch rate. One more: singular values are convex in `M`, so `E[d_k(M)] ≥ d_k(E[M])` — the draw-wise spectrum is systematically flatter and heavier than the spectrum of the mean surface. Report both, and name the mean-surface spectrum as the point estimate. Finally, 500 kept draws at thin 10 on 900 coefficients is thin: record `coda::effectiveSize(d_1)` per cell and mark cells with ESS &lt; 100 uncertified rather than quoting their intervals.
+
+**(b) Disk and memory.** Per fit: 24-byte header + 600 × 900 × 2 × 8 = **8.64 MB** (4.32 MB at `storageMode = "single"`). The sweep is 600 `dge_ige` fits (`fixed_main_effect` only changes MegaLMM), so 5.2 GB / 2.6 GB. Peak memory is trivial (one 8.6 MB array). Real hazards: (i) `saveAt` is a prefix, so pointing it at `output/` in a 20-task array makes every task write `output/ETA_G_mix_beta.bin` and clobber the rest — keep it in the per-process `tempdir()` and decompose in-process; (ii) do **not** cache per-draw score matrices (400 × 5 × 500 × 8 ≈ 9.6 MB per trait per cell, &gt;11 GB); cache per-draw `d` (24 KB), aligned score mean/sd, and diagnostics; (iii) **do** cache the raw `[n_keep, 900, 2]` Beta array per cell — 2.6 GB at single precision buys you the ability to redo every decomposition choice (centred vs raw, rank, alignment method) in seconds instead of re-running a 70-hour refit. That is the single highest-value caching decision here; (iv) a killed job leaves a truncated `.bin` that reads as an NA-filled array with no error, hence the size assertion in `read_beta_draws`.
+
+**(c) Does BRR flatten the spectrum?** Yes, two ways, and they are separable. The prior is one scalar variance over all `q²` coefficients (times a 2×2 UN `Omega` across traits). First, shrinkage that does not scale with signal strength compresses `d_1/d_k` and inflates any share- or participation-ratio-based effective rank. Second, isotropy *in Beta space* means the implied prior on the surface has covariance `Λ_a ⊗ Λ_b`, so the posterior is tilted toward leading GRM eigen-directions irrespective of where the truth sits, and the recovered loadings inherit the GRM spectrum. Measure both: **null calibration** — add `interaction_pct = 0` / `V_I = 0` cells (the generator supports it; `SIM_INT_LEVELS` deliberately has no such level) and record the fitted spectrum under no true interaction; that is your `d_k^null` noise floor, and effective rank must be read against it. If the `n_factors = 1` cells return the same effective rank as the null, the spectrum carries no rank information and the honest deliverable shrinks to the leading direction plus a caveat. **Rank tracking** — regress estimated effective rank on true `n_factors` (1/3/5) and report the slope; slope ≈ 0 with a large intercept *is* the flattening bias, quantified. **Tilt test** — compare recovered loadings' overlap with the leading `G_pea` eigenvectors against the truth's own overlap; systematic excess is the `Λ_a ⊗ Λ_b` tilt. **Sensitivity** — refit one cell with basis columns scaled as `Λ^α`, α ∈ {0.25, 0.5, 1}: same span, different implied surface prior; if the shares move materially they are prior-driven. Report shares on the centred surface only, consistently — centring removes the additive directions where much of the uniform-shrinkage bias lives.
+
+**(d) The `kron_rank` confound, which is worse here than for `r_int`.** Loadings are confined *by construction* to `span(V_b[,1:q])` and scores to `span(V_a[,1:q])`, while the truth's `U`/`Lambda` are `draw_effect(L, 1)` draws with mass on every direction. So there is a hard analytic ceiling on any subspace-recovery number, and it is computable with **no fitting**: the canonical correlations between `span(truth$U_oat)` and `span(kron_A)`. Add that column and report recovery as a *fraction of ceiling*; without it, every number at `kron_rank = 30` is uninterpretable in exactly the way `sim_kron_study.R:1-70` describes. Two consequences: the `n_acc` main effect (30/200 vs 30/400 directions retained) is partly a truncation artefact that only the ceiling column separates; and the decomposition needs its own truncation-free anchor — get it free by adding the decomposition responses to `sim_kron_study.R`'s existing `n_acc = 60/100, ranks = ..., full` design rather than building a second anchor. At `rank = full` the spectrum question becomes purely about shrinkage, so that anchor serves (c) as well.
+
+**Scope risk you haven't named.** `code/BGLR_multi_trait_model.R:94` sets `fit_mix_term &lt;- FALSE`, and when it is TRUE it builds the **exact** combination kernel inline (`Z_mix %*% L_mix`, lines 332–355) rather than calling `fit_producer_associate`. So (i) there is currently no fitted interaction surface for the real experiment at all, (ii) the exact-kernel form is not bilinear and this decomposition does not apply to it, and (iii) Step 2's plumbing does not reach that script. Meanwhile its own guard at line 233 says the mix term is near-inestimable on the real data (&gt;90% of combinations unreplicated). Decide explicitly now whether the deliverable is simulation-only, or whether the production script gets switched to `fit_producer_associate(kron_rank = ...)`.
+
+**Smaller ones.** `grm_basis` caps `k` at the non-null directions, so `ncol(A)` and `ncol(B)` can differ and be below `kron_rank` — assert `ncol(A)*ncol(B) == nrow(beta)` and never assume square. `eigen()` sign is arbitrary-but-deterministic: recomputing `kron_A` post hoc under a different BLAS silently flips scores, so store the bases rather than rebuilding them. Component-level agreement must be reported as `|cor|` (joint score/loading sign is unidentified). And because the generator rescales only `I`, `truth$U %*% t(truth$Lambda) != truth$I_oat`; compute the truth-side spectrum from `truth$I_*` (or rescale `U`/`Lambda` identically) or the shares will look wrong by a constant and be misread as bias.
+
+## 3. Scope: the full sweep is affordable, but not as specified
+
+Correcting the arithmetic: `SIM_INT_LEVELS` is 2 × 5 × 3 × 2 × 2 = 120 scenarios; at 5 reps that is **600 datasets**, and 1200 is the count of *MegaLMM runs* (`fixed_main_effect` crossed), which does not change the `dge_ige` fit. From `output/simulation_results_from_ceres.csv` (`output/simulation_int_results.csv` holds only 2 `dge_ige` rows — the int sweep is 6 of 2400 fits done, essentially unrun), `dge_ige` medians are 17/45/–/147/422 s at n = 200 and 74/224/–/725/2283 s at n = 400 across the sparsity grid; interpolating 0.09 at ≈80 s and ≈390 s gives 142 s and 739 s per dataset, so **73.5 core-hours** for all 600 `dge_ige` refits. MegaLMM at 50 s / 175 s × 2 runs adds **37.5 core-hours**. Total ≈ **111 core-hours**, which is consistent with `sim_int_array.sbatch`'s own "~65 single-core hours" for 360 scenarios. On the existing 20-task array that is ~5.6 h per task — comfortably inside the 12 h wall clock. So the full sweep is practical *on Ceres*; it is not practical serially on the Mac (4.6 days).
+
+What I would still cut, and why. Stage it: **Stage A** is `dge_ige` only (73 h) and delivers the actual product — scores, loadings, posterior intervals, spectrum — with no MegaLMM at all. **Stage B** adds the head-to-head, and there it only needs the cells near the crossover (`sparsity ∈ {0.048, 0.09, 0.16}`), cutting MegaLMM from 37.5 to ~22 h. Within Stage A, the decomposition responses (canonical correlations, share of `d_1`, effective rank) are averages over many dimensions and so have far lower replicate variance than `r_int`; reps 4–5 buy little. And `interaction_pct` is a pure SNR knob that will move everything monotonically. So the nearest thing to the full sweep, if you want it overnight rather than over a day: `interaction_pct = 0.20` only, 3 reps → 60 × 3 = 180 datasets ≈ **33 core-hours**, ~1.7 h per task, plus the `V_I = 0` null cells (cheap: sparse, and they are the calibration you cannot skip). Then run the full 120 × 5 only on the axes where Stage A shows the ranking is close. If you want the literal full sweep, submit it — the number says yes.
+
+## 4. Verification
+
+**`tests/test_decomp.R`, fast tier**, all algebraic, `tol = 1e-12`, with non-square and unequal-rank inputs as `test_kronecker.R` does: reconstruction `scores %*% diag(d) %*% t(loadings) == M` uncentred and `== interaction_part(M)` centred; `crossprod(scores) == I` and `colMeans(scores) == 0` in the centred case (both sides); `sum(d^2) == sum(interaction_part(M)^2)` and shares summing to 1; QR fast path equals `decompose_surface` on `d` and on subspaces; **zero-padding invariance** — decomposing padded bases equals decomposing `pad_mat(M)` (the trap in §1 Step 3, turned into a test); scale invariance — `decompose(c*M)` gives identical scores/loadings and `c*d` (this is what licenses comparing to a truth that was rescaled); `subspace_cors` = 1 on identical spans, 0 on orthogonal ones; `effective_rank` = 1 for rank-1 and = r for r equal values. Two **negative** tests in the house style: `byrow = FALSE` in the Beta reshape must be detectably wrong, and signed-permutation alignment must *fail* on a planted within-block rotation that block-Procrustes recovers.
+
+**Added to `tests/test_fits.R`, slow tier** — the decisive plumbing test: fit a tiny `dge_ige` with `save_effects = TRUE, nIter = 400, burnIn = 100, thin = 10`, read the `.bin`, drop the first 10 rows, and assert `colMeans(draws) == fit$ETA$G_mix$beta` to 1e-10. Because BGLR's returned `beta` *is* the running posterior mean over exactly those draws, this one assertion simultaneously proves the burn-in offset, the byte order, the trait-major layout and the `storageMode`. Second: the mean over per-draw surfaces equals the surface built from the posterior-mean beta (linearity), 1e-10.
+
+**Human end-to-end, under a few minutes:** `Rscript code/sim_decomp_run.R --check` at `n_acc = 120, sparsity = 0.48, n_factors = 1, nIter = 1500, burnIn = 300` (~20 s fit, matching `sim_int_run.R --check`'s scale), written as a positive control that `stop()`s: (1) draws read back and their mean equals the posterior mean; (2) rank-1 truth → `d_1` share &gt; 0.5 and `|canonical correlation|` between recovered oat scores and `truth$U_oat` &gt; 0.8; (3) the 90% posterior interval for the `d_1` share is finite and excludes 0, with `rot_diag` printed; (4) `decompose_surface(interaction_part(megalmm_surface))` shares sum to 1 — the direct demonstration that the fairness fix works, since the raw per-factor shares do not.
+
+### Critical Files for Implementation
+- /Users/jj332/Documents/GitRepo/B4I_Fall2026/code/dge_ige_functions.R
+- /Users/jj332/Documents/GitRepo/B4I_Fall2026/code/sim_fit.R
+- /Users/jj332/Documents/GitRepo/B4I_Fall2026/code/sim_int_run.R
+- /Users/jj332/Documents/GitRepo/B4I_Fall2026/code/sim_kron_study.R
+- /Users/jj332/Documents/GitRepo/B4I_Fall2026/code/evaluation.R</result>
+<usage><subagent_tokens>99828</subagent_tokens><tool_uses>33</tool_uses><duration_ms>490544</duration_ms></usage>
+</task-notification>
+[2026-10-01 13:40:14] <task-notification>
+<task-id>bgbatwmtn</task-id>
+<tool-use-id>toolu_01UVy9N3QABC4EEvBgVpuwXK</tool-use-id>
+<output-file>/private/tmp/claude-1334918876/-Users-jj332-Documents-GitRepo-B4I-Fall2026/e21c7a19-656a-4e24-96ad-8e665e19d591/tasks/bgbatwmtn.output</output-file>
+<status>completed</status>
+<summary>Background command "Run slow-tier fit tests in background" completed (exit code 0)</summary>
+</task-notification>
+[2026-10-01 14:36:37] Please commit and push

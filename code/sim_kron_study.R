@@ -3,7 +3,7 @@
 #
 #   Rscript code/sim_kron_study.R --check        # one cell, fast
 #   Rscript code/sim_kron_study.R                # the design
-#   Rscript code/sim_kron_study.R --n-acc 60,100 --ranks 10,20,30,exact
+#   Rscript code/sim_kron_study.R --n-acc 60,100 --ranks 10,20,30,full
 #
 # THE CONFOUND. docs/BGLR_vs_MegaLMM.md reports MegaLMM beating dge_ige at
 # recovering the oat x pea interaction above a density threshold -- by 0.37 at

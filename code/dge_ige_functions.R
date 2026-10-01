@@ -260,13 +260,44 @@ b4i_plot_table <- function(pheno_file = here::here("output",
 #'   basis from the leading `kron_rank` eigenvectors of each species, giving a
 #'   `kron_rank^2`-column design matrix whose fitted coefficients reshape to a
 #'   full interaction surface. See docs/specific-combination_kronecker.md.
+#' @param save_effects Stream every thinned MCMC draw of the interaction
+#'   coefficients to disk, so the surface can be decomposed inside each draw
+#'   rather than only at the posterior mean (see code/interaction_decomp.R).
+#'   Only the `G_mix` term is streamed -- BGLR would otherwise write the two
+#'   species terms and the fixed trial term as well. Requires `kron_rank` to be
+#'   an integer (the exact kernel's coefficients are not a bilinear form) and a
+#'   `saveAt` the caller controls, because the files must outlive the call.
+#' @param storage_mode "double" or "single" for those draws; "single" halves the
+#'   file at no cost to a decomposition.
 #' @return list(fit, L_oat, L_pea, effects, varcomp, resid_cov, accessions,
-#'   interaction) -- `interaction` is a per-trait pair of full oat x pea
-#'   surfaces when the mix term was fitted at low rank, else NULL.
+#'   interaction, kron, mcmc) -- `interaction` is a per-trait pair of full
+#'   oat x pea surfaces when the mix term was fitted at low rank, else NULL.
+#'   `kron` carries the two bases and, with `save_effects`, the path to the
+#'   streamed draws; `mcmc` carries the chain settings needed to strip burn-in
+#'   from them.
 fit_producer_associate <- function(dat, G_oat, G_pea, seed = 12567,
                                    nIter = 20000, burnIn = 3000, thin = 10,
                                    fit_mix_term = FALSE, kron_rank = NA,
-                                   saveAt = NULL, verbose = FALSE) {
+                                   saveAt = NULL, verbose = FALSE,
+                                   save_effects = FALSE,
+                                   storage_mode = "double") {
+
+  if (save_effects) {
+    if (!fit_mix_term || is.na(kron_rank)) {
+      stop("save_effects needs the mix term fitted at an integer kron_rank: ",
+           "the exact kernel's coefficients do not reshape to a bilinear ",
+           "form, so there is nothing to decompose", call. = FALSE)
+    }
+    # BGLR builds the filename as paste0(saveAt, <term name>, "_beta.bin"), so
+    # saveAt is a PREFIX, not a directory. Defaulting it to tempdir() here
+    # would put the draws somewhere the caller cannot find, and pointing two
+    # array tasks at the same prefix would have them overwrite each other.
+    if (is.null(saveAt)) {
+      stop("save_effects needs an explicit saveAt prefix: BGLR appends the ",
+           "term name to it, and the default tempdir() prefix is discarded ",
+           "when the session ends", call. = FALSE)
+    }
+  }
 
   oatAccs <- sort(unique(dat$oatAcc))
   peaAccs <- sort(unique(dat$peaAcc))
@@ -348,15 +379,20 @@ fit_producer_associate <- function(dat, G_oat, G_pea, seed = 12567,
       kron_B <- grm_basis(Gp, rank = kron_rank)
       ETA$G_mix <- list(X = kron_basis(kron_A, kron_B, oat_idx, pea_idx),
                         model = "BRR")
+      if (save_effects) {
+        ETA$G_mix$saveEffects <- TRUE
+        ETA$G_mix$storageMode <- storage_mode
+      }
     }
   }
 
   set.seed(seed)
+  save_prefix <- saveAt %||% file.path(tempdir(), "dge_ige_")
   fit <- BGLR::Multitrait(
     y = Y, ETA = ETA, intercept = FALSE,
     resCov = list(df0 = 4, S0 = NULL, type = "UN"),
     nIter = nIter, burnIn = burnIn, thin = thin,
-    saveAt = saveAt %||% file.path(tempdir(), "dge_ige_"),
+    saveAt = save_prefix,
     verbose = verbose
   )
 
@@ -400,6 +436,21 @@ fit_producer_associate <- function(dat, G_oat, G_pea, seed = 12567,
       }
       list(oat = surf("oatYield"), pea = surf("peaYield"))
     } else NULL,
+    # The two bases, kept so the interaction can be decomposed later. They are
+    # n x kron_rank, so the cost is negligible -- and rebuilding them post hoc
+    # is not safe: eigen()'s sign convention is arbitrary but deterministic, so
+    # a different BLAS would silently flip the recovered scores.
+    kron = if (fit_mix_term && !is.na(kron_rank)) {
+      list(A = kron_A, B = kron_B, rank = kron_rank,
+           traits = DGE_IGE_TRAITS,
+           effects_file = if (save_effects) {
+             paste0(save_prefix, "ETA_G_mix_beta.bin")
+           } else NULL,
+           storage_mode = storage_mode)
+    } else NULL,
+    # Needed to strip burn-in from the streamed draws: BGLR writes every
+    # thinned iteration, including burn-in. See read_beta_draws().
+    mcmc = list(nIter = nIter, burnIn = burnIn, thin = thin),
     n_plots = nrow(dat), n_blocks_fitted = ncol(incBlocks)
   )
 }

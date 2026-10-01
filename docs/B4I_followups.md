@@ -458,6 +458,101 @@ carrying each species' kinship-shrunk main effect from its own orientation into
 the other as a covariate. The orientation asymmetry above gives it a measurable
 target.
 
+**10. `n_acc` and sparsity are not independent axes — they are one budget, and
+the budget question is unexplored.** Both buy plots: a design evaluates
+`sparsity x n_acc^2` of them. So the two factors the ANOVA reports separately are
+coupled in every real decision, and the practical question is not "does density
+help" (it does, decisively) but **given a fixed number of plots, how many
+accessions should they be spread over?**
+
+The existing `sim_int` grid already contains budget-matched pairs, and they point
+one way, hard — `r_int_oat`, from
+`output/simulation_int/simulation_int_gap_by_sparsity_r_int_oat.csv`:
+
+| plots | n_acc | observed | MegaLMM | DGE-IGE |
+|---|---|---|---|---|
+| 1,920 | 200 | 4.8% | 0.018 | 0.264 |
+| 2,560 | 400 | 1.6% | 0.001 | 0.295 |
+| **6,400** | **200** | **16%** | **0.519** | 0.397 |
+| **7,680** | **400** | **4.8%** | **0.171** | 0.391 |
+| 14,400 | 400 | 9% | 0.565 | 0.428 |
+| **19,200** | **200** | **48%** | **0.838** | 0.485 |
+| 25,600 | 400 | 16% | 0.775 | 0.451 |
+
+At ~7,000 plots the *smaller, denser* design is **three times** more accurate on
+the interaction (0.519 vs 0.171) on **fewer** plots. At ~20,000 the same holds
+with 25% fewer plots (0.838 vs 0.775). DGE-IGE is nearly indifferent across the
+same pairs (0.397 vs 0.391; 0.485 vs 0.451), which is the expected signature: its
+kinship kernel borrows across accessions, MegaLMM's factors have to be estimated
+from repeated combinations. Below the gate both are hopeless whatever the split.
+
+So fewer accessions evaluated densely looks better than more evaluated sparsely,
+at equal cost, **for MegaLMM and for the interaction** — and that is also the only
+regime where the scores and loadings could carry interpretable signal at all
+(finding 7, and the unmeasured per-factor share in
+[BOTH_ORIENTATIONS.md](../BOTH_ORIENTATIONS.md)).
+
+**What is not known, and is not answerable from this grid.** The design stops at
+`n_acc` 200/400 and 48% observed. A proposal like 50 accessions at 80% observed —
+2,000 plots, the same as 200 at 5% — is outside it in both directions, and the
+trend above cannot simply be extended: shrinking the panel also shrinks the
+kinship information MegaLMM's factor prior draws on, and at some point the
+accession set is too small to represent the breeding population the validation is
+meant to speak to. There is also a floor from GMA: finding 2 has BGLR winning
+there regardless, so a panel chosen to maximise interaction recovery may be the
+wrong panel for the grant's main objective.
+
+The experiment that would settle it is a **constant-budget sweep**: fix
+`sparsity x n_acc^2` at two or three plot counts and walk `n_acc` across them —
+`n_acc` 50/100/200/400 with sparsity set to hold plots constant — scoring
+`r_int`, `r_addsurf` and the per-factor interpretability measure together, since
+the optimum may differ by objective. Cheap relative to its value: the small-panel
+cells are the fast ones.
+
+**11. The DGE-IGE interaction can be read as scores and loadings, and whether
+what comes back is real is now measurable but unmeasured.** The fitted surface
+`kron_A %*% Beta %*% t(kron_B)` is an exact bilinear form, so one SVD per MCMC
+draw gives orthonormal oat scores, pea loadings and exact variance shares — no
+deregression, because nothing is fitted; it is a rotation of a term the model
+already estimated. Built in `code/interaction_decomp.R`, driven by
+`code/sim_decomp_run.R`, documented in
+[interaction_decomposition.md](interaction_decomposition.md).
+
+Two things the positive control already shows, both of which will trip up anyone
+reading the output without them in mind:
+
+- **The spectrum is flattened by the prior.** A genuinely rank-1 interaction
+  came back with a participation ratio of 4.46 and a leading share of 0.45
+  [0.41, 0.49]. BGLR puts one scalar prior variance over all `kron_rank^2`
+  coefficients, which is misspecified for a low-rank truth. So the participation
+  ratio means nothing in the abstract — only against the `interaction_pct = 0`
+  null cells, which the driver adds by default. **If the rank-1 cells read the
+  same as the nulls, the spectrum carries no rank information** and the
+  deliverable shrinks to the leading direction plus a caveat.
+- **The posterior-mean surface overstates concentration.** Its leading share was
+  0.69 against a posterior of 0.45, because singular values are convex in the
+  matrix and averaging draws cancels their idiosyncratic directions. The
+  reported estimand is the draw-wise one; `share1_meansurf` is carried
+  separately and is the only share comparable with MegaLMM, which has no
+  streamed draws.
+
+**Recovery must be quoted against its ceiling.** At `kron_rank = 30` the scores
+are confined by construction to `span(kron_A)` while the truth has mass on every
+direction of G, so `recovery_ceiling()` computes the limit with nothing fitted.
+In the pilot (n = 200, 48% observed, rank 1): `dge_ige` recovered the leading
+score at 0.718 against a 0.763 ceiling — **94% of what the basis allows** —
+versus MegaLMM's 0.970 of 1.000. Read without the ceiling `dge_ige` looks far
+worse; read with it the gap is almost entirely `SIM_KRON_RANK`. This is the
+`sim_kron_study.R` confound reaching the decomposition and not just the
+accuracy.
+
+**What has not been run:** the sweep itself. 600 cells plus nulls, ~120
+core-hours, ~6 h per task over 20 tasks. Open questions are whether the
+spectrum tracks `n_factors`, whether recovery survives at the 1.6–4.8% densities
+where `dge_ige` wins, and whether a recovered component is a stable object at
+all — `order_stable` was 0.09 on the short control chain, which is a real
+question and not just a short-chain artefact.
+
 ### Traps in the plumbing, so they are not rediscovered
 
 Three cost real time and all three are now guarded, but the guards are only
@@ -500,3 +595,13 @@ oat accession's total contribution (oat producer + **oat** associate). They were
       pea) predate the anchor fix, which made replication slightly less even.
 - [ ] **Accession-wise cross-validation of the bivariate model** — still item 7
       above, still the thing sub-objective 1.4 actually asks for.
+- [ ] **`sbatch code/scinet/sim_decomp_array.sbatch`** — the interaction
+      decomposition sweep, unsettled item 11. Run
+      `Rscript code/sim_decomp_run.R --check` first; it is a positive control
+      that stops on failure. The null cells are not optional: without them the
+      participation ratio cannot be read.
+- [ ] **Constant-budget `n_acc` sweep** — unsettled item 10. Hold
+      `sparsity x n_acc^2` fixed and walk `n_acc` across 50/100/200/400 at two or
+      three plot budgets. Not urgent, but it is the form every real design
+      decision takes, and the budget-matched pairs already in `sim_int` suggest
+      the answer is not the one the separate-axes reading implies.

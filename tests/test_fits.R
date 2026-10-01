@@ -26,7 +26,7 @@ library(tidyverse)
 here::i_am("tests/test_fits.R")
 source(here::here("tests", "helper.R"))
 load_code("sim_config.R", "dge_ige_functions.R", "megalmm_setup.R",
-          "sim_generate.R", "sim_fit.R")
+          "sim_generate.R", "sim_fit.R", "interaction_decomp.R")
 
 # Seeded at the top: these thresholds are loose but not infinitely loose, and an
 # unseeded suite that fails one run in twenty teaches people to ignore it.
@@ -278,6 +278,101 @@ if (!requireNamespace("MegaLMM", quietly = TRUE)) {
                 stats::cor(from_oat_side, oat_gma_true)))
   check_near(s_mm$r_oat_gma, stats::cor(assembled, oat_gma_true), tol = 1e-6,
              "and r_oat_gma is exactly that assembled correlation")
+}
+
+# ============================================================
+# The streamed interaction draws, and the burn-in offset
+#
+# This is the plumbing the whole decomposition rests on, and it is the one
+# assertion that proves all of it at once. BGLR's returned `beta` IS the running
+# posterior mean over exactly the post-burn-in thinned draws, so
+# colMeans(draws) == fit beta can only hold if the burn-in offset, the byte
+# order, the trait-major layout and the storage mode are all right.
+#
+# The trap it guards: in BGLR::Multitrait the saveEffects write sits inside
+# `if (iter %% thin == 0)` while the posterior mean accumulates under
+# `(iter > burnIn) & (iter %% thin == 0)`, and the header records
+# nRow = nIter/thin. So the file holds the burn-in too. Measured here: keeping
+# it moves the mean by ~0.1 against a 1e-15 match when it is dropped, and a
+# flattened spectrum is exactly what the prior-bias analysis is looking for --
+# so this failure would be read as a result.
+# ============================================================
+
+cat("\n-- streamed interaction draws --\n")
+
+{
+  NIT_D <- 400L; BRN_D <- 100L; THN_D <- 10L
+  Go_d <- make_panel(30L, "o", 4242L)
+  Gp_d <- make_panel(30L, "p", 4243L)
+  sim <- simulate_experiment(Go_d, Gp_d, sparsity = 0.5,
+                             n_factors = 1L, interaction_pct = 0.25,
+                             n_envs = 1L)
+  sp <- prepare_scenario(sim)
+  prefix <- file.path(tempdir(), "test_decomp_draws_")
+
+  fd <- fit_dge_ige(sp$train, sim$G_oat, sim$G_pea, with_interaction = TRUE,
+                    kron_rank = 8L, nIter = NIT_D, burnIn = BRN_D,
+                    seed = 11L, save_effects = TRUE, saveAt = prefix)
+
+  check(!is.null(fd$kron) && file.exists(fd$kron$effects_file),
+        "save_effects writes the streamed coefficient file")
+
+  p_cols <- ncol(fd$kron$A) * ncol(fd$kron$B)
+  draws <- read_beta_draws(prefix, nIter = NIT_D, burnIn = BRN_D, thin = THN_D,
+                           p = p_cols, traits = 2L)
+  check(dim(draws)[1] == NIT_D %/% THN_D - BRN_D %/% THN_D,
+        "read_beta_draws keeps exactly the post-burn-in draws")
+
+  for (k in seq_len(2L)) {
+    check_near(colMeans(draws[, , k]), fd$beta[, k], tol = 1e-10,
+               sprintf("draw mean equals BGLR's posterior mean, trait %d", k))
+  }
+
+  # NEGATIVE: the trap must be detectable. Keeping burn-in has to disagree.
+  raw <- BGLR::readBinMatMultitrait(fd$kron$effects_file)
+  check(max(abs(colMeans(raw[, , 1]) - fd$beta[, 1])) > 1e-6,
+        "keeping burn-in gives a detectably different mean")
+
+  # Linearity: the decomposition is applied per draw, so the mean of the
+  # per-draw surfaces must be the surface built from the mean coefficients.
+  ka <- ncol(fd$kron$A); kb <- ncol(fd$kron$B)
+  n_d <- dim(draws)[1]
+  surf_bar <- Reduce(`+`, lapply(seq_len(n_d), function(s)
+    fd$kron$A %*% beta_from_vector(draws[s, , 2], ka, kb) %*% t(fd$kron$B))) / n_d
+  check_near(surf_bar, fd$interaction$oat, tol = 1e-10,
+             "mean of per-draw surfaces equals the fitted interaction surface")
+
+  # The padded bases must still describe the padded surface.
+  dsurf <- decompose_surface(fd$interaction$oat)
+  dbil  <- decompose_bilinear(fd$kron$A,
+                              beta_from_vector(fd$beta[, 2], ka, kb),
+                              fd$kron$B)
+  check_near(dbil$d[seq_len(min(length(dbil$d), length(dsurf$d)))],
+             dsurf$d[seq_len(min(length(dbil$d), length(dsurf$d)))],
+             tol = 1e-8,
+             "padded bases decompose to the same spectrum as the padded surface")
+
+  # A rank-1 truth at 50% observed: the leading component should dominate, and
+  # the recovered oat scores should look like the simulated ones. Loose
+  # thresholds -- this is a 400-iteration chain on 30 accessions.
+  cs <- component_summary(
+    decompose_draws(fd$kron$A, draws, fd$kron$B, trait = 2L,
+                    mean_beta = fd$beta[, 2]))
+  # The posterior share, not the mean-surface one: the mean surface reads
+  # systematically higher because singular values are convex in the matrix, and
+  # the threshold here is set against the estimand that gets reported.
+  check(isTRUE(cs$summary$share1 > 0.3),
+        sprintf("leading component carries a third of the interaction (got %.2f)",
+                cs$summary$share1))
+  check(isTRUE(cs$summary$share1_meansurf >= cs$summary$share1),
+        sprintf("the mean surface looks at least as concentrated (%.2f vs %.2f)",
+                cs$summary$share1_meansurf, cs$summary$share1))
+  ceil <- recovery_ceiling(sim$truth$U_oat, fd$kron$A)[1]
+  got  <- subspace_cors(decompose_surface(fd$interaction$oat)$scores[, 1, drop = FALSE],
+                        sim$truth$U_oat)[1]
+  check(got > 0.5 * ceil,
+        sprintf("recovered score reaches half its ceiling (%.2f of %.2f)",
+                got, ceil))
 }
 
 finish("fit tests")

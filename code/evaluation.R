@@ -93,7 +93,12 @@ EVAL_GROUPS <- list(
   sim_bglr    = c("fit_dge_ige", "run_scenario_bglr"),
   sim_megalmm = c("fit_megalmm", "run_scenario_megalmm"),
   sim_score   = c("interaction_part", "score_predictions",
-                  "baseline_predictions")
+                  "baseline_predictions"),
+  sim_decomp  = c("double_centre", "decompose_surface", "decompose_bilinear",
+                  ".whiten", "beta_from_vector", "read_beta_draws",
+                  "align_to_reference", "decompose_draws",
+                  "component_summary", "subspace_cors", "effective_rank",
+                  "recovery_ceiling")
 )
 
 # Fast/offline first, so a cheap bug surfaces before an expensive one.
@@ -102,7 +107,7 @@ EVAL_ORDER_ANALYSIS <- c("grm", "curation_groups", "curation_family", "matrix",
 
 EVAL_ORDER_SIM <- c("sim_design", "sim_panel", "sim_cells", "sim_truth",
                     "sim_split", "sim_basis", "sim_bglr", "sim_megalmm",
-                    "sim_score")
+                    "sim_score", "sim_decomp")
 
 EVAL_ORDER_VALIDATION <- c("validation", "val_design", "val_power")
 
@@ -123,12 +128,14 @@ EVAL_SOURCES <- list(
   analysis = c("code/t3_functions.R",
                "code/curation_functions.R",
                "code/dge_ige_functions.R",
-               "code/megalmm_setup.R"),
+               "code/megalmm_setup.R",
+               "code/interaction_decomp.R"),
   simulation = c("code/dge_ige_functions.R",   # read_grm, grm_factor
                  "code/sim_config.R",
                  "code/sim_generate.R",
                  "code/sim_fit.R",
-                 "code/megalmm_setup.R"),
+                 "code/megalmm_setup.R",
+                 "code/interaction_decomp.R"),
   validation = c("code/validation_functions.R")
 )
 

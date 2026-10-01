@@ -123,7 +123,8 @@ scoring_index <- function(sim, set = SIM_SCORE_SET) {
 fit_dge_ige <- function(train, G_oat, G_pea, with_interaction,
                         kron_rank = SIM_KRON_RANK,
                         nIter = SIM_BGLR_NITER, burnIn = SIM_BGLR_BURNIN,
-                        seed = 1L) {
+                        seed = 1L, save_effects = FALSE, saveAt = NULL,
+                        storage_mode = "double") {
   oat_names <- rownames(G_oat); pea_names <- rownames(G_pea)
 
   dat <- tibble::tibble(
@@ -141,7 +142,8 @@ fit_dge_ige <- function(train, G_oat, G_pea, with_interaction,
     dat, G_oat, G_pea, seed = seed, nIter = nIter, burnIn = burnIn,
     fit_mix_term = with_interaction,
     kron_rank = if (with_interaction) kron_rank else NA,
-    saveAt = file.path(tempdir(), "sim_dge_")
+    saveAt = saveAt %||% file.path(tempdir(), "sim_dge_"),
+    save_effects = save_effects, storage_mode = storage_mode
   )
 
   # Pad back to the full panel: an accession with no training observation gets
@@ -175,8 +177,28 @@ fit_dge_ige <- function(train, G_oat, G_pea, with_interaction,
     surface_pea <- surface_pea + interaction$pea
   }
 
+  # The Kronecker bases, padded the same way. Bilinearity survives padding --
+  # pad_mat(A Beta B') == pad_rows(A) Beta pad_rows(B)' -- so the decomposition
+  # can work from these and still describe the PADDED surface, which is the one
+  # score_predictions() scores. Decomposing the unpadded surface would centre
+  # over a different panel and report shares of a different quantity.
+  kron <- NULL
+  if (with_interaction && !is.null(f$kron)) {
+    pad_rows <- function(M, all_names) {
+      out <- matrix(0, length(all_names), ncol(M),
+                    dimnames = list(all_names, NULL))
+      out[rownames(M), ] <- M
+      out
+    }
+    kron <- f$kron
+    kron$A <- pad_rows(f$kron$A, oat_names)
+    kron$B <- pad_rows(f$kron$B, pea_names)
+  }
+
   list(surface = list(oat = surface_oat, pea = surface_pea),
-       interaction = interaction, varcomp = f$varcomp)
+       interaction = interaction, varcomp = f$varcomp,
+       kron = kron, mcmc = f$mcmc,
+       beta = if (!is.null(f$kron)) f$fit$ETA$G_mix$beta else NULL)
 }
 
 #' MegaLMM on one orientation of the matrix.

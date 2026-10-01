@@ -37,6 +37,7 @@ matches the question you have.
 | [docs/MegaLMM_anova.md](docs/MegaLMM_anova.md) | which factors actually move MegaLMM's accuracy, and by how much — the split-plot ANOVA of the simulation, with expected mean squares |
 | [docs/BGLR_vs_MegaLMM.md](docs/BGLR_vs_MegaLMM.md) | the head-to-head: BGLR wins GMA everywhere, MegaLMM wins the interaction but only above a density threshold B4I is below |
 | [code/sim_int_config.R](code/sim_int_config.R) | the follow-up design that locates those two boundaries — a full factorial, run with `code/sim_int_run.R` |
+| [docs/interaction_decomposition.md](docs/interaction_decomposition.md) | reading the DGE-IGE interaction as scores and loadings: why no deregression is needed, which of the three shares is the estimand, and the truncation ceiling every recovery number has to be quoted against |
 | [docs/MegaLMM_sparsity_challenge.md](docs/MegaLMM_sparsity_challenge.md) | why sparsity hurts the factor model so much more than a row average — the mechanism behind the simulation's headline result |
 | [code/scinet/README.md](code/scinet/README.md) | running the grid as a SLURM job array on Ceres: install, shake-out, submission, and how to read a job that produced no output |
 
@@ -131,6 +132,20 @@ It is a **full factorial** rather than a fraction, because a question
 conditioned on a particular MegaLMM configuration cannot be asked of a design
 that never ran that configuration in most cells. See
 [code/sim_int_config.R](code/sim_int_config.R).
+
+A third asks whether `dge_ige`'s interaction — the one it predicts better than
+MegaLMM when combinations are sparse — can be *read*, as scores for oats and
+loadings for peas rather than a number per combination:
+
+```bash
+Rscript code/sim_decomp_run.R --check            # positive control; run first
+Rscript code/sim_decomp_run.R                    # 600 cells plus null cells
+```
+
+It needs no deregression step: the fitted surface is already an exact bilinear
+form, so the decomposition is a rotation of a term the model estimated rather
+than a second analysis of shrunken output. See
+[docs/interaction_decomposition.md](docs/interaction_decomposition.md).
 
 On a cluster both run as SLURM job arrays — see
 [code/scinet/README.md](code/scinet/README.md). The main simulation needs

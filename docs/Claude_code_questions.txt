@@ -15,3 +15,4 @@ The specific-combination term is fitted in a low-rank Kronecker basis and then r
 [2026-09-30 15:28:06] should Rscript code/sim_int_run.R --check create any output?  I'm not seeing anything new in logs or output.  if logs already exists, I don't need to run mkdir -p logs, right?
 [2026-09-30 21:29:32] If I understand correctly, the way you calculate the Kronecker for the interaction with BGLR involves using SVD on the oat and pea GRMs so that in fact the Kronecker is not the product of full rank matrices.  Is that right?
 [2026-09-30 21:36:28] Right now I want to have a conversation with you rather than have you code.  It might be easier to port what you know here over to a chat on the Claude app.  Is that possible?
+[2026-10-01 11:36:37] Where can I find how to run sim_kron?

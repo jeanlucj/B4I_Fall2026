@@ -145,6 +145,9 @@ against something other than another model.
 | `cross_validate_combinations.R` | cross-validation over held-out oat x pea COMBINATIONS, both components kept in training |
 | `sim_int_config.R` | the interaction-focused design: a full factorial, where the main grid is a fraction |
 | `sim_int_run.R` | drives it. Shares the generator, fitters and scorer with `sim_run.R`; only the design and the output names differ |
+| `sim_int_anova.R` | split-plot ANOVA of the interaction design, with `model` as the subplot factor: which factors decide whether MegaLMM or dge_ige wins |
+| `interaction_decomp.R` | rewrites a fitted interaction surface as orthonormal scores x loadings, inside each MCMC draw. Sourced, not run |
+| `sim_decomp_run.R` | drives the decomposition sweep: does the recovered structure match the simulated factors, or only the leading kinship directions? |
 | `validation_functions.R` | shared machinery for the validation trial: pool construction, the field design, power. Sourced, not run |
 | `validate_refresh.R` | the single entry point: drives the whole chain from T3 discovery to the field book when new trials land |
 | `validate_pool_selection.R` | builds the As+ / As- pools and diffs them against the previous vintage |
