@@ -174,6 +174,7 @@ Rscript code/sim_decomp_run.R --check     # positive control; run first
 Rscript code/sim_decomp_run.R --pilot     # two cheap cells, end to end
 Rscript code/sim_decomp_run.R             # the design
 sbatch -A <account> code/scinet/sim_decomp_array.sbatch
+Rscript code/sim_decomp_run.R --combine   # after the array: one complete CSV
 ```
 
 600 cells plus the nulls, about 120 core-hours, roughly 6 h per task over 20
@@ -181,6 +182,31 @@ tasks with a 24 h wall clock. Cells are cached per scenario-replicate and the
 job is resumable. Outputs are
 `output/simulation_decomp_results.csv` (one row per cell × trait × model) and
 `output/simulation_decomp_spectrum.csv` (one row per component).
+
+**`--combine` is the step it is easiest to forget.** Every array task writes
+both CSVs from whatever was in the cache when *it* finished, so the files left
+behind by a 20-task job are each a partial view. Running `--combine` on the
+login node fits nothing, globs the whole cache and rewrites the two CSVs
+complete, reprinting the three summary tables. Do it before reading anything.
+
+### Every flag
+
+| flag | default | what it does |
+|---|---|---|
+| `--check` | — | The positive control: one dense rank-1 cell at `n_acc = 120`, 48% observed, short chain. Prints the diagnostics and `stop()`s if the draws do not average to BGLR's posterior mean, if the leading component carries under 0.3, if the recovered score misses half its ceiling, or if MegaLMM's shares do not sum to 1. Run it first; a negative result from the sweep is only worth having if the pipeline can produce a positive one. |
+| `--pilot` | — | Two cheap cells (`rep 1`, `n_acc = 200`, 48% observed), end to end. They are genuine design cells with design seeds, so the full run reuses their cache. |
+| `--combine` | — | Rebuild both CSVs from the cache and reprint the tables, fitting nothing. See above. |
+| `--refresh` | off | Ignore the cache and refit. Needed after any change to what is scored or stored — otherwise move `DECOMP_SCHEME`. |
+| `--reps N` | `SIM_INT_REPS` (5) | Replicates per scenario. Replicate is the slow seed index, so raising it is additive: existing cells stay cached rather than being renumbered. |
+| `--rank N` | `SIM_KRON_RANK` (30) | `kron_rank`, the truncation axis — and the one flag most worth varying. It sets the ceiling on recovery, costs `(N/30)^2` in basis columns, and `recovery_ceiling()` reports what it allows. |
+| `--n-iter N` | 3000 | MCMC iterations. |
+| `--burn-in N` | 600 | Burn-in. `read_beta_draws()` uses it to strip the leading rows BGLR streams but does not average. |
+| `--thin N` | 10 | Thinning. Controls the fit and the reader together — they must agree, or the file-size assertion fires. Kept draws are `nIter/N − burnIn/N`. |
+| `--filter EXPR` | — | An R expression over the design, e.g. `--filter "sparsity <= 0.09"`. |
+| `--task N --ntasks M` | — | Array slicing: task `N` of `M`, taking every `M`th cell. Supplied by the sbatch wrapper. |
+| `--no-null-cells` | nulls on | Drop the `interaction_pct = 0` scenarios. **Do not, unless they are already run.** They are the floor the participation ratio is read against, and without them a flattened spectrum cannot be told from a genuinely high-rank one. |
+| `--no-megalmm` | on | Skip the MegaLMM pair. Saves about 32 of the 120 core-hours and is a reasonable first stage, but it drops the head-to-head. |
+| `--drop-draws` | keep | Delete each cell's `.bin` once summarised. Saves roughly 1 GB over the sweep; the cost is that redoing any decomposition choice — centred or not, a different rank, another alignment scheme — then needs a refit rather than seconds. |
 
 ## Scope: simulation only
 

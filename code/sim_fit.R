@@ -123,7 +123,8 @@ scoring_index <- function(sim, set = SIM_SCORE_SET) {
 fit_dge_ige <- function(train, G_oat, G_pea, with_interaction,
                         kron_rank = SIM_KRON_RANK,
                         nIter = SIM_BGLR_NITER, burnIn = SIM_BGLR_BURNIN,
-                        seed = 1L, save_effects = FALSE, saveAt = NULL,
+                        seed = 1L, thin = 10L,
+                        save_effects = FALSE, saveAt = NULL,
                         storage_mode = "double") {
   oat_names <- rownames(G_oat); pea_names <- rownames(G_pea)
 
@@ -140,6 +141,7 @@ fit_dge_ige <- function(train, G_oat, G_pea, with_interaction,
 
   f <- fit_producer_associate(
     dat, G_oat, G_pea, seed = seed, nIter = nIter, burnIn = burnIn,
+    thin = thin,
     fit_mix_term = with_interaction,
     kron_rank = if (with_interaction) kron_rank else NA,
     saveAt = saveAt %||% file.path(tempdir(), "sim_dge_"),

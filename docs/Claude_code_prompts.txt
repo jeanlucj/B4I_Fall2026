@@ -773,3 +773,5 @@ What I would still cut, and why. Stage it: **Stage A** is `dge_ige` only (73 h) 
 <summary>Background command "Run slow-tier fit tests in background" completed (exit code 0)</summary>
 </task-notification>
 [2026-10-01 14:36:37] Please commit and push
+[2026-10-01 15:19:35] Is there an Rscript code/sim_decomp_run.R --combine step?  If so, it's not documented.
+[2026-10-01 15:20:39] Document all the flags in both places, then commit

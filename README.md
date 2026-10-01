@@ -139,13 +139,34 @@ loadings for peas rather than a number per combination:
 
 ```bash
 Rscript code/sim_decomp_run.R --check            # positive control; run first
+Rscript code/sim_decomp_run.R --pilot            # two cheap cells, end to end
 Rscript code/sim_decomp_run.R                    # 600 cells plus null cells
+Rscript code/sim_decomp_run.R --combine          # after an array: one full CSV
 ```
 
 It needs no deregression step: the fitted surface is already an exact bilinear
 form, so the decomposition is a rotation of a term the model estimated rather
 than a second analysis of shrunken output. See
 [docs/interaction_decomposition.md](docs/interaction_decomposition.md).
+
+Every flag it takes:
+
+| flag | default | what it does |
+|---|---|---|
+| `--check` | — | one dense rank-1 cell as a positive control; stops on failure |
+| `--pilot` | — | two cheap cells, end to end; they are real design cells, so the cache is reused |
+| `--combine` | — | rebuild both CSVs from the cache, fitting nothing. Each array task writes only its own partial view, so this is what produces a complete file |
+| `--refresh` | off | ignore the cache and refit |
+| `--reps N` | 5 | replicates per scenario; additive, because replicate is the slow seed index |
+| `--rank N` | 30 | `kron_rank` — the truncation axis, and the flag most worth varying. Costs `(N/30)^2` in basis columns and sets the ceiling on recovery |
+| `--n-iter N` | 3000 | MCMC iterations |
+| `--burn-in N` | 600 | burn-in; also what strips the leading rows BGLR streams but does not average |
+| `--thin N` | 10 | thinning, for the fit and the reader together |
+| `--filter EXPR` | — | an R expression over the design, e.g. `--filter "sparsity <= 0.09"` |
+| `--task N --ntasks M` | — | array slicing; supplied by the sbatch wrapper |
+| `--no-null-cells` | nulls on | drop the `interaction_pct = 0` cells. Don't: they are the floor the spectrum is read against |
+| `--no-megalmm` | on | skip the head-to-head. Saves ~32 of the ~120 core-hours |
+| `--drop-draws` | keep | delete each cell's streamed draws once summarised. Saves ~1 GB, at the cost of a refit to revisit any decomposition choice |
 
 On a cluster both run as SLURM job arrays — see
 [code/scinet/README.md](code/scinet/README.md). The main simulation needs

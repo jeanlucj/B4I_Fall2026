@@ -7,6 +7,12 @@
 #   Rscript code/sim_decomp_run.R --task 3 --ntasks 20
 #   Rscript code/sim_decomp_run.R --combine        # rebuild the CSVs from cache
 #
+# Every flag, with its default and what it costs, is tabulated in
+# docs/interaction_decomposition.md. Two are easy to get wrong: --combine is
+# what produces a complete CSV after an array job, since each task writes only
+# its own partial view; and --no-null-cells drops the interaction_pct = 0 cells
+# that the spectrum has to be read against.
+#
 # THE QUESTION. `dge_ige` predicts the interaction better than MegaLMM when
 # combinations are sparse and -- measured at full rank in
 # output/simulation_kron_study.csv -- also when the interaction is higher-rank.
@@ -197,7 +203,8 @@ run_cell <- function(row) {
   t0 <- Sys.time()
   fd <- fit_dge_ige(sp$train, sim$G_oat, sim$G_pea, with_interaction = TRUE,
                     kron_rank = kron_rank, nIter = n_iter, burnIn = burn_in,
-                    seed = row$seed, save_effects = TRUE, saveAt = prefix,
+                    seed = row$seed, thin = thin,
+                    save_effects = TRUE, saveAt = prefix,
                     storage_mode = "single")
   secs_bglr <- as.numeric(difftime(Sys.time(), t0, units = "s"))
 
@@ -303,10 +310,10 @@ if (check) {
   prefix <- file.path(draws_dir, "check_")
   fd <- fit_dge_ige(sp$train, sim$G_oat, sim$G_pea, TRUE,
                     kron_rank = kron_rank, nIter = 1500L, burnIn = 300L,
-                    seed = 1L, save_effects = TRUE, saveAt = prefix,
-                    storage_mode = "single")
+                    seed = 1L, thin = thin, save_effects = TRUE,
+                    saveAt = prefix, storage_mode = "single")
   ka <- ncol(fd$kron$A); kb <- ncol(fd$kron$B)
-  draws <- read_beta_draws(prefix, nIter = 1500L, burnIn = 300L, thin = 10L,
+  draws <- read_beta_draws(prefix, nIter = 1500L, burnIn = 300L, thin = thin,
                            p = ka * kb, traits = 2L, storage_mode = "single")
   ti <- match("oatYield", fd$kron$traits)
 

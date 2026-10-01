@@ -23,6 +23,14 @@
 # tasks, so a task that draws several of them runs well above the mean, and
 # raising --rank later multiplies the cost by (rank/30)^2.
 #
+# AFTERWARDS, RUN --combine. Each task writes the two CSVs from whatever was in
+# the cache when that task finished, so the files a 20-task job leaves behind are
+# each a partial view. On the login node:
+#
+#   Rscript code/sim_decomp_run.R --combine
+#
+# fits nothing, globs the whole cache and rewrites both CSVs complete.
+#
 # Cells are cached per scenario-replicate and the job is resumable: a task that
 # runs out of time can be resubmitted and will skip what it finished. Each cell
 # streams its MCMC draws to output/simulation_decomp/draws/ under a prefix that
