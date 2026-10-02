@@ -216,6 +216,51 @@ DGE_IGE_ROLES <- list(
 #' @param grms Named list(oat, pea) of relationship matrices. Accessions absent
 #'   from a GRM are DROPPED, with a count, because fit_producer_associate()
 #'   refuses them -- eight B4I accessions have no marker data.
+#' Drop trials that failed trial-level QC.
+#'
+#' `code/curate_trials.R` writes output/trial_qc.csv with a `keep` column, built
+#' from per-trial diagnostics and overridable by hand in
+#' data/trial_qc_manual.csv. Everything that fits a model to the real plots runs
+#' its data through here, so one decision about a trial reaches the production
+#' fit and the cross-validation alike.
+#'
+#' A MISSING FILE IS NOT A FAILURE. It means the QC step has not been run, and
+#' the table is returned untouched -- an older analysis must keep working. But a
+#' silent pass would be worse than useless, so the two cases are announced
+#' differently.
+#'
+#' @param dat A plot table with a `studyName` or `trialF` column.
+#' @param qc_file Where curate_trials.R wrote its verdict.
+apply_trial_qc <- function(dat,
+                           qc_file = here::here("output", "trial_qc.csv"),
+                           quiet = FALSE) {
+  if (!file.exists(qc_file)) {
+    if (!quiet) {
+      message("no trial QC at ", basename(qc_file),
+              " -- using every trial. Run code/curate_trials.R to screen them.")
+    }
+    return(dat)
+  }
+  col <- if ("studyName" %in% names(dat)) "studyName" else
+         if ("trialF" %in% names(dat)) "trialF" else NA_character_
+  if (is.na(col)) return(dat)
+
+  qc <- readr::read_csv(qc_file, show_col_types = FALSE)
+  drop <- qc$studyName[!qc$keep]
+  if (length(drop) == 0) {
+    if (!quiet) message("trial QC: all ", nrow(qc), " trial(s) kept")
+    return(dat)
+  }
+  n0 <- nrow(dat)
+  out <- dat[!as.character(dat[[col]]) %in% drop, , drop = FALSE]
+  if (!quiet) {
+    message("trial QC: dropped ", n0 - nrow(out), " plot(s) from ",
+            length(drop), " trial(s) -- ", paste(drop, collapse = ", "))
+  }
+  if ("trialF" %in% names(out)) out$trialF <- droplevels(factor(out$trialF))
+  out
+}
+
 b4i_plot_table <- function(pheno_file = here::here("output",
                                                    "B4I_intercrop_pheno.rds"),
                            grms,
@@ -223,6 +268,7 @@ b4i_plot_table <- function(pheno_file = here::here("output",
                                                   "pea monoculture",
                                                   "no intercrop", "none")) {
   dat <- readRDS(pheno_file) |>
+    apply_trial_qc() |>
     dplyr::filter(!germplasmName %in% monoculture_labels,
                   !intercropGermplasmName %in% monoculture_labels) |>
     dplyr::transmute(

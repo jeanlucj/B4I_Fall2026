@@ -119,6 +119,13 @@ pheno <- if (grepl("\\.rds$", pheno_file, ignore.case = TRUE)) {
   readr::read_csv(pheno_file, show_col_types = FALSE)
 }
 
+# Trial-level QC, from code/curate_trials.R. A trial that cannot tell two
+# accessions apart contributes noise and a trial mean, and B4I_2025_AL is
+# exactly that -- a full set of plots from a crop failure. Dropped here rather
+# than in the phenotype file, so the assembled data keep every trial and the
+# decision stays visible and reversible in output/trial_qc.csv.
+pheno <- apply_trial_qc(pheno)
+
 needed <- c("studyYear", "studyName", "blockNumber", "germplasmName",
             "intercropGermplasmName", "oat_yield", "pea_yield")
 if (!all(needed %in% names(pheno))) {

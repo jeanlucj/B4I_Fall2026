@@ -58,7 +58,8 @@ EVAL_GROUPS <- list(
 
   cv = c("mask_cells", "margin_baselines", "cv_once"),
 
-  bglr = c("covariance_components", "accession_effects", "rank_summary"),
+  bglr = c("covariance_components", "accession_effects", "rank_summary",
+           "apply_trial_qc", "b4i_plot_table"),
 
   # ---- the validation trial (offline; reads the fit in output/) --------
   validation = c("validation_inputs", "validation_vintage", "build_pools",

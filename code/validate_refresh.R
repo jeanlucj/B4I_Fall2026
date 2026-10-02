@@ -51,6 +51,8 @@ STEPS <- tibble::tribble(
     "rewrites CURATION.md so the collapses are documented at this vintage",
   "assemble",  "assemble_B4I_phenotypes.R",          FALSE,  FALSE,
     "rebuilds the plot table the models read",
+  "qc",        "curate_trials.R",                    FALSE,  FALSE,
+    "screens each trial for whether its data carry signal at all, and drops the ones that do not; B4I_2025_AL returned a full set of plots from a crop failure",
   "fit",       "BGLR_multi_trait_model.R",           FALSE,  TRUE,
     "the variance components and per-accession effects everything below depends on",
   "validate",  "validate_pool_selection.R",          FALSE,  FALSE,
@@ -63,7 +65,11 @@ STEPS <- tibble::tribble(
     "re-estimates the attenuation lambda by leave-one-trial-out"
 )
 
-STAGE_ORDER <- c("discover", "curate", "assemble", "fit", "validate")
+# `qc` sits after `assemble` because it needs the assembled plot table: the
+# question is about oat and pea yield per plot, which is what assembly builds.
+# Its own stage, rather than part of `curate`, so that --from qc re-runs the
+# screen and everything after it once a verdict has been overruled by hand.
+STAGE_ORDER <- c("discover", "curate", "assemble", "qc", "fit", "validate")
 
 steps <- STEPS
 if (!is.null(only)) {
@@ -92,6 +98,12 @@ for (i in seq_len(nrow(steps))) {
 }
 cat("\nSimulation parameters in code/sim_config.R are NOT touched by any of",
     "this.\n")
+if (any(steps$stage == "qc")) {
+  cat("Trial screening runs at step", which(steps$stage == "qc"),
+      "and drops failing trials from the fit.\n",
+      "Read output/trial_diagnostics.csv afterwards; to overrule it, write\n",
+      "data/trial_qc_manual.csv (studyName,keep[,note]) and re-run --from qc.\n")
+}
 
 if (dry_run) {
   cat("\n--dry-run: nothing was run. Each step's purpose:\n\n")
