@@ -37,7 +37,7 @@ matches the question you have.
 | [docs/MegaLMM_anova.md](docs/MegaLMM_anova.md) | which factors actually move MegaLMM's accuracy, and by how much — the split-plot ANOVA of the simulation, with expected mean squares |
 | [docs/BGLR_vs_MegaLMM.md](docs/BGLR_vs_MegaLMM.md) | the head-to-head: BGLR wins GMA everywhere, MegaLMM wins the interaction but only above a density threshold B4I is below |
 | [code/sim_int_config.R](code/sim_int_config.R) | the follow-up design that locates those two boundaries — a full factorial, run with `code/sim_int_run.R` |
-| [docs/interaction_decomposition.md](docs/interaction_decomposition.md) | reading the DGE-IGE interaction as scores and loadings: why no deregression is needed, which of the three shares is the estimand, and the truncation ceiling every recovery number has to be quoted against |
+| [docs/interaction_decomposition.md](docs/interaction_decomposition.md) | reading the DGE-IGE interaction as scores and loadings. Builds the algebra from the eigendecomposition up, then: what the spectrum means biologically, how to turn a recovered score into a mechanism, why population structure rather than sample size is what limits that, and which model to use at B4I's density |
 | [docs/MegaLMM_sparsity_challenge.md](docs/MegaLMM_sparsity_challenge.md) | why sparsity hurts the factor model so much more than a row average — the mechanism behind the simulation's headline result |
 | [code/scinet/README.md](code/scinet/README.md) | running the grid as a SLURM job array on Ceres: install, shake-out, submission, and how to read a job that produced no output |
 

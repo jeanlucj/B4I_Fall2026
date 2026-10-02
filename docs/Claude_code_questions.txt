@@ -16,3 +16,5 @@ The specific-combination term is fitted in a low-rank Kronecker basis and then r
 [2026-09-30 21:29:32] If I understand correctly, the way you calculate the Kronecker for the interaction with BGLR involves using SVD on the oat and pea GRMs so that in fact the Kronecker is not the product of full rank matrices.  Is that right?
 [2026-09-30 21:36:28] Right now I want to have a conversation with you rather than have you code.  It might be easier to port what you know here over to a chat on the Claude app.  Is that possible?
 [2026-10-01 11:36:37] Where can I find how to run sim_kron?
+[2026-10-01 15:29:32] When I run the sim_decomp, do the outputs go to a different folder than either simulation or simulation_int?  Do I need to clear any current folders of their sim outputs?
+[2026-10-01 22:47:57] One thing you have found is that when, for MegaLMM, you include the fixed main effect vector, the prediction of the interaction effect is always worse than when you don't include it.  That result is not intuitive to me.  Can you explain it?

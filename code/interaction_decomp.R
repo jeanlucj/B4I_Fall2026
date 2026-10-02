@@ -112,6 +112,37 @@ recovery_ceiling <- function(truth_U, A) {
   subspace_cors(ctr(truth_U), ctr(A))
 }
 
+#' The FLOOR: what a random direction in the fitted span scores against truth.
+#'
+#' The ceiling says how well the basis COULD do. This says how well it does by
+#' accident, and the gap between them is the only range in which a recovery
+#' number carries information.
+#'
+#' It matters more than a ceiling usually does, because the truth here is itself
+#' kinship-structured -- `sim_generate.R` draws scores with covariance `G_oat`,
+#' and a real heritable trait behaves the same way. Any vector built from the
+#' leading eigenvectors of `G` therefore correlates with any such truth without
+#' knowing anything about it. Measured on the real 508-oat GRM at rank 30: a
+#' heritable trait correlates 0.135 with a random direction in the span on
+#' average, and 0.345 at the 95th percentile.
+#'
+#' This is the null a downstream trait correlation has to clear. Quoting a
+#' recovered score's correlation with a measured trait WITHOUT it would credit
+#' population structure as biology.
+recovery_null <- function(truth_U, A, n_draw = 200L, seed = NULL) {
+  if (is.null(truth_U) || is.null(A)) {
+    return(c(median = NA_real_, p95 = NA_real_))
+  }
+  if (!is.null(seed)) withr::local_seed(seed)
+  Ac <- sweep(as.matrix(A), 2, colMeans(as.matrix(A)), "-")
+  u1 <- as.matrix(truth_U)[, 1, drop = FALSE]
+  r <- vapply(seq_len(n_draw), function(i) {
+    v <- Ac %*% stats::rnorm(ncol(Ac))
+    abs(subspace_cors(matrix(v, ncol = 1), u1)[1])
+  }, numeric(1))
+  c(median = stats::median(r), p95 = stats::quantile(r, 0.95, names = FALSE))
+}
+
 #' Shared tail of the two decomposition paths: package an SVD into components.
 .pack_components <- function(u, d, v, total_ss, rank = NULL, tol = 1e-10) {
   keep <- d > tol * max(c(d, .Machine$double.eps))
@@ -347,7 +378,10 @@ decompose_draws <- function(A, draws, B, trait, mean_beta = NULL,
     tot <- sum(dc$d^2)
     per[[s]] <- tibble::tibble(
       draw = s, component = seq_len(k), d = al$d,
-      share = if (tot > 0) al$d^2 / tot else NA_real_)
+      share = if (tot > 0) al$d^2 / tot else NA_real_,
+      # which of the draw's own components landed in this reference position;
+      # equal to `component` when the draw's ordering agreed with the reference
+      aligned_to = al$perm)
 
     # The draw's variance that lives in the REFERENCE's leading subspaces.
     #
@@ -420,7 +454,8 @@ component_summary <- function(dd, k_max = 10L) {
       share_draw_mean = mean(share), share_draw_sd = stats::sd(share),
       share_draw_lo = stats::quantile(share, 0.025, names = FALSE),
       share_draw_hi = stats::quantile(share, 0.975, names = FALSE),
-      d_mean = mean(d), .groups = "drop") |>
+      d_mean = mean(d),
+      comp_stable = mean(aligned_to == component), .groups = "drop") |>
     dplyr::mutate(share_ref = ref$share[component],
                   cum_share_ref = ref$cum_share[component])
 
@@ -440,6 +475,15 @@ component_summary <- function(dd, k_max = 10L) {
          n_draw = nrow(dg), rank_kept = ref$rank_kept,
          participation_ref = ref$participation, n90_ref = ref$n90,
          participation_draw_mean = mean(dg$participation, na.rm = TRUE),
+         # Per-component stability of the LEADING component. Prefer this to
+         # order_stable: with a rank-1 truth, components 2 and 3 are noise by
+         # construction and permute freely, so a top-3 statistic reports on
+         # them rather than on the component anyone would interpret. Measured
+         # in the sweep: order_stable sat at 0.16-0.23 for n_factors = 1 across
+         # a 30-fold change in density, while at n_factors = 3 it rose from
+         # 0.18 to 0.97 -- a diagnostic that cannot see density when the truth
+         # is rank-1 is measuring the trailing components.
+         stable1 = comp$comp_stable[1],
          order_stable = mean(!dg$switched_top),
          order_stable_all = mean(!dg$switched),
          rot_diag = mean(dg$rot_diag, na.rm = TRUE),

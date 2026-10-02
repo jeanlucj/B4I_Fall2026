@@ -113,7 +113,17 @@ filter_expr  <- arg_value("--filter", NULL)
 # The cache scheme marker, following the rest of the project: a change to what
 # is stored has to move it, or bind_rows() over a mixed cache produces both
 # schemas with half the rows NA in each.
-DECOMP_SCHEME <- "d1"
+#
+# d1 -> d2, 2026-10-02. Two columns were added that the d1 cells do not carry:
+# `stable1`, the per-component stability of the LEADING layer, which replaced a
+# top-3 statistic that could not see density when the truth was rank-1; and the
+# recovery FLOOR (`score_null_*`, `load_null_*`, `score_above_null`), without
+# which a recovery number cannot be told from what a random direction in the
+# fitted span scores by accident. The d1 sweep's own CSVs remain valid and are
+# analysed in docs/interaction_decomposition.md section 4; its cached cells are
+# simply not reused, which is the right trade against mixing two schemas
+# silently.
+DECOMP_SCHEME <- "d2"
 
 # The null cells are new scenarios, so they need their own seed block. Clear of
 # SIM_BASE_SEED (20260921), SIM_INT_BASE_SEED (20270000) and sim_kron_study's
@@ -156,6 +166,11 @@ summarise_model <- function(dec, model, trait, sim, basis, n_factors,
 
   sc <- score_recovery(dec$scores, truth_U, basis$A, n_factors)
   ld <- score_recovery(dec$loadings, truth_Lam, basis$B, n_factors)
+  # The floor as well as the ceiling: a recovery number only carries
+  # information between them, and the truth is kinship-structured, so a random
+  # direction in the fitted span already correlates with it.
+  nullsc <- recovery_null(truth_U, basis$A, seed = 1L)
+  nullld <- recovery_null(truth_Lam, basis$B, seed = 2L)
 
   share_at <- function(i) if (i <= length(dec$share)) dec$share[i] else NA_real_
   out <- tibble::tibble(
@@ -168,7 +183,14 @@ summarise_model <- function(dec, model, trait, sim, basis, n_factors,
     score_ceil1 = sc$ceil1, score_ceil_mean = sc$ceil_mean,
     score_frac1 = sc$frac1, score_frac_mean = sc$frac_mean,
     load_cor1 = ld$cor1, load_cor_mean = ld$cor_mean,
-    load_frac1 = ld$frac1, load_frac_mean = ld$frac_mean)
+    load_frac1 = ld$frac1, load_frac_mean = ld$frac_mean,
+    score_null_med = nullsc[["median"]], score_null_p95 = nullsc[["p95"]],
+    load_null_med = nullld[["median"]], load_null_p95 = nullld[["p95"]],
+    # where the recovery sits between the floor and the ceiling: 0 means a
+    # random direction in the span would do as well, 1 means the basis is
+    # saturated
+    score_above_null = (sc$cor1 - nullsc[["p95"]]) /
+                       (sc$ceil1 - nullsc[["p95"]]))
 
   if (!is.null(draws_summary)) {
     out <- dplyr::bind_cols(out, dplyr::select(
@@ -176,7 +198,7 @@ summarise_model <- function(dec, model, trait, sim, basis, n_factors,
       order_stable_all, rot_diag, gap_ratio,
       share1_post = share1, share1_lo, share1_hi,
       share1_meansurf, cum_share3_meansurf,
-      proj1_mean, proj1_lo, proj1_hi))
+      stable1, proj1_mean, proj1_lo, proj1_hi))
   }
   out
 }
@@ -348,10 +370,17 @@ if (check) {
               cs$summary$proj1_mean))
   cat(sprintf("participation ratio           %.2f (ref) / %.2f (draws)\n",
               cs$summary$participation_ref, cs$summary$participation_draw_mean))
-  cat(sprintf("order stability (top 3)       %.2f   rot_diag %.2f\n",
-              cs$summary$order_stable, cs$summary$rot_diag))
-  cat(sprintf("score vs truth                %.3f of a %.3f ceiling = %.2f\n",
-              got, ceil, got / ceil))
+  # stable1, not order_stable: on a rank-1 truth the top-3 statistic reports on
+  # layers 2 and 3, which are noise by construction and permute freely.
+  cat(sprintf("leading layer stability       %.2f   rot_diag %.2f\n",
+              cs$summary$stable1, cs$summary$rot_diag))
+  cat(sprintf("  (top-3 order stability:     %.2f -- reports on the noise layers)\n",
+              cs$summary$order_stable))
+  nl <- recovery_null(sim$truth$U_oat, fd$kron$A, seed = 3L)
+  cat(sprintf("score vs truth                %.3f  ceiling %.3f  floor %.3f (p95)\n",
+              got, ceil, nl[["p95"]]))
+  cat(sprintf("  of ceiling %.2f;  of the floor-to-ceiling range %.2f\n",
+              got / ceil, (got - nl[["p95"]]) / (ceil - nl[["p95"]])))
   if (with_megalmm) {
     cat(sprintf("MegaLMM shares sum to         %.6f  (same operator)\n", mmshare))
   }
@@ -489,7 +518,8 @@ cat("\n", strrep("=", 78),
 results |>
   dplyr::filter(model == "dge_ige", trait == "oat", interaction_pct > 0) |>
   dplyr::group_by(sparsity, n_factors) |>
-  dplyr::summarise(order_stable = mean(order_stable),
+  dplyr::summarise(stable1 = mean(stable1),
+                   order_stable = mean(order_stable),
                    rot_diag = mean(rot_diag),
                    share1_width = mean(share1_hi - share1_lo),
                    proj1 = mean(proj1_mean),

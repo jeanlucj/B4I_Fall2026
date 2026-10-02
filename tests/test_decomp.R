@@ -271,5 +271,26 @@ check_near(c(cs$summary$share1, cs$summary$share1_lo, cs$summary$share1_hi),
            "with no spread, the posterior share and the mean-surface share coincide")
 check(all(diff(cs$components$cum_proj_mean) >= -1e-10),
       "projected cumulative shares are non-decreasing in k")
+check_near(cs$summary$stable1, 1, 1e-12,
+           "with no spread, the leading component is perfectly stable")
+check_near(cs$components$comp_stable, rep(1, nrow(cs$components)), 1e-12,
+           "and so is every component")
+
+# ------------------------------------------------------------
+# 15. The recovery FLOOR. The ceiling says how well the truncated basis could
+#     do; this says how well it does by accident. It is not small, because the
+#     truth is kinship-structured and so is every direction in the span -- so a
+#     recovery number quoted without it, or a trait correlation quoted without
+#     it, credits population structure as signal.
+# ------------------------------------------------------------
+
+truth_k <- A %*% matrix(rnorm(KA * 2), KA, 2)      # kinship-structured truth
+nl <- recovery_null(truth_k, A, n_draw = 200L, seed = 42L)
+check(nl[["median"]] > 0.05,
+      sprintf("a random direction in the span already scores (%.2f)", nl[["median"]]))
+check(nl[["p95"]] > nl[["median"]], "the null's 95th percentile exceeds its median")
+check(nl[["p95"]] <= 1, "the null stays a correlation")
+check(all(is.na(recovery_null(NULL, A))),
+      "no truth means no floor, rather than a number")
 
 finish("test_decomp")
