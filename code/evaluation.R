@@ -72,7 +72,8 @@ EVAL_GROUPS <- list(
 
   # ---- analysis: online (T3/Oat over BrAPI) ---------------------------
   t3 = c("connect_t3", "download_trial_observations", "download_observations",
-         "fetch_observation_units", "pluck_chr"),
+         "fetch_observation_units", "pluck_chr",
+         "cache_is_fresh", "trial_last_modified"),
 
   trials = c("read_b4i_accessions", "candidate_trials", "count_b4i_accessions",
              "select_trials", "count_trait_coverage", "trial_metadata",

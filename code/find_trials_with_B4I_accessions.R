@@ -81,8 +81,24 @@ page_size <- 10000
 # Names that stand for "this half of the intercrop was not sown"
 monoculture_labels <- c("NO_OATS_PLANTED", "NO_PEAS_PLANTED")
 
-# TRUE re-downloads trials already in the cache
-refresh <- FALSE
+# TRUE re-downloads every trial already in the cache. Rarely what you want:
+# there are 42 of them. The cache now invalidates itself per trial by comparing
+# its file time against the trial's last modification on T3, so this is only for
+# a full rebuild.
+#
+#   --refresh                 re-download everything
+#   --refresh-trials 6954,7002   re-download just these, whatever T3 reports
+#
+# The second exists because T3 does not always report a modification time, and a
+# trial whose time is unknown keeps its cache; the run says so explicitly.
+args <- commandArgs(trailingOnly = TRUE)
+arg_value <- function(flag, default) {
+  i <- match(flag, args)
+  if (is.na(i) || i == length(args)) default else args[i + 1]
+}
+refresh <- "--refresh" %in% args
+refresh_ids <- strsplit(arg_value("--refresh-trials", ""), ",")[[1]]
+refresh_ids <- trimws(refresh_ids[nzchar(refresh_ids)])
 
 # ------------------------------------------------------------
 # Accessions
@@ -246,10 +262,49 @@ message("trials with >= ", min_b4i_accessions, " B4I accessions: ",
 
 stopifnot(nrow(count_qualified) > 0)
 
+# --- when did each of those trials last change on T3? ---
+#
+# Asked before the download, so a cache that predates its trial's last upload is
+# replaced rather than trusted. This is the check whose absence made B4I_2026_ND
+# and B4I_2026_NY look like trials without yield data.
+modified <- trial_last_modified(conn, count_qualified$trialDbId)
+
+cache_state <- modified |>
+  dplyr::left_join(dplyr::select(count_qualified, trialDbId, trialName),
+                   by = "trialDbId") |>
+  dplyr::mutate(
+    cache_file = file.path(cache_dir, paste0("obs_", trialDbId, ".rds")),
+    cached     = file.exists(cache_file),
+    cache_time = dplyr::if_else(cached, file.mtime(cache_file),
+                                as.POSIXct(NA, tz = "UTC")),
+    state = dplyr::case_when(
+      !cached                      ~ "new",
+      trialDbId %in% refresh_ids |
+        refresh                    ~ "forced",
+      is.na(last_modified)         ~ "unknown",
+      cache_time > last_modified   ~ "fresh",
+      TRUE                         ~ "stale"))
+
+stale <- dplyr::filter(cache_state, state == "stale")
+if (nrow(stale) > 0) {
+  message("re-downloading ", nrow(stale),
+          " trial(s) whose cache predates their last change on T3: ",
+          paste(stale$trialName, collapse = ", "))
+}
+unknown <- dplyr::filter(cache_state, state == "unknown")
+if (nrow(unknown) > 0) {
+  message("T3 reported no modification time for ", nrow(unknown),
+          " cached trial(s), so their cache is being trusted: ",
+          paste(unknown$trialName, collapse = ", "),
+          "\n  if one of these should have new data, re-run with ",
+          "--refresh-trials ", paste(unknown$trialDbId, collapse = ","))
+}
+
 # --- download every observation from those trials ---
 all_observations <- download_observations(
   conn, count_qualified$trialDbId,
-  cache_dir = cache_dir, page_size = page_size, refresh = refresh
+  cache_dir = cache_dir, page_size = page_size, refresh = refresh,
+  modified = modified, refresh_ids = refresh_ids
 )
 
 # --- second stage: require the selection trait ---
@@ -268,8 +323,28 @@ if (!is.na(selection_trait)) {
   message("of those, ", nrow(selected), " have '", selection_trait,
           "' on >= ", min_b4i_accessions, " B4I accessions")
   if (nrow(dropped) > 0) {
-    message("dropped for lack of it: ",
-            paste(dropped$trialName, collapse = ", "))
+    # "no yield data on T3" and "a cached copy that predates the yield data"
+    # look identical from here, so say which one applies to each trial.
+    drop_state <- dplyr::left_join(
+      dplyr::select(dropped, trialDbId, trialName),
+      dplyr::select(cache_state, trialDbId, state, last_modified),
+      by = "trialDbId")
+    message("dropped for lack of it:")
+    for (i in seq_len(nrow(drop_state))) {
+      note <- switch(
+        drop_state$state[i],
+        unknown = paste0(" -- CAUTION: cached copy was trusted because T3 ",
+                         "reported no modification time; if this trial has new ",
+                         "data, re-run with --refresh-trials ",
+                         drop_state$trialDbId[i]),
+        stale   = " -- just re-downloaded, so T3 really does not have it",
+        forced  = " -- just re-downloaded, so T3 really does not have it",
+        new     = " -- freshly downloaded, so T3 really does not have it",
+        fresh   = paste0(" -- cache verified newer than the trial's last ",
+                         "change on T3, so T3 really does not have it"),
+        "")
+      message("  ", drop_state$trialName[i], note)
+    }
   }
 } else {
   selected <- count_qualified

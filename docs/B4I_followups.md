@@ -566,6 +566,16 @@ obvious once you know why they exist:
   `--reps` is additive. It was not always: adding replicates to a finished grid
   used to renumber every seed and leave orphans that still globbed in, which put
   138 duplicated replicate-1 rows in the September results.
+- **The per-trial download cache had no invalidation**, so a trial fetched
+  before its data were complete stayed wrong until someone deleted the file by
+  hand — and the symptom was indistinguishable from the trial having no data.
+  Measured 2026-10-02: `B4I_2026_ND` and `B4I_2026_NY` were reported as lacking
+  oat and pea yield when T3 had both, because the 19 September cache predated
+  the upload (`obs_7002.rds` held zero rows; `obs_6954.rds` held 6,901 rows with
+  no yield trait among them). Now guarded: `cache_is_fresh()` compares the cache
+  file's time against the trial's last change on T3, and a trial whose
+  modification time T3 will not report is named out loud rather than silently
+  trusted. `--refresh-trials <ids>` is the manual escape hatch.
 - **The cache filename carries a scheme marker** (`v3`). A change to what is
   scored, or to a column name, has to move it, or `bind_rows()` over a mixed cache
   produces both columns with half the rows `NA` in each.

@@ -57,18 +57,118 @@ pluck_chr <- function(rec, field) {
   if (is.null(v) || length(v) == 0) NA_character_ else as.character(v)[1]
 }
 
+# ------------------------------------------------------------
+# Cache freshness
+#
+# The per-trial download cache had no invalidation of any kind: once a trial was
+# fetched, it was never fetched again. That is wrong whenever a collaborator adds
+# data to a trial that has already been downloaded, and the symptom is
+# indistinguishable from the trial having no data at all. Measured on
+# 2026-10-02: B4I_2026_ND and B4I_2026_NY were reported as lacking oat and pea
+# yield, when in fact T3 had both and the September cache predated the upload --
+# obs_7002.rds held zero rows and obs_6954.rds held 6,901 rows with no yield
+# trait among them.
+#
+# So a cached file is now used only if it is NEWER than the trial's last
+# modification on T3.
+# ------------------------------------------------------------
+
+#' Is a cached download still good?
+#'
+#' Pure, so the rule can be tested without a T3 connection.
+#'
+#' @param cache_file Path; may not exist.
+#' @param modified_at When the trial last changed on T3; `NA`/`NULL` when T3 did
+#'   not tell us.
+#' @param refresh TRUE forces a re-download.
+#' @return TRUE to use the cache.
+#'
+#' AN UNKNOWN MODIFICATION TIME KEEPS THE CACHE. The alternative -- re-downloading
+#' whenever T3 is silent -- would re-fetch all 42 cached trials on every run of a
+#' script whose whole point is not to. The caller is expected to say so out loud
+#' instead; see the `unknown` branch in find_trials_with_B4I_accessions.R.
+cache_is_fresh <- function(cache_file, modified_at = NULL, refresh = FALSE) {
+  if (isTRUE(refresh)) return(FALSE)
+  if (is.null(cache_file) || !file.exists(cache_file)) return(FALSE)
+  if (is.null(modified_at) || length(modified_at) == 0 || is.na(modified_at)) {
+    return(TRUE)
+  }
+  file.mtime(cache_file) > as.POSIXct(modified_at, tz = "UTC")
+}
+
+#' When did each trial last change on T3?
+#'
+#' BrAPI's `GET studies/{id}` carries a `lastUpdate` block in v2, but T3 does not
+#' always populate it, so several fields are tried in turn and the one that
+#' answered is reported alongside the time. `createDate` is last and is a
+#' fallback rather than a synonym: on T3 it does appear to move when a study
+#' record is rewritten -- B4I_2025_IL reads 2025-10-07 for a trial sown in
+#' spring -- but that is an observation about this database, not a guarantee.
+#'
+#' `endDate` is deliberately NOT used. It is when the field season ended, which
+#' has nothing to do with when the data were uploaded.
+#'
+#' @return tibble(trialDbId, last_modified, modified_source). `last_modified` is
+#'   `NA` when nothing usable came back, which is a reportable state, not an error.
+trial_last_modified <- function(conn, trial_ids) {
+  parse_stamp <- function(x) {
+    if (is.null(x) || length(x) == 0) return(NA)
+    x <- as.character(x)[1]
+    if (is.na(x) || !nzchar(x)) return(NA)
+    for (f in c("%Y-%m-%dT%H:%M:%OSZ", "%Y-%m-%dT%H:%M:%OS%z",
+                "%Y-%m-%dT%H:%M:%OS", "%Y-%m-%d %H:%M:%OS", "%Y-%m-%d")) {
+      t <- suppressWarnings(as.POSIXct(x, format = f, tz = "UTC"))
+      if (!is.na(t)) return(t)
+    }
+    NA
+  }
+
+  one <- function(id) {
+    res <- try(conn$get(paste0("studies/", id))$content$result, silent = TRUE)
+    if (inherits(res, "try-error") || is.null(res)) {
+      return(tibble::tibble(trialDbId = as.character(id),
+                            last_modified = as.POSIXct(NA, tz = "UTC"),
+                            modified_source = "unavailable"))
+    }
+    candidates <- list(
+      lastUpdate_timestamp = res$lastUpdate$timestamp,
+      lastUpdate_date      = res$lastUpdate$date,
+      additionalInfo       = res$additionalInfo$lastUpdate,
+      createDate           = res$createDate %||% res$create_date
+    )
+    for (nm in names(candidates)) {
+      t <- parse_stamp(candidates[[nm]])
+      if (!is.na(t)) {
+        return(tibble::tibble(trialDbId = as.character(id),
+                              last_modified = t, modified_source = nm))
+      }
+    }
+    tibble::tibble(trialDbId = as.character(id),
+                   last_modified = as.POSIXct(NA, tz = "UTC"),
+                   modified_source = "none")
+  }
+
+  purrr::map(trial_ids, one, .progress = "Trial modification times") |>
+    purrr::list_rbind()
+}
+
 download_trial_observations <- function(conn, trial_id,
                                         cache_dir = NULL,
                                         page_size = 10000,
-                                        refresh = FALSE) {
+                                        refresh = FALSE,
+                                        modified_at = NULL) {
   cache_file <- if (!is.null(cache_dir)) {
     file.path(cache_dir, paste0("obs_", trial_id, ".rds"))
   } else {
     NULL
   }
 
-  if (!is.null(cache_file) && file.exists(cache_file) && !refresh) {
+  if (cache_is_fresh(cache_file, modified_at, refresh)) {
     return(readRDS(cache_file))
+  }
+  if (!is.null(cache_file) && file.exists(cache_file) && !isTRUE(refresh)) {
+    message("  trial ", trial_id, ": cached copy predates the trial's last ",
+            "change on T3 -- re-downloading")
   }
 
   res <- conn$search(
@@ -114,12 +214,28 @@ download_trial_observations <- function(conn, trial_id,
   obs
 }
 
+#' @param modified Optional tibble(trialDbId, last_modified) from
+#'   `trial_last_modified()`. A trial whose cache is older than its last change
+#'   on T3 is re-downloaded; without this argument the cache is trusted, which is
+#'   the behaviour that went wrong.
+#' @param refresh_ids Trial ids to re-download whatever the timestamps say -- the
+#'   manual escape hatch for when T3 reports no modification time.
 download_observations <- function(conn, trial_ids,
                                   cache_dir = NULL,
                                   page_size = 10000,
-                                  refresh = FALSE) {
+                                  refresh = FALSE,
+                                  modified = NULL,
+                                  refresh_ids = character(0)) {
+  mod_of <- function(id) {
+    if (is.null(modified)) return(NULL)
+    i <- match(as.character(id), as.character(modified$trialDbId))
+    if (is.na(i)) NULL else modified$last_modified[i]
+  }
   trial_ids |>
-    purrr::map(\(id) download_trial_observations(conn, id, cache_dir, page_size, refresh),
+    purrr::map(\(id) download_trial_observations(
+                 conn, id, cache_dir, page_size,
+                 refresh = refresh || as.character(id) %in% as.character(refresh_ids),
+                 modified_at = mod_of(id)),
                .progress = "Downloading observations") |>
     purrr::list_rbind()
 }
@@ -128,12 +244,16 @@ download_observations <- function(conn, trial_ids,
 # on the observation.  Plot-level units only: the subplot units carry the
 # repeated-measure traits and have no yield.
 fetch_observation_units <- function(conn, trial_id, cache_dir = NULL,
-                                    page_size = 5000, refresh = FALSE) {
+                                    page_size = 5000, refresh = FALSE,
+                                    modified_at = NULL) {
   cache_file <- if (!is.null(cache_dir)) {
     file.path(cache_dir, paste0("units_", trial_id, ".rds"))
   } else NULL
 
-  if (!is.null(cache_file) && file.exists(cache_file) && !refresh) {
+  # Observation UNITS carry the pea partner and the rep/block, so a trial whose
+  # plots were re-laid out needs these re-fetched for the same reason the
+  # observations do.
+  if (cache_is_fresh(cache_file, modified_at, refresh)) {
     return(readRDS(cache_file))
   }
 
