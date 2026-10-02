@@ -33,3 +33,6 @@ output/pilot/pilot_seed_*.dat
 # SLURM job-array logs; the directory itself is kept (logs/.gitkeep)
 logs/*
 !logs/.gitkeep
+
+# Stray default graphics device output from Rscript runs
+Rplots.pdf
