@@ -384,9 +384,13 @@ near its point estimate rather than near the bottom of its interval.
 
 ## 7. This is re-issued as data arrives
 
-Three further trials are expected. Every input above moves when they land —
-the BLUPs shift, reliability rises, PEV falls, fewer accessions fail the
-connectivity filter, power rises. **Nothing in the scripts is hard-coded**;
+The 2026 trials — `B4I_2026_IA`, `B4I_2026_ND`, `B4I_2026_NY` — have now landed,
+alongside `B4I_2026_IL`, and every input above moved when they did: the BLUPs
+shifted, reliability rose, PEV fell, fewer accessions failed the connectivity
+filter. Power did **not** simply rise, because λ is now estimated over nine folds
+rather than four and the newer environments reproduce the predicted effects less
+well than the 2025 ones did. More trials bought a better-measured λ, not a
+larger one. Further trials will move all of it again. **Nothing in the scripts is hard-coded**;
 all of it is re-derived at run time, and each run writes a dated vintage under
 `output/validation/<date>/`.
 
@@ -408,10 +412,35 @@ Rscript code/validate_refresh.R --dry-run    # see the plan, run nothing
 Rscript code/validate_refresh.R              # the whole chain
 ```
 
-It drives the ten existing scripts in dependency order — trial discovery,
-curation, assembly, the BGLR fit, then the four `validate_*` scripts — stops at
-the first failure, and writes a per-step log under `output/refresh_logs/`. The
-thing to read on a failure is the step's own log, not the driver.
+It drives the existing scripts in dependency order — trial discovery, accession
+curation, assembly, the **trial QC screen**, the BGLR fit, then the four
+`validate_*` scripts — stops at the first failure, and writes a per-step log
+under `output/refresh_logs/`. The thing to read on a failure is the step's own
+log, not the driver.
+
+`validate_crossval.R` runs **before** `validate_power.R`, because power now
+reads the λ and interaction it measures rather than sweeping assumed values.
+
+#### `--refresh-doc`, and what it does not do
+
+```bash
+Rscript code/validate_refresh.R --refresh-doc
+```
+
+This rewrites the **numbers** in this document from the vintage the run just
+produced — the vintage summary in §5, the power table in §5, the λ table in §6.
+Those sit inside `<!-- BEGIN GENERATED: key -->` … `<!-- END GENERATED: key -->`
+markers, and `code/validation_report.R` replaces what is between them and
+nothing else. `Rscript code/validation_report.R --check` reports whether the
+document has drifted from the latest vintage without writing anything.
+
+**It does not touch the prose, and cannot.** Everything outside those markers is
+argument, and an argument should not change because a number moved. So a
+sentence like "three further trials are expected" goes stale and stays stale
+until a person edits it — that exact sentence survived two data vintages before
+anyone noticed. If the numbers move enough to change what the document *claims*,
+the claim needs rewriting by hand; the flag only keeps the tables honest. Review
+the diff before committing it.
 
 Steps 1–3 talk to T3 and need `T3_USERNAME` / `T3_PASSWORD` in `.Renviron`; the
 driver checks for them **before** starting a twenty-minute download rather than
@@ -479,21 +508,65 @@ differ by more than the one trial.
 
 ### What to use instead
 
-The honest question is out-of-sample: does the trial's information **reproduce**?
-`validate_crossval.R` already answers it, holding out one trial at a time:
+The honest question is out-of-sample: does the trial's information
+**reproduce**? `validate_crossval.R` holds out one trial at a time and answers
+it per trial, per species.
 
-- **λ** — the slope of realised on predicted associate effect in the held-out
-  trial. A trial carrying signal does not pull the mean λ down; a trial carrying
-  noise does, because its own fold has nothing to predict.
-- **interaction_frac** — the fold-to-fold spread of λ. A noisy trial widens it.
-- **The fold where the candidate trial is held out.** Look at it directly in
-  `crossval_folds.csv`: its λ, its accession-level *r*, and whether the rehearsal
-  pools show any contrast at all. That is the trial being asked to predict
-  itself out of sample, which is the question.
+**Where to look.** `output/validation/<vintage>/crossval_jackknife.csv`, one row
+per trial × species. Find the row whose `held_out` is the trial in question.
 
-So the decision rule is: **include the trial if mean λ holds up and
-interaction_frac does not widen; exclude it if λ falls.** Power then follows
-from whatever that gives, rather than being the thing consulted.
+**The three columns that decide it**, all about that trial's own fold:
+
+| column | read it as | excludes when |
+|---|---|---|
+| `lambda` | slope of realised on predicted associate effect in the held-out trial — how much of what this trial's data predict actually shows up | near zero, or negative, with `lambda_p` not significant |
+| `r_accession` | correlation of predicted with realised at the accession level in that fold | near zero |
+| `narrows_by` | how much the across-fold spread **falls** when this trial's fold is removed | large and positive |
+
+`narrows_by` is the answer to "where do I see whether interaction_frac widens?".
+You cannot read it off a column, because `interaction_frac` is a property of the
+*set* of folds — `sd(λ)/|mean λ|` — so no single trial has one. It is computed
+by removing that trial's fold and recomputing the spread, which is what the
+jackknife file now does. **`narrows_by > 0` means this trial is what widens the
+interaction.**
+
+The three travel together, and that is not a coincidence: a fold whose λ sits far
+from the others both fails to predict itself and is what inflates the spread.
+
+**The rule.** Exclude a trial when its own fold has λ at or near zero, a
+non-significant `lambda_p`, `r_accession` near zero, and a large positive
+`narrows_by`. Keep it otherwise. Power then follows from whatever that gives,
+rather than being the thing consulted.
+
+**Judge it per species.** A trial can fail on one and carry the other, and the
+species are separate decisions because the pools are.
+
+### The case in hand, worked
+
+From the 2026-10-02 vintage, nine same-line folds:
+
+| held out | species | λ | *p* | r_accession | mean λ without it | spread narrows by |
+|---|---|---|---|---|---|---|
+| **B4I_2025_AL** | oat | **−0.04** | 0.26 | 0.00 | 0.73 → 0.83 | **0.139** |
+| **B4I_2025_AL** | pea | **0.01** | 0.78 | 0.03 | 0.69 → 0.78 | **0.137** |
+| **B4I_2025_IA** | oat | **−0.03** | 0.83 | 0.01 | 0.73 → 0.83 | **0.135** |
+| B4I_2025_IA | pea | 0.66 | 0.011 | 0.15 | 0.69 → 0.70 | −0.041 |
+| B4I_2025_IL | oat | 1.33 | 3e-7 | 0.28 | — | −0.100 |
+| B4I_2025_ND | oat | 1.60 | 5e-6 | 0.29 | — | −0.070 |
+
+**AL fails on both species** — λ indistinguishable from zero, r at zero, and the
+two largest `narrows_by` in the table. Dropping it raises mean λ by 0.10 on each
+species. That is a clean exclusion, and it agrees with the trial QC screen.
+
+**B4I_2025_IA splits.** On **oat** it looks exactly like AL: λ = −0.03, *p* =
+0.83, r = 0.01, and removing it narrows the spread by 0.135. On **pea** it is a
+contributing fold: λ = 0.66 at *p* = 0.011, and removing it would *widen* the
+spread. So its pea data predict out of sample and its oat data do not.
+
+That is the nuance a power comparison would have hidden, and it is why the trial
+is kept in `data/trial_qc_manual.csv` rather than dropped: the cost is a weaker
+oat λ, the benefit is a real pea fold. If the oat contrast is the primary
+validation, revisit that.
 
 A trial can also be worth keeping while failing both — it contributes plots,
 partners and connectivity to accessions that would otherwise be unestimable,
@@ -501,13 +574,9 @@ even if its own yields are poor. `curate_trials.R` cannot see that, which is why
 its verdict is overridable in `data/trial_qc_manual.csv` and why the override is
 recorded rather than silent.
 
-### The case in hand
-
-`B4I_2025_AL` and `B4I_2025_IA` are both dropped by the screen at the current
-thresholds — AL on high CV, low mean and low repeatability; IA on high CV and low
-mean, which it acquired only when the 2026 trials raised the across-trial median
-it is compared against. AL is a crop failure and the decision is easy. IA is the
-one worth testing by the rule above rather than by the power table.
+Both are dropped by the QC screen at the current thresholds — AL on high CV, low
+mean and low repeatability; IA on high CV and low mean, the latter acquired only
+when the 2026 trials raised the across-trial median it is compared against.
 
 ## 8. Open decisions
 

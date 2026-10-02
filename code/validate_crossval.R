@@ -29,7 +29,8 @@
 # disjoint from the rest, so holding it out asks "new germplasm" instead.
 # Both are reported; only the first is the lambda the design needs.
 #
-# Outputs: output/validation/<vintage>/crossval_folds.csv
+# Outputs: output/validation/<vintage>/crossval_jackknife.csv  what each trial contributes
+#          output/validation/<vintage>/crossval_folds.csv
 #          output/validation/<vintage>/crossval_summary.csv
 #          output/validation/<vintage>/crossval_accession.csv
 #          output/validation/<vintage>/crossval.png
@@ -353,6 +354,47 @@ summary_tbl <- dplyr::bind_rows(
 )
 
 readr::write_csv(summary_tbl, file.path(out_dir, "crossval_summary.csv"))
+
+# ------------------------------------------------------------
+# What each trial contributes: the jackknife
+#
+# interaction_frac is a property of the SET of folds -- sd(lambda)/|mean| -- so
+# no single trial has one, and "does this trial widen the interaction?" cannot
+# be read off any column. It is answered by removing that trial's fold and
+# recomputing: `narrows_by` is how much the spread falls without it.
+#
+# This is what makes the decision rule in VALIDATION_DESIGN.md section 7b
+# followable. A trial whose own fold has lambda near zero is not predicting
+# itself out of sample, and it is also what widens the spread -- the two
+# symptoms travel together, because a fold far from the others is both.
+# ------------------------------------------------------------
+
+jackknife <- same |>
+  dplyr::group_by(species) |>
+  dplyr::mutate(
+    lambda_all           = mean(lambda),
+    interaction_all      = stats::sd(lambda) / abs(mean(lambda)),
+    lambda_without       = purrr::map_dbl(dplyr::row_number(),
+                                          \(i) mean(lambda[-i])),
+    interaction_without  = purrr::map_dbl(dplyr::row_number(),
+                             \(i) stats::sd(lambda[-i]) / abs(mean(lambda[-i]))),
+    narrows_by           = interaction_all - interaction_without,
+    raises_lambda_by     = lambda_without - lambda_all) |>
+  dplyr::ungroup() |>
+  dplyr::select(held_out, species, informative, lambda, lambda_p, r_accession,
+                lambda_all, lambda_without, raises_lambda_by,
+                interaction_all, interaction_without, narrows_by) |>
+  dplyr::arrange(species, dplyr::desc(narrows_by))
+
+readr::write_csv(jackknife, file.path(out_dir, "crossval_jackknife.csv"))
+
+cat("\n=== What each trial contributes (leave-its-fold-out) ===\n")
+cat("    narrows_by > 0 means the across-fold spread FALLS without this trial,\n",
+    "    i.e. this trial is what widens the As x location interaction.\n\n", sep = "")
+print(jackknife |>
+        dplyr::select(held_out, species, lambda, lambda_p, r_accession,
+                      raises_lambda_by, narrows_by) |>
+        as.data.frame(), row.names = FALSE, digits = 3)
 
 cat("\n=== Lambda, over the 'same lines, new environment' folds ===\n")
 cat("    This is the number VALIDATION_DESIGN.md section 5 is conditional on.\n\n")
