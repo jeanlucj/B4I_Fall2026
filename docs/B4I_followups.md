@@ -553,6 +553,60 @@ where `dge_ige` wins, and whether a recovered component is a stable object at
 all — `order_stable` was 0.09 on the short control chain, which is a real
 question and not just a short-chain artefact.
 
+**12. T3 does not expose a last-modified timestamp, and until it does the trial
+download cache cannot invalidate itself.** This is a request to T3, not a job in
+this repository.
+
+**What we need.** A per-study timestamp that moves when a study's *phenotype
+data* change — not when the study record is created. BrAPI already has the field:
+`lastUpdate` on `GET /studies/{id}`. T3 declares it and leaves it empty.
+
+**What T3 gives today**, measured 2026-10-02 through both routes the pipeline
+could use:
+
+| asked | `lastUpdate` | only date available |
+|---|---|---|
+| `GET studies/{id}` | absent | `additionalInfo$createDate` |
+| `GET studies?studyDbId=` | declared in the schema, **empty** | `additionalInfo$createDate` |
+
+| trial | | `additionalInfo$createDate` |
+|---|---|---|
+| 7002 | B4I_2026_ND | 2026-07-29 |
+| 6954 | B4I_2026_NY | 2026-05-13 |
+| 7014 | B4I_2026_IA | 2026-09-24 |
+
+**Why `createDate` cannot be used as a substitute, and must not be wired in.**
+It records creation, and trial 7002 proves it: created 2026-07-29, cached
+2026-09-19 with zero rows, yields uploaded in October. A freshness rule built on
+it computes `cache (19 Sep) > createDate (29 Jul)` and concludes the stale cache
+is **fresh** — the original bug, reinstated silently and now wearing a safety
+label, because the warning that currently fires would stop. `trial_last_modified()`
+looks for `createDate` at the top level, where T3 does not put it, so the branch
+is inert; **leave it inert**. See the caution below.
+
+**The other candidate signal is also unavailable.** An observation count would
+detect added data without any timestamp, but T3 has no cheap count: a
+`pageSize = 1` search on `observations` for one trial returned nothing in ten
+minutes before it was killed, so the server materialises the whole result set
+regardless of the page size.
+
+**What this leaves.** Every trial takes the "unknown modification time" path, so
+the cache is trusted and the run names the trials it trusted, with the command
+to force them. That is a warning, not a guard. Workarounds that would paper over
+it — a cache age limit, a stored row-count manifest — are **deliberately not
+implemented**: they add machinery and a second thing to maintain for a problem
+whose real fix is one populated field. The code stays as it is until T3 can
+answer.
+
+**Until then, the operating rule is manual:** after uploading phenotypes to a
+trial that has been downloaded before, re-run with
+`--refresh-trials <trialDbId>`, or delete `output/trial_cache/obs_<id>.rds`.
+
+**Worth one check before escalating:** whether T3's own UI shows an "uploaded"
+or "last modified" date for a trial's phenotypes. If it does, the endpoint behind
+it carries the signal and the fix may be reading a different route rather than a
+change to T3.
+
 ### Traps in the plumbing, so they are not rediscovered
 
 Three cost real time and all three are now guarded, but the guards are only
@@ -572,10 +626,13 @@ obvious once you know why they exist:
   Measured 2026-10-02: `B4I_2026_ND` and `B4I_2026_NY` were reported as lacking
   oat and pea yield when T3 had both, because the 19 September cache predated
   the upload (`obs_7002.rds` held zero rows; `obs_6954.rds` held 6,901 rows with
-  no yield trait among them). Now guarded: `cache_is_fresh()` compares the cache
-  file's time against the trial's last change on T3, and a trial whose
-  modification time T3 will not report is named out loud rather than silently
-  trusted. `--refresh-trials <ids>` is the manual escape hatch.
+  no yield trait among them). `cache_is_fresh()` now compares the cache file's
+  time against the trial's last change on T3 — but **T3 reports no such time for
+  any trial**, so in practice every trial takes the "unknown" path: the cache is
+  trusted and the run says which trials it trusted. That is a warning, not a
+  guard, and it stays that way until T3 populates `lastUpdate`; see unsettled
+  item 12. `--refresh-trials <ids>` is the manual escape hatch, and the rule
+  after uploading phenotypes to an already-downloaded trial is to use it.
 - **The cache filename carries a scheme marker** (`v3`). A change to what is
   scored, or to a column name, has to move it, or `bind_rows()` over a mixed cache
   produces both columns with half the rows `NA` in each.
