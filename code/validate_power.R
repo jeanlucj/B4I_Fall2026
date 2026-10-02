@@ -51,19 +51,30 @@ plots_per_location <- c(60L, 80L, 100L)
 # which is 15/20/25; the rest are here to show how flat the curve is.
 n_values <- c(10L, 15L, 20L, 25L, 30L, 40L, 50L)
 
-# Attenuation of the predicted contrast when realised in new environments:
-# model calibration times across-environment stability of the associate
-# effects. 1 means the BLUP difference is delivered in full. This is the single
-# most important number in the whole calculation and it is currently a guess --
-# code/validate_crossval.R estimates it from the trials already in hand.
-lambda_values <- c(1.0, 0.8, 0.6)
-
-# SD of the location-specific contrast as a fraction of the contrast itself.
-interaction_values <- c(0, 0.5)
-
-# The test is directional and pre-registered, so one-sided is legitimate and
-# worth 8-12 points of power. Two-sided is reported alongside.
+# lambda and interaction_frac are no longer swept. Both are ESTIMATED from the
+# trials in hand by code/validate_crossval.R, which now runs before this script.
+#
+#   lambda            attenuation of the predicted contrast when realised in new
+#                     environments: how much of a BLUP difference actually shows
+#                     up. 1 means delivered in full.
+#   interaction_frac  SD of the location-specific contrast as a fraction of the
+#                     contrast itself -- the pool x location interaction.
+#
+# THEY ARE THE SAME PHENOMENON SEEN TWICE, which is why one estimate gives both.
+# validate_crossval.R holds out one trial at a time and regresses the realised
+# associate effect on the predicted one; the slope is lambda. Its MEAN over
+# folds is how much of the contrast survives a change of environment on average,
+# and its SPREAD over folds is how much that survival varies by environment --
+# so interaction_frac is sd(lambda)/|mean(lambda)| across folds
+# (code/validate_crossval.R:341). A sweep over assumed values was right while
+# both were guesses. They are now measured, and sweeping a measured quantity
+# reports uncertainty that the data have already resolved.
+#
+# The test is directional and pre-registered, so it is ONE-SIDED. The two-sided
+# arm was dropped: it was never the design's test, and reporting it alongside
+# invited reading the wrong column.
 alpha <- 0.05
+sided <- 1L
 
 # Simulation
 sim_reps  <- 400L
@@ -73,8 +84,7 @@ sim_seed  <- 20260924L
 # configuration that is actually proposed rather than a nearby one.
 sim_cases <- tidyr::expand_grid(
   species = c("oat", "pea"),
-  p_loc   = validation_setting("plots_per_location"),
-  lambda  = c(1.0, 0.8)
+  p_loc   = validation_setting("plots_per_location")
 ) |>
   dplyr::mutate(n = validation_setting("n_per_pool")[species], .after = species)
 
@@ -183,35 +193,105 @@ print(as.data.frame(validation_vintage(inputs)), row.names = FALSE, digits = 4)
 P_values <- plots_per_location * n_locations
 
 # ------------------------------------------------------------
+# lambda and interaction_frac, read from the cross-validation
+#
+# validate_crossval.R writes crossval_summary.csv into the same vintage folder
+# and now runs BEFORE this script, so the estimate describes the data this run
+# was built from. An older vintage is used if the current one has none -- stated
+# out loud, because a power figure carrying last month's lambda is a different
+# claim from one carrying this month's.
+#
+# "informative folds only" is the set used: the other set includes folds where
+# the held-out trial had too little variation for its slope to say anything
+# about lambda, and averaging those in pulls the estimate toward noise.
+# ------------------------------------------------------------
+
+FALLBACK <- list(lambda = 0.8, interaction_frac = 0.5)
+
+crossval_estimates <- function(out_root, vintage,
+                               set_wanted = "informative folds only") {
+  dirs <- sort(list.dirs(out_root, recursive = FALSE))
+  here_first <- c(file.path(out_root, vintage),
+                  rev(setdiff(dirs, file.path(out_root, vintage))))
+  for (d in here_first) {
+    f <- file.path(d, "crossval_summary.csv")
+    if (!file.exists(f)) next
+    x <- readr::read_csv(f, show_col_types = FALSE)
+    x <- dplyr::filter(x, set == set_wanted)
+    if (nrow(x) == 0) next
+    return(list(est = dplyr::select(x, species, lambda = lambda_mean,
+                                    interaction_frac, n_folds),
+                from = basename(d)))
+  }
+  NULL
+}
+
+cv_est <- crossval_estimates(out_root, vintage)
+if (is.null(cv_est)) {
+  warning("no crossval_summary.csv anywhere under ", out_root,
+          " -- falling back to lambda = ", FALLBACK$lambda,
+          ", interaction_frac = ", FALLBACK$interaction_frac,
+          ". These are GUESSES; run code/validate_crossval.R and re-run this.",
+          call. = FALSE)
+  est_tbl <- tibble::tibble(species = names(inputs),
+                            lambda = FALLBACK$lambda,
+                            interaction_frac = FALLBACK$interaction_frac,
+                            n_folds = NA_integer_)
+  est_from <- "FALLBACK GUESS"
+} else {
+  est_tbl  <- cv_est$est
+  est_from <- cv_est$from
+  if (!identical(est_from, vintage)) {
+    message("no cross-validation in this vintage; using the estimate from ",
+            est_from)
+  }
+}
+
+est_for <- function(sp) {
+  r <- dplyr::filter(est_tbl, species == sp)
+  if (nrow(r) == 0) {
+    list(lambda = FALLBACK$lambda, interaction_frac = FALLBACK$interaction_frac)
+  } else {
+    list(lambda = r$lambda[1], interaction_frac = r$interaction_frac[1])
+  }
+}
+
+cat("\n=== lambda and pool x location interaction, as measured ===\n")
+cat("    source: ", est_from, "  (crossval_summary.csv, informative folds)\n\n",
+    sep = "")
+print(as.data.frame(est_tbl), row.names = FALSE, digits = 3)
+
+# ------------------------------------------------------------
 # Analytic sweep
+#
+# What is still swept is what is still a CHOICE: the plot budget and the pool
+# size. lambda and interaction_frac are measurements and enter as single values.
 # ------------------------------------------------------------
 
 grid <- purrr::imap(inputs, \(inp, name) {
-  purrr::map(c(1, 2), \(sided) {
-    power_grid(inp, n_values = n_values, P_values = P_values,
-               lambda_values = lambda_values, sided = sided,
-               interaction_values = interaction_values,
-               pr_quantile = pr_quantile, n_loc = n_locations)
-  }) |> purrr::list_rbind()
+  e <- est_for(name)
+  power_grid(inp, n_values = n_values, P_values = P_values,
+             lambda_values = e$lambda, sided = sided,
+             interaction_values = e$interaction_frac,
+             pr_quantile = pr_quantile, n_loc = n_locations)
 }) |> purrr::list_rbind()
 
 readr::write_csv(grid, file.path(out_dir, "power_grid.csv"))
 
 cat("\n=== Power at the design geometry (n = plots-per-location / 4) ===\n")
-cat("    one-sided alpha = 0.05, no pool x location interaction\n\n")
+cat("    one-sided alpha = 0.05; lambda and interaction as measured above\n\n")
 
 design_rows <- grid |>
-  dplyr::filter(sided == 1, interaction_frac == 0,
-                n == P / n_locations / 4) |>
+  dplyr::filter(n == P / n_locations / 4) |>
   dplyr::mutate(plots_per_loc = P / n_locations) |>
   dplyr::select(species, plots_per_loc, n, P, lambda, delta, SE, power) |>
   dplyr::arrange(species, plots_per_loc, dplyr::desc(lambda))
 print(as.data.frame(design_rows), row.names = FALSE, digits = 3)
 
-cat("\n=== Pool size at P = 400, lambda = 0.8, one-sided ===\n")
+cat("\n=== Pool size at P = 400, one-sided ===\n")
 cat("    power is nearly flat: the contrast shrinks as fast as the SE does\n\n")
 print(grid |>
-  dplyr::filter(P == 400, lambda == 0.8, sided == 1, interaction_frac == 0) |>
+  dplyr::filter(P == 400) |>
   dplyr::select(species, n, dAs_predicted, delta, SE, SE_floor, power) |>
   as.data.frame(), row.names = FALSE, digits = 3)
 
@@ -220,10 +300,10 @@ print(grid |>
 # ------------------------------------------------------------
 
 ceiling_tbl <- grid |>
-  dplyr::filter(sided == 1, interaction_frac == 0, lambda == 0.8) |>
   dplyr::group_by(species, n) |>
   dplyr::summarise(
     dAs = dplyr::first(dAs_predicted),
+    lambda = dplyr::first(lambda),
     SE_300 = SE[P == 300], SE_500 = SE[P == 500],
     SE_floor = dplyr::first(SE_floor),
     pct_SE_irreducible = dplyr::first(pct_SE_irreducible[P == 400]),
@@ -232,15 +312,16 @@ ceiling_tbl <- grid |>
   ) |>
   dplyr::mutate(
     # power with infinitely many plots: the ceiling the budget approaches
+    # the measured lambda, not a round number standing in for it
     power_ceiling = purrr::pmap_dbl(
-      list(dAs, SE_floor, n),
-      \(d, se, nn) stats::pt(stats::qt(1 - alpha, 2 * nn - 2), 2 * nn - 2,
-                             0.8 * d / se, lower.tail = FALSE))
+      list(dAs, SE_floor, n, lambda),
+      \(d, se, nn, lam) stats::pt(stats::qt(1 - alpha, 2 * nn - 2), 2 * nn - 2,
+                                  lam * d / se, lower.tail = FALSE))
   )
 
 readr::write_csv(ceiling_tbl, file.path(out_dir, "power_ceiling.csv"))
 
-cat("\n=== Why more plots buy so little (lambda = 0.8, one-sided) ===\n")
+cat("\n=== Why more plots buy so little (measured lambda, one-sided) ===\n")
 cat("    SE_floor is the standard error with infinitely many plots.\n\n")
 print(as.data.frame(ceiling_tbl), row.names = FALSE, digits = 3)
 
@@ -252,7 +333,12 @@ set.seed(sim_seed)
 
 # Both species come out of one simulated trial, so the cases are indexed by the
 # pool sizes and the budget rather than by species.
-sim_scenarios <- dplyr::distinct(sim_cases, p_loc, lambda)
+# One lambda per species now, but a simulated trial carries both species at
+# once, so the simulation uses the mean of the two measured values and the
+# per-species analytic grid remains the exact statement.
+sim_lambda <- mean(est_tbl$lambda)
+sim_scenarios <- dplyr::distinct(sim_cases, p_loc) |>
+  dplyr::mutate(lambda = sim_lambda)
 
 run_cases <- function(p_loc, lambda, null = FALSE) {
   pools <- purrr::imap(inputs, \(inp, name)
@@ -359,16 +445,16 @@ if (any(false_pos$power_sim > alpha + 3 * sqrt(alpha * (1 - alpha) / sim_reps)))
 # ------------------------------------------------------------
 
 p_curves <- grid |>
-  dplyr::filter(sided == 1, interaction_frac == 0) |>
   dplyr::mutate(
     P = factor(paste0(P, " plots")),
-    lambda = factor(paste0("lambda = ", lambda))
+    species_lab = factor(sprintf("%s  (lambda = %.2f, interaction = %.2f)",
+                                 species, lambda, interaction_frac))
   ) |>
   ggplot2::ggplot(ggplot2::aes(n, power, colour = P, group = P)) +
   ggplot2::geom_hline(yintercept = 0.8, linetype = 2, colour = "grey50") +
   ggplot2::geom_line() +
   ggplot2::geom_point(size = 1.6) +
-  ggplot2::facet_grid(species ~ lambda) +
+  ggplot2::facet_wrap(~ species_lab, ncol = 1) +
   ggplot2::scale_y_continuous(limits = c(0, 1)) +
   ggplot2::theme_bw(base_size = 12) +
   ggplot2::labs(

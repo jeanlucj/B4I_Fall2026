@@ -37,6 +37,13 @@ dry_run <- "--dry-run" %in% args
 from    <- arg_value("--from", NULL)
 only    <- arg_value("--only", NULL)
 
+# --refresh-doc rewrites the data-dependent numbers in VALIDATION_DESIGN.md from
+# the vintage this run produced. Off by default: the document is mostly argument,
+# and an argument should not change silently because a number moved. When the
+# numbers HAVE moved -- a new trial, a different set of trials kept by the QC
+# screen -- this is how the document catches up.
+refresh_doc <- "--refresh-doc" %in% args || "--refresh_doc" %in% args
+
 # The chain, in dependency order. `needs_t3` marks the steps that will fail
 # without credentials; `slow` is a warning, not a limit.
 STEPS <- tibble::tribble(
@@ -57,12 +64,12 @@ STEPS <- tibble::tribble(
     "the variance components and per-accession effects everything below depends on",
   "validate",  "validate_pool_selection.R",          FALSE,  FALSE,
     "rebuilds the As+/As- pools and diffs them against the previous vintage",
-  "validate",  "validate_power.R",                   FALSE,  TRUE,
-    "recomputes power from the NEW variance components",
-  "validate",  "validate_design.R",                  FALSE,  FALSE,
-    "writes the field book and checks its balance",
   "validate",  "validate_crossval.R",                FALSE,  TRUE,
-    "re-estimates the attenuation lambda by leave-one-trial-out"
+    "estimates lambda and the pool x location interaction by leave-one-trial-out; validate_power.R reads both, so this has to run first",
+  "validate",  "validate_power.R",                   FALSE,  TRUE,
+    "recomputes power from the NEW variance components, at the lambda just measured",
+  "validate",  "validate_design.R",                  FALSE,  FALSE,
+    "writes the field book and checks its balance"
 )
 
 # `qc` sits after `assemble` because it needs the assembled plot table: the
@@ -98,6 +105,10 @@ for (i in seq_len(nrow(steps))) {
 }
 cat("\nSimulation parameters in code/sim_config.R are NOT touched by any of",
     "this.\n")
+cat(if (refresh_doc)
+      "VALIDATION_DESIGN.md WILL be refreshed from this run's numbers.\n"
+    else
+      "VALIDATION_DESIGN.md will NOT be rewritten; pass --refresh-doc to update its numbers.\n")
 if (any(steps$stage == "qc")) {
   cat("Trial screening runs at step", which(steps$stage == "qc"),
       "and drops failing trials from the fit.\n",
@@ -124,6 +135,14 @@ if (any(steps$needs_t3)) {
          "Put them in .Renviron at the project root, or run with ",
          "--from assemble if the download is already done.", call. = FALSE)
   }
+}
+
+# The document refresh runs after everything else, because it reads the vintage
+# the chain just wrote.
+if (refresh_doc && !any(steps$stage %in% c("validate"))) {
+  message("--refresh-doc given, but no validate step is in this run; the ",
+          "document would be rewritten from an older vintage. Refusing.")
+  refresh_doc <- FALSE
 }
 
 log_dir <- here::here("output", "refresh_logs")
@@ -172,6 +191,26 @@ if (dir.exists(vint_dir)) {
         "A pool retaining well under 70% of its members across one data",
         " vintage is\na warning about the EFFECT ESTIMATES, not about the",
         " design.\n", sep = "")
+  }
+}
+
+# ------------------------------------------------------------
+# The document, if asked
+# ------------------------------------------------------------
+
+if (refresh_doc) {
+  cat("\n", strrep("-", 72), "\nvalidation_report.R  (--refresh-doc)\n",
+      strrep("-", 72), "\n", sep = "")
+  st <- system2("Rscript", shQuote(here::here("code", "validation_report.R")))
+  if (st != 0) {
+    warning("validation_report.R failed; VALIDATION_DESIGN.md was not updated",
+            call. = FALSE)
+  } else {
+    cat("VALIDATION_DESIGN.md refreshed from this vintage. ",
+        "Review the diff before committing: the generated blocks carry\n",
+        "numbers, and the prose around them carries the argument -- if the ",
+        "numbers moved enough to change\nthe argument, the prose needs a ",
+        "person.\n", sep = "")
   }
 }
 

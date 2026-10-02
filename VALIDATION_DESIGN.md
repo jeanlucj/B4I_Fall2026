@@ -181,27 +181,39 @@ the result generalise. The experimental unit for the contrast is therefore the
 
 ### The result
 
-One-sided α = 0.05, at the design geometry (n = plots-per-location ÷ 4 for
-oat, 30 for pea):
+<!-- BEGIN GENERATED: vintage -->
+*Numbers below are from vintage **2026-10-02**.*
 
-| | plots/loc | n per pool | total plots | λ = 1.0 | λ = 0.8 | λ = 0.6 |
-|---|---|---|---|---|---|---|
-| **oat** | 60 | 15 | 300 | 0.95 | 0.85 | 0.64 |
-| **oat** | 80 | 20 | 400 | 0.98 | 0.91 | 0.72 |
-| **oat** | 100 | 25 | 500 | 0.98 | 0.92 | 0.74 |
-| **pea** | 60 | 30 | 300 | 0.88 | 0.72 | 0.51 |
-| **pea** | 80 | 30 | 400 | 0.91 | 0.77 | 0.56 |
-| **pea** | 100 | 30 | 500 | 0.93 | 0.80 | 0.59 |
+| species | trials | plots | accessions | eligible | reliability of As |
+|---|---|---|---|---|---|
+| oat | 9 | 3567 | 440 | 429 | 0.41 |
+| pea | 9 | 3567 | 422 | 406 | 0.27 |
+
+Trials kept by the QC screen (7): B4I_2025_IL, B4I_2025_ND, B4I_2025_NY, B4I_2026_IA, B4I_2026_IL, B4I_2026_ND, B4I_2026_NY
+Dropped (2): B4I_2025_AL, B4I_2025_IA
+<!-- END GENERATED: vintage -->
+
+<!-- BEGIN GENERATED: power -->
+> **Stale.** `power_grid.csv` in this vintage was written before λ and the
+> pool × location interaction were measured, so it still sweeps them and
+> cannot be collapsed to a single statement. Re-run
+> `Rscript code/validate_power.R` and then `code/validation_report.R`.
+<!-- END GENERATED: power -->
 
 λ is the **attenuation**: how much of the predicted contrast actually
 materialises in new environments, combining model calibration with the
 stability of associate effects across sites. It matters more than everything
-else combined, so it has been measured rather than assumed — **oat 1.28,
-pea 0.80** — see §6, which also shows what the fold-to-fold spread costs.
+else combined, so it is measured rather than assumed — see §6.
 
-Using the **one-sided** test rather than two-sided is worth 7–11 points and
-costs nothing, because the hypothesis is directional and pre-registered:
-oat 0.84 → 0.91, pea 0.66 → 0.77 at λ = 0.8.
+The grid no longer sweeps λ or the pool × location interaction. Both are
+estimated from the trials in hand, and sweeping a measured quantity reports
+uncertainty the data have already resolved. What is still swept is what is still
+a choice: the plot budget and the pool size.
+
+The test is **one-sided** throughout, because the hypothesis is directional and
+pre-registered. The two-sided arm was dropped rather than reported alongside: it
+was never this design's test, and having it in the table invited reading the
+wrong column.
 
 ### Why more plots buy so little
 
@@ -330,10 +342,12 @@ IA is not explicable that way and is worth understanding.
 
 Over the informative "same lines, new environment" folds:
 
-| | λ | 95% CI | across-fold spread | accession-level *r* |
+<!-- BEGIN GENERATED: lambda -->
+| | λ | across-fold spread (interaction_frac) | folds | accession-level *r* |
 |---|---|---|---|---|
-| oat | **1.28** | 0.42 – 2.14 | 0.69 | 0.28 |
-| pea | **0.80** | 0.35 – 1.24 | 0.57 | 0.18 |
+| oat | **0.83** | 0.73 | 8 | 0.17 |
+| pea | **0.78** | 0.53 | 8 | 0.20 |
+<!-- END GENERATED: lambda -->
 
 Two things follow.
 
@@ -430,6 +444,70 @@ When it finishes, read in this order:
 | `output/validation/<date>/field_book.csv` | the layout to hand to the stations |
 
 ---
+
+## 7b. Judging a trial by what it does to power — don't
+
+A tempting test, when the QC screen drops a trial and you want to know whether
+it should have: put it back, re-run, and see what happens to the power numbers.
+If power improves, the trial had signal; if power drops, it was noise.
+
+**This reasoning runs backwards, and in the dangerous direction.** Power here is
+not a measurement of data quality. It is a function of parameters estimated from
+the same data, and adding a trial moves several of them at once.
+
+**Noise can raise power.** The predicted contrast ΔAs is the gap between the
+mean associate effect of the two pools, and the pools are chosen as the extremes
+of the BLUP distribution. A trial that is mostly noise, in a design where most
+combinations appear once, inflates the estimated associate variance — noise with
+nowhere else to go is absorbed as genotype variance. Wider BLUPs mean a wider
+gap between the extremes, a larger ΔAs, and **higher** computed power. The
+validation would then fail in the field, because the contrast being predicted is
+not there. This is the direction that matters: the test as stated would keep the
+bad trial.
+
+**Signal can lower power.** More good data shrinks the BLUPs toward the truth.
+The spread narrows, ΔAs falls, and power falls with it — while the prediction
+has become more honest, not less. More trials also means λ is estimated over
+more environments, which usually lowers it, lowering power again for the same
+reason.
+
+**And the comparison is not clean anyway.** Power is computed on the data used
+to choose the pools, so it is an in-sample statement throughout. Adding a trial
+also moves the across-trial median that `curate_trials.R` compares against, so
+other trials' QC verdicts can change in the same run — the two configurations
+differ by more than the one trial.
+
+### What to use instead
+
+The honest question is out-of-sample: does the trial's information **reproduce**?
+`validate_crossval.R` already answers it, holding out one trial at a time:
+
+- **λ** — the slope of realised on predicted associate effect in the held-out
+  trial. A trial carrying signal does not pull the mean λ down; a trial carrying
+  noise does, because its own fold has nothing to predict.
+- **interaction_frac** — the fold-to-fold spread of λ. A noisy trial widens it.
+- **The fold where the candidate trial is held out.** Look at it directly in
+  `crossval_folds.csv`: its λ, its accession-level *r*, and whether the rehearsal
+  pools show any contrast at all. That is the trial being asked to predict
+  itself out of sample, which is the question.
+
+So the decision rule is: **include the trial if mean λ holds up and
+interaction_frac does not widen; exclude it if λ falls.** Power then follows
+from whatever that gives, rather than being the thing consulted.
+
+A trial can also be worth keeping while failing both — it contributes plots,
+partners and connectivity to accessions that would otherwise be unestimable,
+even if its own yields are poor. `curate_trials.R` cannot see that, which is why
+its verdict is overridable in `data/trial_qc_manual.csv` and why the override is
+recorded rather than silent.
+
+### The case in hand
+
+`B4I_2025_AL` and `B4I_2025_IA` are both dropped by the screen at the current
+thresholds — AL on high CV, low mean and low repeatability; IA on high CV and low
+mean, which it acquired only when the 2026 trials raised the across-trial median
+it is compared against. AL is a crop failure and the decision is easy. IA is the
+one worth testing by the rule above rather than by the power table.
 
 ## 8. Open decisions
 

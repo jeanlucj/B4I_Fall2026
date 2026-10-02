@@ -148,6 +148,7 @@ against something other than another model.
 | `sim_int_anova.R` | split-plot ANOVA of the interaction design, with `model` as the subplot factor: which factors decide whether MegaLMM or dge_ige wins |
 | `interaction_decomp.R` | rewrites a fitted interaction surface as orthonormal scores x loadings, inside each MCMC draw. Sourced, not run |
 | `sim_decomp_run.R` | drives the decomposition sweep: does the recovered structure match the simulated factors, or only the leading kinship directions? |
+| `validation_report.R` | refreshes the delimited number blocks in `VALIDATION_DESIGN.md` from a vintage; `--check` reports drift without writing |
 | `curate_trials.R` | trial-level QC: one simple lmer per trial per trait, no GRM, and a pass/review/fail verdict. Overridable by hand in `data/trial_qc_manual.csv` |
 | `validation_functions.R` | shared machinery for the validation trial: pool construction, the field design, power. Sourced, not run |
 | `validate_refresh.R` | the single entry point: drives the whole chain from T3 discovery to the field book when new trials land |

@@ -1,0 +1,10 @@
+studyName,keep,note
+B4I_2025_AL,FALSE,high_cv; low_mean; low_repeatability
+B4I_2025_IA,TRUE,high_cv; low_mean
+B4I_2025_IL,TRUE,
+B4I_2025_ND,TRUE,
+B4I_2025_NY,TRUE,
+B4I_2026_IA,TRUE,low_repeatability
+B4I_2026_IL,TRUE,
+B4I_2026_ND,TRUE,
+B4I_2026_NY,TRUE,

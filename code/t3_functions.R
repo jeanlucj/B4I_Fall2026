@@ -98,15 +98,26 @@ cache_is_fresh <- function(cache_file, modified_at = NULL, refresh = FALSE) {
 
 #' When did each trial last change on T3?
 #'
-#' BrAPI's `GET studies/{id}` carries a `lastUpdate` block in v2, but T3 does not
-#' always populate it, so several fields are tried in turn and the one that
-#' answered is reported alongside the time. `createDate` is last and is a
-#' fallback rather than a synonym: on T3 it does appear to move when a study
-#' record is rewritten -- B4I_2025_IL reads 2025-10-07 for a trial sown in
-#' spring -- but that is an observation about this database, not a guarantee.
+#' BrAPI's `GET studies/{id}` carries a `lastUpdate` block in v2. **T3 does not
+#' populate it** -- measured 2026-10-02 on trials 7002, 6954 and 7014, through
+#' both `GET studies/{id}` and `GET studies?studyDbId=`; the list form even
+#' declares the field and returns it empty. So this function returns NA for
+#' every T3 trial today, and the caller takes its "unknown" branch.
 #'
-#' `endDate` is deliberately NOT used. It is when the field season ended, which
-#' has nothing to do with when the data were uploaded.
+#' THE `createDate` BRANCH IS A TRAP AND IS DELIBERATELY LEFT INERT. It looks for
+#' `createDate` at the top level, where T3 does not put it -- T3 nests it in
+#' `additionalInfo`. Do NOT "fix" that. `createDate` records creation, not
+#' modification, and trial 7002 proves it: created 2026-07-29, cached
+#' 2026-09-19 holding zero rows, yields uploaded in October. Wiring it in makes
+#' cache_is_fresh() compute cache (19 Sep) > createDate (29 Jul), call the stale
+#' cache fresh, and silently reinstate the bug this whole mechanism exists to
+#' prevent -- worse than today, because the warning would stop firing. An
+#' earlier version of this comment claimed createDate moves when a record is
+#' rewritten, citing B4I_2025_IL; that was wrong. See docs/B4I_followups.md
+#' unsettled item 12, which is the T3-side fix.
+#'
+#' `endDate` is deliberately NOT used either. It is when the field season ended,
+#' which says nothing about when the data were uploaded.
 #'
 #' @return tibble(trialDbId, last_modified, modified_source). `last_modified` is
 #'   `NA` when nothing usable came back, which is a reportable state, not an error.

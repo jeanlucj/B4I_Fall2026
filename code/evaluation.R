@@ -68,7 +68,7 @@ EVAL_GROUPS <- list(
   val_design = c("make_validation_design", "check_validation_design"),
 
   val_power  = c("contrast_se", "contrast_power", "power_grid",
-                 "simulate_validation"),
+                 "simulate_validation", "crossval_estimates"),
 
   # ---- analysis: online (T3/Oat over BrAPI) ---------------------------
   t3 = c("connect_t3", "download_trial_observations", "download_observations",
