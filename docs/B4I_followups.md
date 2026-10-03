@@ -607,6 +607,58 @@ or "last modified" date for a trial's phenotypes. If it does, the endpoint behin
 it carries the signal and the fix may be reading a different route rather than a
 change to T3.
 
+**13. The pool builder uses the wrong selection index, and fixing it is worth
+9–19 points of power.** Not a new search method: the right one is already there
+and is being applied to the wrong objective.
+
+**What it does now.** `.pools_at()` (`code/validation_functions.R:194`) scores
+the As⁺ pool by `As + θ·Pr` and the As⁻ pool by `As − θ·Pr`, then
+`build_pools()` bisects θ until the pools' mean Pr difference crosses zero.
+Scoring the As⁻ pool by `As − θ·Pr` *rewards* high Pr in that pool, so raising θ
+drags **both** pools toward high Pr rather than equalising them. Balance is
+reached only indirectly, and it takes a large θ to get there — 0.61 for oat —
+which spends a great deal of As extremity.
+
+**What the Lagrangian of the constraint actually is.** One index for both pools:
+rank candidates by `As + θ·Pr` and take the **top n** and the **bottom n**. That
+moves the two selections along a single axis, so θ buys balance efficiently. It
+reaches the same tolerance at θ = 0.175 for oat, keeping far more As spread.
+
+**Measured on the 2026-10-03 data**, both satisfying |ΔPr| ≤ 1.0 g/m², pools
+disjoint and of the right size, at P = 400:
+
+| | ΔAs now | ΔAs single-index | power now | power single-index |
+|---|---|---|---|---|
+| oat (n = 20) | 15.24 | **19.80** (+30%) | 0.691 | **0.782** (+9.1) |
+| pea (n = 30) | 18.01 | **25.58** (+42%) | 0.656 | **0.847** (+19.1) |
+
+Pea gains more because its Pr–As correlation among candidates is stronger
+(−0.40 against −0.27), so the wrong index costs it more.
+
+**Two smaller problems in the same function.**
+
+- *The bisection targets ΔPr = 0 when the tolerance is ±1.0.* Since ΔAs falls as
+  θ rises, the optimum is the **smallest** θ that satisfies the tolerance, not
+  the θ that zeroes the imbalance. Worth +1.5% on pea on its own.
+- *ΔPr(θ) is not monotone.* A 4,001-point scan finds **three** sign changes for
+  oat, so bisection can land on the wrong crossing. The function is
+  O(c log c); a dense grid scan costs nothing and removes the failure mode.
+
+**The fix, in order of value:** use one index for both pools; scan θ rather than
+bisect; among feasible θ take the one maximising ΔAs rather than the one zeroing
+ΔPr.
+
+**What would confirm it.** The single-index rule is the exact Lagrangian of a
+problem with one side constraint, so its duality gap is at most a single swap —
+but that is an argument, not a check. The problem is small (two disjoint
+*n*-subsets of ~215 candidates, three constraints) and an exact MILP would settle
+it in seconds. No solver is installed; `highs` or `Rglpk` would do. A local
+swap-improvement pass on the Lagrangian solution is the cheaper alternative.
+
+**Not yet implemented.** It changes pool membership, so it changes who is in the
+validation experiment and makes `pool_diff` churn against the previous vintage
+meaningless for one run. That is a decision, not a refactor.
+
 ### Traps in the plumbing, so they are not rediscovered
 
 Three cost real time and all three are now guarded, but the guards are only

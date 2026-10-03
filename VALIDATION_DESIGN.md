@@ -346,9 +346,14 @@ throughout — and they cost *more* at small n, so the achieved contrast falls b
 only 29% from n = 10 to n = 50 where theory says 37%. **The selection-intensity
 advantage that small pools should enjoy is largely eaten by the Pr balance.**
 
-Pea is noisier still (its achieved contrast is 44–65% of theory and not monotone
-in n), because the pool builder is a greedy constrained search rather than an
-optimum. Read pea's curve as a trend, not cell by cell.
+Pea is noisier still — its achieved contrast is 44–65% of theory and not
+monotone in *n*. The pool builder is not a greedy search, as an earlier version
+of this sentence said; it is a Lagrangian selection index bisected on one
+multiplier, which is the right family of method. But it is leaving a large
+amount on the table, for reasons measured in
+[docs/B4I_followups.md](docs/B4I_followups.md) item 13 — enough that pea's curve
+should be read as a trend rather than cell by cell, and enough that these power
+figures are a floor rather than an estimate.
 
 #### What the design-geometry rule actually protects — and what it does not
 

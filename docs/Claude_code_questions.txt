@@ -40,3 +40,4 @@ dominates even more clearly.
 </pasted_content id="9b66">
 
   Do you mean that if each accession only appears once per location, we don't get a clean estimate of error variance?
+[2026-10-03 07:16:30] There is a comment in the VALIDATION_DESIGN document: "because the pool builder is a greedy constrained search rather than an optimum".  I do want to make sure that the pool builder does as good a job as possible.  That is, it should give an optimum within our search budget.  Are there any search methods that we need to explore?
