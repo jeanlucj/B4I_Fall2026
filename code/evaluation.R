@@ -59,16 +59,23 @@ EVAL_GROUPS <- list(
   cv = c("mask_cells", "margin_baselines", "cv_once"),
 
   bglr = c("covariance_components", "accession_effects", "rank_summary",
-           "apply_trial_qc", "b4i_plot_table"),
+           "apply_trial_qc", "b4i_plot_table", "b4i_fit_frame"),
 
   # ---- the validation trial (offline; reads the fit in output/) --------
   validation = c("validation_inputs", "validation_vintage", "build_pools",
-                 ".pools_at", ".pool_scan", "pool_diff"),
+                 ".pools_at", ".pool_scan", "pool_diff", "prereg_lines"),
 
   val_design = c("make_validation_design", "check_validation_design"),
 
   val_power  = c("contrast_se", "contrast_power", "power_grid",
+                 "slope_power", "total_yield_power",
                  "simulate_validation", "crossval_estimates"),
+
+  # The lambda machinery. code/validate_crossval.R was absent from
+  # EVAL_DEFS_FILES until 2026-10-03, so none of this was reachable with
+  # eval_defs() -- which is why the quantity every power claim is conditional
+  # on could not be inspected interactively.
+  val_lambda = c("run_fold", "summarise_folds"),
 
   # ---- analysis: online (T3/Oat over BrAPI) ---------------------------
   t3 = c("connect_t3", "download_trial_observations", "download_observations",
@@ -138,7 +145,12 @@ EVAL_SOURCES <- list(
                  "code/sim_fit.R",
                  "code/megalmm_setup.R",
                  "code/interaction_decomp.R"),
-  validation = c("code/validation_functions.R")
+  # validation_functions.R sources dge_ige_functions.R itself now, because
+  # validation_inputs() must use b4i_fit_frame() -- the same filter chain the
+  # production fit uses. Listed explicitly so eval_load("validation") does not
+  # depend on that internal source() call.
+  validation = c("code/dge_ige_functions.R",
+                 "code/validation_functions.R")
 )
 
 # Which driver scripts hold functions worth reaching with eval_defs().
@@ -150,7 +162,8 @@ EVAL_DEFS_FILES <- list(
   simulation = c("code/sim_run.R"),
   validation = c("code/validate_power.R",       # simulate_validation()
                  "code/validate_pool_selection.R",
-                 "code/validate_design.R")
+                 "code/validate_design.R",
+                 "code/validate_crossval.R")     # the lambda machinery
 )
 
 # name -> files that defined it, filled in by eval_load()/eval_defs()

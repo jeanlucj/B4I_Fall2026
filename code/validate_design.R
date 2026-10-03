@@ -37,8 +37,17 @@ source(here::here("code", "validation_functions.R"))
 # Settings
 # ------------------------------------------------------------
 
+args <- commandArgs(trailingOnly = TRUE)
+arg_value <- function(flag, default) {
+  i <- match(flag, args)
+  if (is.na(i) || i == length(args)) default else args[i + 1]
+}
+
 out_root <- here::here("output", "validation")
-vintage  <- format(Sys.Date(), "%Y-%m-%d")
+# --vintage lets this be re-run against an earlier day's pools. Without it the
+# script bound to today's date and simply failed on any day the pool selection
+# had not also been re-run.
+vintage  <- arg_value("--vintage", format(Sys.Date(), "%Y-%m-%d"))
 
 # Shared with the other validate_* scripts; see VALIDATION_DEFAULTS in
 # code/validation_functions.R. n_anchor_per_cell = 1 gives 4 cells x 2 plots =
@@ -75,6 +84,49 @@ design <- make_validation_design(
   n_anchor = n_anchor_per_cell, block_size = block_size,
   seed = design_seed
 )
+
+# ------------------------------------------------------------
+# FREEZE THE PREDICTORS INTO THE FIELD BOOK
+#
+# Two of the three pre-registered estimands regress on a predicted effect:
+# `slope` on the associate BLUP and `total` on GMA = Pr + As. If those are
+# re-derived from a later refit, the analysis is not pre-registered -- it is
+# conditioned on data that did not exist when the trial was designed. Writing
+# them into the field book at design time is what makes the pre-registration
+# real, and it costs four columns.
+#
+# The phenology columns are empty on purpose: the field book doubles as the
+# data-entry template, and a column that is present but blank is noticed at
+# upload time, where a column that is absent is noticed at analysis time.
+# The pre-registered use is a SECONDARY analysis against the focal accession's
+# phenology BLUE from PRIOR trials -- not against the value recorded here.
+# In-trial phenology is a MEDIATOR of the associate effect, so conditioning the
+# primary slope on it would bias that slope toward zero.
+# ------------------------------------------------------------
+
+pred <- function(d, col) stats::setNames(d[[col]], d$acc)
+
+design <- design |>
+  dplyr::mutate(
+    x_As_oat  = pred(oat_pools, "As")[oat_acc],
+    x_As_pea  = pred(pea_pools, "As")[pea_acc],
+    x_GMA_oat = pred(oat_pools, "GMA")[oat_acc],
+    x_GMA_pea = pred(pea_pools, "GMA")[pea_acc],
+    x_total   = x_GMA_oat + x_GMA_pea,
+    # Recorded on every plot. T3/Oat ontology terms:
+    #   oat heading   "Heading date - Julian day|CO_350:0000270"
+    #   pea flowering "Pea Flowering Date - 10% - Julian Day|CO_xxx:0003014"
+    #   oat maturity  "Maturity date - Julian day|CO_350:0000271"
+    #   pea maturity  "Pea Maturity Date - Julian Day|CO_xxx:0003015"
+    #   oat height    "Plant height - cm|CO_350:0000232"
+    #   pea height    "Pea Plant Height - cm|CO_xxx:0003005"
+    oat_heading_jd   = NA_real_,
+    pea_flowering_jd = NA_real_,
+    oat_maturity_jd  = NA_real_,
+    pea_maturity_jd  = NA_real_,
+    oat_height_cm    = NA_real_,
+    pea_height_cm    = NA_real_
+  )
 
 readr::write_csv(design, file.path(out_dir, "field_book.csv"))
 
@@ -144,10 +196,40 @@ report <- utils::capture.output({
             "some combinations are replicated, so plot error is estimable") && ok
   cat("\n", if (ok) "design passes every check" else
       "DESIGN HAS A PROBLEM -- see the FAIL lines above", "\n", sep = "")
+  invisible(ok)
 })
 
 writeLines(report, file.path(out_dir, "design_check.txt"))
 cat(paste(report, collapse = "\n"), "\n")
+
+# ------------------------------------------------------------
+# AND THE VERDICT SETS THE EXIT STATUS
+#
+# It did not until 2026-10-03. `ok` was accumulated, printed, and dropped -- so
+# a design that failed partner balance still wrote its field book, exited 0, and
+# was recorded as "ok" by validate_refresh.R, whose only failure signal is a
+# child process's exit status. The one trace was a FAIL line inside
+# design_check.txt, at the edge of the six lines the driver echoes.
+#
+# Partner balance is the property the whole contrast rests on, so it has to be
+# able to stop the chain.
+# ------------------------------------------------------------
+
+verdict_ok <- all(
+  dplyr::n_distinct(chk$plots_per_location$plots) == 1,
+  dplyr::n_distinct(chk$cells_per_location$plots) == 1,
+  chk$max_oat_imbalance == 0,
+  chk$max_pea_imbalance == 0,
+  chk$anchor_plots == 2 * 4 * n_anchor_per_cell * n_locations,
+  nrow(chk$replicated_combinations) > 0,
+  # the frozen predictors must be complete, or two of the three estimands are
+  # not pre-registered
+  !anyNA(design$x_As_oat), !anyNA(design$x_As_pea), !anyNA(design$x_total)
+)
+
+if (!verdict_ok) {
+  message("\nDESIGN CHECK FAILED -- see ", file.path(out_dir, "design_check.txt"))
+}
 
 # ------------------------------------------------------------
 # Figure: the balance, seen
@@ -181,3 +263,7 @@ ggplot2::ggsave(file.path(out_dir, "design_balance.png"), p,
                 width = 9, height = 4.5, dpi = 150)
 
 message("\nwrote ", out_dir)
+
+# Exits non-zero on a failed check, so validate_refresh.R stops here rather
+# than carrying a broken field book forward.
+quit(save = "no", status = if (verdict_ok) 0L else 1L)

@@ -298,6 +298,114 @@ if (!requireNamespace("MegaLMM", quietly = TRUE)) {
 # so this failure would be read as a result.
 # ============================================================
 
+cat("\n-- streamed per-accession draws, and the PEV they give --\n")
+
+# The route to a PER-ACCESSION prediction error variance. Everything in the
+# validation chain used one reliability per species, which gave an accession
+# seen with twenty partners the same prediction error as one seen with two.
+#
+# Streaming the draws is the ONLY correct route: an accession effect is
+# `L %*% beta`, so its variance is `L Var(beta) L'` and needs the full p x p
+# posterior covariance of beta -- which BGLR does not accumulate. The last
+# assertion here is the one that pins that, so a future "optimisation" to the
+# cheap-looking SD.beta cannot pass.
+{
+  NIT_A <- 400L; BRN_A <- 100L; THN_A <- 10L
+  Go_a <- make_panel(25L, "o", 515L)
+  Gp_a <- make_panel(25L, "p", 516L)
+  sim_a <- simulate_experiment(Go_a, Gp_a, sparsity = 0.6, n_factors = 1L,
+                               interaction_pct = 0, n_envs = 1L)
+  sp_a <- prepare_scenario(sim_a)
+  pre_a <- file.path(tempdir(), "test_accpev_")
+
+  # fit_producer_associate() is called directly here, because it is the thing
+  # under test. That means doing the column translation fit_dge_ige() normally
+  # does (code/sim_fit.R:131-140).
+  dat_a <- tibble::tibble(
+    oatAcc   = rownames(sim_a$G_oat)[sp_a$train$oat],
+    peaAcc   = rownames(sim_a$G_pea)[sp_a$train$pea],
+    oatYield = sp_a$train$y_oat_std,
+    peaYield = sp_a$train$y_pea_std,
+    trialF       = droplevels(factor(sp_a$train$env)),
+    blockNumberF = droplevels(factor(sp_a$train$env))
+  )
+
+  # storage_mode = "double" HERE, deliberately: the identity below is asserted
+  # at 1e-10 and single precision cannot carry it. Production uses "single",
+  # which halves the files and is ample for a variance. The two differ on
+  # purpose -- see draw_storage_mode in code/BGLR_multi_trait_model.R.
+  fa <- fit_producer_associate(dat_a, sim_a$G_oat, sim_a$G_pea,
+                               seed = 17L, nIter = NIT_A, burnIn = BRN_A,
+                               thin = THN_A,
+                               save_effects = c("G_oat", "G_pea"),
+                               saveAt = pre_a, storage_mode = "double")
+
+  check(!is.null(fa$effect_files) && all(file.exists(fa$effect_files)),
+        "save_effects names the genetic terms and both files are written")
+  check(setequal(names(fa$effect_files), c("G_oat", "G_pea")),
+        "and only the terms that were asked for")
+  check(setequal(fa$trials, levels(dat_a$trialF)),
+        "the fit reports the trial set it actually used")
+
+  for (tm in c("G_oat", "G_pea")) {
+    L  <- if (tm == "G_oat") fa$L_oat else fa$L_pea
+    dr <- read_beta_draws(pre_a, term = paste0("ETA_", tm), nIter = NIT_A,
+                          burnIn = BRN_A, thin = THN_A, p = ncol(L),
+                          traits = 2L)
+    check(dim(dr)[1] == NIT_A %/% THN_A - BRN_A %/% THN_A,
+          sprintf("%s: exactly the post-burn-in draws are kept", tm))
+
+    # ALGEBRAIC IDENTITY. BGLR's returned beta is the running mean over
+    # precisely the post-burn-in thinned draws, so this can only hold if the
+    # burn-in offset, the byte order, the trait-major layout and the storage
+    # mode are all right at once.
+    for (k in seq_len(2L)) {
+      check_near(colMeans(dr[, , k]), fa$fit$ETA[[tm]]$beta[, k], tol = 1e-10,
+                 sprintf("%s: draw mean equals BGLR's posterior mean, trait %d",
+                         tm, k))
+    }
+
+    # and the same identity after rotating to the accession scale
+    acc_bar <- colMeans(tcrossprod(dr[, , 2], L))
+    check_near(acc_bar, as.vector(L %*% fa$fit$ETA[[tm]]$beta[, 2]),
+               tol = 1e-10,
+               sprintf("%s: per-draw accession effects average to L %%*%% beta", tm))
+
+    # NEGATIVE: keeping burn-in must be detectably different
+    raw_a <- BGLR::readBinMatMultitrait(fa$effect_files[[tm]])
+    check(max(abs(colMeans(raw_a[, , 1]) - fa$fit$ETA[[tm]]$beta[, 1])) > 1e-6,
+          sprintf("%s: keeping burn-in gives a detectably different mean", tm))
+
+    # the PEV itself
+    pev <- apply(tcrossprod(dr[, , 2], L), 2, stats::var)
+    check(all(pev > 0) && all(is.finite(pev)),
+          sprintf("%s: every per-accession PEV is positive and finite", tm))
+    check(length(pev) == nrow(L),
+          sprintf("%s: one PEV per accession", tm))
+
+    # NEGATIVE, and the important one: PEV is NOT L %*% SD.beta. That route
+    # ignores the posterior covariance among coefficients, so it must disagree.
+    sd_route <- as.vector(L %*% fa$fit$ETA[[tm]]$SD.beta[, 2])
+    check(max(abs(sqrt(pev) - sd_route)) > 1e-6,
+          sprintf("%s: PEV is not L %%*%% SD.beta -- that route drops the posterior covariance", tm))
+  }
+
+  # the mix-term guard must still fire for the term it was written for, and
+  # must NOT fire for the genetic terms
+  check_error(
+    fit_producer_associate(dat_a, sim_a$G_oat, sim_a$G_pea, seed = 1L,
+                           nIter = 40L, burnIn = 10L, thin = 10L,
+                           save_effects = "G_mix", saveAt = pre_a),
+    "save_effects = 'G_mix' without the mix term at a kron_rank is refused")
+  check_error(
+    fit_producer_associate(dat_a, sim_a$G_oat, sim_a$G_pea, seed = 1L,
+                           nIter = 40L, burnIn = 10L, thin = 10L,
+                           save_effects = "G_nonsense", saveAt = pre_a),
+    "an unknown term name is refused")
+
+  unlink(fa$effect_files)
+}
+
 cat("\n-- streamed interaction draws --\n")
 
 {

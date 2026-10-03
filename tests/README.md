@@ -19,8 +19,8 @@ non-zero if anything failed. `run_all.R` aggregates and reports timings.
 | `test_generator.R` | the bivariate simulator: exact variances and covariances, exact sparsity, interaction rank, GxE | 1 |
 | `test_surface.R` | the additive/interaction decomposition, which margin is which effect, masking, scoring | 1 |
 | `test_design.R` | grid collapses, the composite recoding, the D-optimal fraction, the cache key | 36 |
-| `test_validation.R` | pool construction, the field design's balance, the power formula | 2 |
-| `test_fits.R` | **slow**: real BGLR Multitrait and MegaLMM chains — recovery, and a null | 9 |
+| `test_validation.R` | pool construction, the field design's balance, the three-term power formula and its Satterthwaite df, the named-only argument barrier | 3 |
+| `test_fits.R` | **slow**: real BGLR Multitrait and MegaLMM chains — recovery, a null, and the streamed-draw identities behind the per-accession PEV | 12 |
 
 ## What makes these tests worth having
 
@@ -45,6 +45,20 @@ The suite has already paid for itself three times:
 - `test_kronecker.R` found `kron_basis()` using `ncol(A)` as the rank of *both*
   bases on its first run. Harmless while the two ranks agreed, wrong as soon as
   variance truncation made them differ.
+- `test_validation.R` had **nine fully positional calls** to `contrast_power()`
+  relying on the argument order `(dAs, sigma2_within, n, sigma2_e, P)`. Inserting
+  any argument before `P` would have silently rebound all nine while the suite
+  kept reporting PASS. The functions now put `...` ahead of everything but the
+  first argument, so R refuses to match the rest positionally, and a
+  `...length()` guard catches a misspelled name that would otherwise vanish into
+  `...`. Two negative controls keep the barrier in place.
+- **Nothing pinned `df == 2n - 2`**, so changing the degrees of freedom would
+  have passed the whole suite in silence. It is pinned now, and the Satterthwaite
+  correction has to reproduce it exactly as the zero-interaction boundary case.
+- `test_fits.R` pins that per-accession PEV comes from the streamed draws and
+  **not** from `L %*% SD.beta`, which ignores the posterior covariance among
+  coefficients. That negative control exists so a future optimisation to the
+  cheap-looking route fails loudly.
 - `test_validation.R` found `make_validation_design()` taking its anchor plots
   from the *rotated* selection window, so the anchor combination differed at
   every location — the opposite of what anchors are for. Combination × location

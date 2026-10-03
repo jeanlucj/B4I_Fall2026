@@ -55,6 +55,10 @@ min_partners <- validation_setting("min_partners")
 out_dir <- file.path(out_root, vintage)
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
+# min_partners is now the REFERENCE count from which the reliability threshold
+# is derived (the first quartile of rel_As among accessions sitting exactly at
+# it), not the threshold itself. partner_floor is the hard identifiability
+# guard that still applies.
 inputs <- validation_inputs(min_partners = min_partners)
 
 cat("\n=== Vintage ===\n")
@@ -74,9 +78,16 @@ built <- purrr::imap(inputs, \(inp, name) {
   message("\n--- ", name, ": ", n, " accessions per pool ---")
   bp <- build_pools(inp, n, pr_quantile = pr_quantile, tol = pr_tolerance)
 
+  e <- inp$eligibility
   cat("\n=== ", toupper(name), " ===\n", sep = "")
-  cat("eligible accessions (>= ", min_partners, " partners): ", inp$n_eligible,
-      " of ", nrow(inp$accessions), "\n", sep = "")
+  # The rule is printed from inp$eligibility rather than described here, so the
+  # console, the figure subtitle and the generated document cannot drift apart.
+  cat("eligible accessions: ", e$n_eligible, " of ", e$n_total, "  [rule: ",
+      if (e$rule == "reliability")
+        sprintf("rel_As >= %.3f (%s, from %d accessions at exactly %d partners) AND >= %d partners",
+                e$rel_min, e$rel_min_source, e$n_ref, e$min_partners, e$partner_floor)
+      else sprintf(">= %d partners", e$min_partners),
+      "]\n", sep = "")
   cat("candidates above the Pr threshold (", round(bp$pr_min, 2), "): ",
       bp$n_candidates, "\n", sep = "")
   cat("associate contrast  : ", round(bp$dAs, 2), " g/m2 on ", inp$response, "\n", sep = "")
@@ -86,15 +97,36 @@ built <- purrr::imap(inputs, \(inp, name) {
       round(bp$mean_Pr_minus, 2),
       "   (population mean ", round(mean(inp$accessions$Pr), 2), ")\n", sep = "")
   cat("within-pool SD of true effects: ", round(sqrt(bp$sigma2_within), 2),
-      " (PEV ", round(inp$PEV_As, 1), " + BLUP spread ",
-      round(bp$var_blup_within, 1), ")\n", sep = "")
+      "\n  As+ : PEV ", round(bp$PEV_plus, 1), " + BLUP spread ",
+      round(bp$var_blup_plus, 1), " = ", round(bp$sigma2_within_plus, 1),
+      "\n  As- : PEV ", round(bp$PEV_minus, 1), " + BLUP spread ",
+      round(bp$var_blup_minus, 1), " = ", round(bp$sigma2_within_minus, 1),
+      "\n", sep = "")
+  # The PEV above is MEASURED from the posterior draws, per accession. The old
+  # route backed it out of Var(true) = Var(BLUP) + E[PEV], an identity this fit
+  # does not satisfy, and was 2.3x larger -- which inflated this SD and
+  # understated power. Both are reported in vintage.csv as PEV_As (backed out)
+  # and PEV_As_measured, with their ratio.
+  cat("  (backed-out global PEV would have been ", round(inp$PEV_As, 1),
+      ", a factor of ", round(inp$PEV_ratio_backed_out_to_measured, 2),
+      " larger -- see vintage.csv)\n", sep = "")
 
   stopifnot(
     "pools are not disjoint" =
       length(intersect(bp$pools$acc[bp$pools$pool == "As+"],
                        bp$pools$acc[bp$pools$pool == "As-"])) == 0,
-    "a pool member falls below the partner filter" =
-      all(bp$pools$n_partners >= min_partners)
+    # Both halves of the eligibility rule, asserted on the SELECTED accessions
+    # rather than trusted from the candidate filter. The partner floor is the
+    # one that matters: an accession grown with a single partner has its
+    # producer and associate effects perfectly aliased, and the pools exist to
+    # separate exactly those two.
+    "a pool member falls below the reliability threshold" =
+      (inp$eligibility$rule != "reliability") ||
+        all(bp$pools$rel_As_i >= inp$eligibility$rel_min),
+    "a pool member falls below the partner floor" =
+      all(bp$pools$n_partners >= inp$eligibility$partner_floor),
+    "a pool member has producer and associate effects aliased" =
+      all(bp$pools$n_partners >= 2L)
   )
   bp
 })
@@ -107,8 +139,16 @@ pool_summary <- purrr::imap(built, \(bp, name) tibble::tibble(
   dAs = bp$dAs, dPr = bp$dPr,
   mean_As_plus = bp$mean_As_plus, mean_As_minus = bp$mean_As_minus,
   mean_Pr_plus = bp$mean_Pr_plus, mean_Pr_minus = bp$mean_Pr_minus,
-  sigma2_within = bp$sigma2_within, PEV = inputs[[name]]$PEV_As,
-  reliability_As = inputs[[name]]$rel_As
+  sigma2_within = bp$sigma2_within,
+  sigma2_within_plus = bp$sigma2_within_plus,
+  sigma2_within_minus = bp$sigma2_within_minus,
+  PEV_plus = bp$PEV_plus, PEV_minus = bp$PEV_minus,
+  var_As_within_pools = bp$var_As_within_pools,
+  PEV = inputs[[name]]$PEV_As,
+  PEV_measured = inputs[[name]]$PEV_As_measured,
+  reliability_As = inputs[[name]]$rel_As,
+  eligibility_rule = inputs[[name]]$eligibility$rule,
+  rel_min = inputs[[name]]$eligibility$rel_min
 )) |> purrr::list_rbind()
 
 readr::write_csv(pools, file.path(out_dir, "pools.csv"))
@@ -154,28 +194,26 @@ if (length(previous) > 0) {
     as.data.frame() |>
     print(row.names = FALSE)
 
-  # Churn only means "the effect estimates moved" when both vintages were built
-  # by the SAME rule. pool_summary.csv carries a pool_index stamp; if the
-  # previous vintage's is missing or different, the churn is measuring the rule
-  # change and the 70% guidance does not apply to it.
+  # WHAT THIS IS AND IS NOT. Churn is reported because it is cheap and because
+  # somebody ordering seed will want to know what moved. It is NOT a criterion:
+  # the analysis method is still being settled, so churn between vintages
+  # mostly measures changes to the method rather than instability in the
+  # effects, and nothing in this chain gates on it. The earlier 70%-retention
+  # guidance has been removed for that reason.
+  #
+  # The pool_index stamp says whether the two vintages are even comparable.
   prev_sum <- file.path(prev_dir, "pool_summary.csv")
   prev_idx <- if (file.exists(prev_sum)) {
     ps <- readr::read_csv(prev_sum, show_col_types = FALSE)
     if ("pool_index" %in% names(ps)) unique(ps$pool_index)[1] else NA_character_
   } else NA_character_
 
-  if (!identical(prev_idx, POOL_INDEX_VERSION)) {
-    cat("\n*** The previous vintage was built by a DIFFERENT selection rule",
-        " (", if (is.na(prev_idx)) "unstamped, pre-2026-10-03" else prev_idx,
-        " vs ", POOL_INDEX_VERSION, ").\n",
-        "    This churn measures the RULE CHANGE, not the stability of the",
-        " effect estimates.\n    The 70% retention guidance does not apply to",
-        " it. The next vintage is comparable again. ***\n", sep = "")
-  } else {
-    cat("\nA pool that retains well under 70% of its members across a data\n",
-        "vintage is a warning about the estimates, not about the design.\n",
-        sep = "")
-  }
+  cat("\nselection rule: ", POOL_INDEX_VERSION, " now, ",
+      if (is.na(prev_idx)) "unstamped" else prev_idx, " then",
+      if (!identical(prev_idx, POOL_INDEX_VERSION))
+        " -- so this diff reflects the rule change as well as the new data."
+      else " -- same rule, so this diff is the new data alone.",
+      "\n", sep = "")
 } else {
   cat("\nNo previous vintage to compare with; this is the baseline.\n")
 }
@@ -208,9 +246,16 @@ p <- plot_data |>
   ggplot2::theme_bw(base_size = 12) +
   ggplot2::labs(
     title    = "Validation pools: high producers, contrasted for associate effect",
-    subtitle = paste0("vintage ", vintage, "; candidates restricted to >= ",
-                      min_partners, " distinct partners and Pr above the ",
-                      round(100 * pr_quantile), "th percentile"),
+    # Stated from inp$eligibility, not hard-coded: the caption is one of the
+    # four places that used to describe the eligibility rule in its own words.
+    subtitle = paste0(
+      "vintage ", vintage, "; candidates restricted to ",
+      if (inputs[[1]]$eligibility$rule == "reliability")
+        sprintf("associate reliability >= %.3f and >= %d partners",
+                inputs[[1]]$eligibility$rel_min,
+                inputs[[1]]$eligibility$partner_floor)
+      else sprintf(">= %d distinct partners", inputs[[1]]$eligibility$min_partners),
+      ", and Pr above the ", round(100 * pr_quantile), "th percentile"),
     x = "producer effect (own yield, g/m2)",
     y = "associate effect (partner yield, g/m2)", colour = NULL
   )
