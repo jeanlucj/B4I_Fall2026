@@ -19,3 +19,13 @@ The specific-combination term is fitted in a low-rank Kronecker basis and then r
 [2026-10-01 15:29:32] When I run the sim_decomp, do the outputs go to a different folder than either simulation or simulation_int?  Do I need to clear any current folders of their sim outputs?
 [2026-10-01 22:47:57] One thing you have found is that when, for MegaLMM, you include the fixed main effect vector, the prediction of the interaction effect is always worse than when you don't include it.  That result is not intuitive to me.  Can you explain it?
 [2026-10-02 10:05:01] In docs > B4I_Proposal_Models.docx, the bivariate DGE-IGE model is given with oat and pea responses stacked into one vector.  Can you re-write that model in matrix variate notation with oat and pea responses in two columns?
+[2026-10-02 17:33:18] Which of these scripts, if any, does validate_refresh.R run? 
+
+<pasted_content id="9b66">
+Rscript code/validate_crossval.R         # measures lambda (do this first)
+Rscript code/validate_pool_selection.R   # pools + diff vs previous vintage
+Rscript code/validate_power.R            # analytic + simulation + null check
+Rscript code/validate_design.R           # field book + design checks
+</pasted_content id="9b66">
+[2026-10-02 22:34:29] I'm looking at the power_grid now. I have retained lambda = 0.8 and interaction_frac = 0.5.  Those values seems somewhat close to the truth.  Then, power does seem to increase with the pool size.  It maxes out at n=50 (that is the pool size for each pool, right? So with n=40, we would actually be working with 80 accessions of each species).  Having a larger number of accessions is a little more challenging logistically, but I'm willing to have that for the sake of higher power.  This power_grid result runs against the statement in VALIDATION_DESIGN that "Power is nearly flat in n: the contrast shrinks as pools grow at almost
+exactly the rate the standard error falls".  Why is that?  Also, what is power_simulation.csv relative to power_grid.csv?

@@ -182,15 +182,15 @@ the result generalise. The experimental unit for the contrast is therefore the
 ### The result
 
 <!-- BEGIN GENERATED: vintage -->
-*Numbers below are from vintage **2026-10-02**.*
+*Numbers below are from vintage **2026-10-02_1**.*
 
 | species | trials | plots | accessions | eligible | reliability of As |
 |---|---|---|---|---|---|
 | oat | 9 | 3567 | 440 | 429 | 0.41 |
 | pea | 9 | 3567 | 422 | 406 | 0.27 |
 
-Trials kept by the QC screen (7): B4I_2025_IL, B4I_2025_ND, B4I_2025_NY, B4I_2026_IA, B4I_2026_IL, B4I_2026_ND, B4I_2026_NY
-Dropped (2): B4I_2025_AL, B4I_2025_IA
+Trials kept by the QC screen (8): B4I_2025_IA, B4I_2025_IL, B4I_2025_ND, B4I_2025_NY, B4I_2026_IA, B4I_2026_IL, B4I_2026_ND, B4I_2026_NY
+Dropped (1): B4I_2025_AL
 <!-- END GENERATED: vintage -->
 
 <!-- BEGIN GENERATED: power -->
