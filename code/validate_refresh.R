@@ -173,6 +173,39 @@ run_step <- function(script) {
 
 timings <- purrr::map_dbl(steps$script, run_step)
 
+# ------------------------------------------------------------
+# THE DRIVER CHECKS THE TRIAL SET ITSELF
+#
+# A hard-coded whitelist in BGLR_multi_trait_model.R once held the fit to five
+# trials while every reported table described nine, for two vintages, with every
+# step exiting 0. The whitelist is gone and validation_inputs() now refuses to
+# run on a mismatch -- but the driver should not depend on a downstream script
+# noticing, because the failure mode is precisely that everything looks fine.
+# SELF_CRITIQUE.md finding A.
+# ------------------------------------------------------------
+
+if (any(steps$stage == "fit")) {
+  ft <- here::here("output", "BGLR_fit_trials.csv")
+  qf <- here::here("output", "trial_qc.csv")
+  if (!file.exists(ft)) {
+    stop("the fit step finished but wrote no ", basename(ft),
+         ": nothing records which trials it used.", call. = FALSE)
+  }
+  fit_set <- readr::read_csv(ft, show_col_types = FALSE)$studyName
+  if (file.exists(qf)) {
+    qc <- readr::read_csv(qf, show_col_types = FALSE)
+    kept <- qc$studyName[qc$keep]
+    if (!setequal(fit_set, kept)) {
+      stop("the fit used a different trial set from the QC screen's verdict.",
+           "\n  fit:  ", paste(sort(fit_set), collapse = ", "),
+           "\n  kept: ", paste(sort(kept), collapse = ", "),
+           "\n  This is SELF_CRITIQUE.md finding A.", call. = FALSE)
+    }
+  }
+  cat("\ntrial set checked: the fit used the ", length(fit_set),
+      " trial(s) the QC screen keeps.\n", sep = "")
+}
+
 cat("\n", strrep("=", 72), "\nDone in ", round(sum(timings), 1), " min\n",
     strrep("=", 72), "\n", sep = "")
 print(tibble::tibble(step = steps$script, minutes = round(timings, 1)))

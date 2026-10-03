@@ -38,6 +38,10 @@ library(tidyverse)
 here::i_am("code/BGLR_multi_trait_model.R")
 
 source(here::here("code", "dge_ige_functions.R"))
+# read_beta_draws(): the streamed-draw reader, which already knows that BGLR
+# writes every thinned iteration INCLUDING burn-in. Reused rather than
+# rewritten, so there is one place that knows about that trap.
+source(here::here("code", "interaction_decomp.R"))
 
 # ------------------------------------------------------------
 # Settings
@@ -65,18 +69,17 @@ analysis_name_files <- c(
 
 out_dir <- here::here("output")
 
+# WHICH TRIALS ARE FITTED IS NOT SET HERE. It comes from output/trial_qc.csv
+# via apply_trial_qc(), inside b4i_fit_frame(). There used to be a hard-coded
+# `trials` whitelist at this spot, and because it was never updated when the
+# 2026 trials landed it silently held the fit to five trials and 1,985 plots
+# while every table in VALIDATION_DESIGN.md reported the phenotype file's nine
+# and 3,567. Nothing compared the two, so nothing noticed for two vintages.
+# See SELF_CRITIQUE.md finding A. To include or exclude a trial, edit
+# data/trial_qc_manual.csv and re-run code/curate_trials.R.
+#
+# study_years remains only as a guard against a stray year arriving from T3.
 study_years <- c(2025L, 2026L)
-
-# Every B4I intercrop trial that recorded both yields (see
-# output/B4I_trials_selected.csv)
-trials <- c(
-  "B4I_2025_AL",
-  "B4I_2025_IA",
-  "B4I_2025_IL",
-  "B4I_2025_ND",
-  "B4I_2025_NY",
-  "B4I_2026_IL"
-)
 
 # The first seed gives the fit that is saved; the rest are there to
 # check that the accession rankings are stable across chains.
@@ -85,6 +88,13 @@ seeds <- c(12567, 129, 456, 789)
 nIter  <- 20000
 burnIn <- 3000
 thin   <- 10
+
+# Precision of the streamed per-draw coefficients. "single" halves the files
+# (~13 MB per seed for both genetic terms rather than ~26) and is far more
+# precision than a posterior variance needs. The tight colMeans(draws) == beta
+# identity in tests/test_fits.R uses "double", on a 400-iteration chain where
+# the file is tiny -- so do not "fix" the two to agree.
+draw_storage_mode <- "single"
 
 # Fit the specific-combination (SMA / direct x associate) term?  It is
 # estimable only if combinations are replicated.  In the B4I trials about
@@ -103,89 +113,18 @@ monoculture_labels <- c("NO_OATS_PLANTED", "NO_PEAS_PLANTED")
 # Phenotypes
 # ------------------------------------------------------------
 
-if (!file.exists(pheno_file)) {
-  stop(
-    "Phenotype file not found:\n  ", pheno_file,
-    "\nPoint `pheno_file` at the plot-level B4I table. It needs the columns ",
-    "studyYear, studyName, blockNumber, germplasmName, ",
-    "intercropGermplasmName, oat_yield, pea_yield.",
-    call. = FALSE
-  )
-}
-
-pheno <- if (grepl("\\.rds$", pheno_file, ignore.case = TRUE)) {
-  readRDS(pheno_file)
-} else {
-  readr::read_csv(pheno_file, show_col_types = FALSE)
-}
-
-# Trial-level QC, from code/curate_trials.R. A trial that cannot tell two
-# accessions apart contributes noise and a trial mean, and B4I_2025_AL is
-# exactly that -- a full set of plots from a crop failure. Dropped here rather
-# than in the phenotype file, so the assembled data keep every trial and the
-# decision stays visible and reversible in output/trial_qc.csv.
-pheno <- apply_trial_qc(pheno)
-
-needed <- c("studyYear", "studyName", "blockNumber", "germplasmName",
-            "intercropGermplasmName", "oat_yield", "pea_yield")
-if (!all(needed %in% names(pheno))) {
-  stop("Phenotype file is missing column(s): ",
-       paste(setdiff(needed, names(pheno)), collapse = ", "), call. = FALSE)
-}
-
 # ------------------------------------------------------------
-# Curation: drop monoculture plots
+# Phenotypes
 #
-# The model is about what an oat and a pea do to each other, so a plot
-# where only one of the two was sown carries no information about any
-# producer, associate or specific-combination effect.  T3 records those
-# plots with a placeholder germplasm name on the missing side.
+# One filter chain, shared with validation_inputs() through b4i_fit_frame():
+# trial QC, monoculture plots, missing yields, and the tidy modelling names.
+# Sharing it is what makes the plot set the fit saw assertable downstream
+# rather than re-derived and hoped equal.
 # ------------------------------------------------------------
 
-monoculture <- pheno |>
-  dplyr::filter(
-    germplasmName %in% monoculture_labels |
-      intercropGermplasmName %in% monoculture_labels
-  )
-
-if (nrow(monoculture) > 0) {
-  message("dropping ", nrow(monoculture), " monoculture plot(s)")
-  monoculture |>
-    dplyr::count(germplasmName, intercropGermplasmName, name = "plots") |>
-    as.data.frame() |>
-    print()
-}
-
-pheno <- pheno |>
-  dplyr::filter(
-    !germplasmName %in% monoculture_labels,
-    !intercropGermplasmName %in% monoculture_labels
-  )
-
-# One tidy set of names is used from here on: oatAcc / peaAcc / mixID.
-# mixID is built from the two accession names rather than taken from the
-# data, so that the combination kernel below is exactly G_oat (x) G_pea
-# on the observed combinations.
-grainWgt <- pheno |>
-  dplyr::mutate(
-    oatYield     = oat_yield,
-    peaYield     = pea_yield,
-    oatAcc       = as.character(germplasmName),
-    peaAcc       = as.character(intercropGermplasmName),
-    mixID        = paste(oatAcc, peaAcc, sep = "::"),
-    trialF       = factor(studyName),
-    blockNumberF = factor(paste(studyYear, studyName, blockNumber))
-  ) |>
-  dplyr::filter(
-    studyYear %in% study_years,
-    studyName %in% trials,
-    !is.na(oatYield), !is.na(peaYield),
-    !is.na(oatAcc), !is.na(peaAcc)
-  ) |>
-  dplyr::mutate(
-    trialF       = droplevels(trialF),
-    blockNumberF = droplevels(blockNumberF)
-  )
+grainWgt <- b4i_fit_frame(pheno_file = pheno_file,
+                          study_years = study_years,
+                          monoculture_labels = monoculture_labels)
 
 message("plots: ", nrow(grainWgt),
         " | trials: ", nlevels(grainWgt$trialF),
@@ -252,6 +191,9 @@ if (fit_mix_term && mean(combo_reps == 1) > 0.9) {
 G_oat_all <- collapse_grm(read_grm(grm_files[["oat"]]), analysis_name_files[["oat"]])
 G_pea_all <- collapse_grm(read_grm(grm_files[["pea"]]), analysis_name_files[["pea"]])
 
+# The GRMs must cover every phenotyped accession. fit_producer_associate()
+# checks this too, but checking here first means the message names the file to
+# fix rather than arriving from inside a fitting function.
 missing_oat <- setdiff(unique(grainWgt$oatAcc), rownames(G_oat_all))
 missing_pea <- setdiff(unique(grainWgt$peaAcc), rownames(G_pea_all))
 
@@ -259,27 +201,14 @@ if (length(missing_oat) > 0 || length(missing_pea) > 0) {
   stop("Accessions phenotyped but absent from the GRMs -- oat: ",
        length(missing_oat), ", pea: ", length(missing_pea), "\n  ",
        paste(utils::head(c(missing_oat, missing_pea), 10), collapse = ", "),
+       "\n  Re-run code/create_GRMs_T3.R, or check the analysis names.",
        call. = FALSE)
 }
 
-# Subset and order the GRMs by the accessions actually in the trial
-oatAccs <- sort(unique(grainWgt$oatAcc))
-peaAccs <- sort(unique(grainWgt$peaAcc))
-mixIDs  <- sort(unique(grainWgt$mixID))
-
-G_oat <- G_oat_all[oatAccs, oatAccs, drop = FALSE]
-G_pea <- G_pea_all[peaAccs, peaAccs, drop = FALSE]
-
-# Combination kernel: G_oat (x) G_pea restricted to the observed
-# combinations, i.e. K[k, l] = G_oat[oat_k, oat_l] * G_pea[pea_k, pea_l]
-mix_parts <- stringr::str_split_fixed(mixIDs, stringr::fixed("::"), 2)
-G_mix <- G_oat[mix_parts[, 1], mix_parts[, 1], drop = FALSE] *
-         G_pea[mix_parts[, 2], mix_parts[, 2], drop = FALSE]
-dimnames(G_mix) <- list(mixIDs, mixIDs)
-
-for (nm in c("G_oat", "G_pea", "G_mix")) {
-  G <- get(nm)
-  cat("\n", nm, ": ", nrow(G), " x ", ncol(G), "\n", sep = "")
+for (nm in c("oat", "pea")) {
+  accs <- sort(unique(grainWgt[[paste0(nm, "Acc")]]))
+  G <- if (nm == "oat") G_oat_all[accs, accs] else G_pea_all[accs, accs]
+  cat("\nG_", nm, ": ", nrow(G), " x ", ncol(G), "\n", sep = "")
   cat("  diagonal      : "); print(summary(diag(G)))
   cat("  symmetric     : ", isSymmetric(unname(G)), "\n", sep = "")
   cat("  min eigenvalue: ",
@@ -287,102 +216,108 @@ for (nm in c("G_oat", "G_pea", "G_mix")) {
 }
 
 # ------------------------------------------------------------
-# Response and design matrices
-# ------------------------------------------------------------
-
-Y <- as.matrix(grainWgt[, c("peaYield", "oatYield")])
-colnames(Y) <- c("peaYield", "oatYield")
-stopifnot(!anyNA(Y))
-
-# Full set of trial dummies WITHOUT a separate intercept.  A full dummy
-# set plus an intercept is rank-deficient: BGLR does not error, it
-# samples along the ridge, so neither the intercept nor the trial
-# effects mean anything on their own and the chain mixes badly.
-incTrials <- stats::model.matrix(~ 0 + trialF, grainWgt)
-colnames(incTrials) <- levels(grainWgt$trialF)
-
-# Blocks are only informative where a trial has more than one of them.
-# A trial with a single block gives a block factor that is constant within
-# that trial and therefore perfectly aliased with its fixed trial effect,
-# so those columns are dropped; plots in single-block trials simply get a
-# zero row and take their trial effect alone.
-blocks_per_trial <- grainWgt |>
-  dplyr::distinct(trialF, blockNumberF) |>
-  dplyr::count(trialF, name = "n_blocks")
-
-informative_blocks <- grainWgt |>
-  dplyr::left_join(blocks_per_trial, by = "trialF") |>
-  dplyr::filter(n_blocks > 1) |>
-  dplyr::pull(blockNumberF) |>
-  unique() |>
-  as.character()
-
-incBlocks <- stats::model.matrix(~ 0 + blockNumberF, grainWgt)
-colnames(incBlocks) <- levels(grainWgt$blockNumberF)
-incBlocks <- incBlocks[, colnames(incBlocks) %in% informative_blocks, drop = FALSE]
-
-message("block effects fitted for ", ncol(incBlocks), " of ",
-        nlevels(grainWgt$blockNumberF),
-        " blocks; the rest are single-block trials, aliased with the trial effect")
-
-Z_oat <- incidence(grainWgt$oatAcc, rownames(G_oat))
-Z_pea <- incidence(grainWgt$peaAcc, rownames(G_pea))
-Z_mix <- incidence(grainWgt$mixID,  rownames(G_mix))
-
-# ------------------------------------------------------------
-# G = L L', so that a BRR on Z L is the RKHS model with kernel Z G Z'
-# while keeping the coefficients on the accession scale
-# ------------------------------------------------------------
-
-L_oat <- grm_factor(G_oat)
-L_pea <- grm_factor(G_pea)
-L_mix <- grm_factor(G_mix)
-
-stopifnot(
-  max(abs(tcrossprod(L_oat) - G_oat)) < 1e-8,
-  max(abs(tcrossprod(L_pea) - G_pea)) < 1e-8,
-  max(abs(tcrossprod(L_mix) - G_mix)) < 1e-8
-)
-
-# ------------------------------------------------------------
-# ETA
-# ------------------------------------------------------------
-
-ETA <- list(
-  trial = list(X = incTrials,      model = "FIXED"),
-  G_pea = list(X = Z_pea %*% L_pea, model = "BRR"),
-  G_oat = list(X = Z_oat %*% L_oat, model = "BRR")
-)
-
-if (ncol(incBlocks) > 0) {
-  ETA <- append(ETA, list(block = list(X = incBlocks, model = "BRR")), after = 1)
-}
-
-if (fit_mix_term) {
-  ETA$G_mix <- list(X = Z_mix %*% L_mix, model = "BRR")
-}
-
-# ------------------------------------------------------------
 # Fit
+#
+# Through fit_producer_associate(), which the cross-validation folds in
+# code/validate_crossval.R also call. This script used to build its own ETA and
+# call BGLR::Multitrait() directly, so VALIDATION_DESIGN.md's claim that "the
+# fitting itself is shared" was not true of the production fit. It is now, and
+# BGLR_fit_provenance.csv records which function ran so the claim stays
+# checkable.
+#
+# save_effects streams the per-draw coefficients of the two genetic terms, which
+# is the only correct route to a PER-ACCESSION prediction error variance:
+# SD.beta is the elementwise posterior SD on the L basis, and Var(L b) needs the
+# full p x p posterior covariance of b, which BGLR does not accumulate.
 # ------------------------------------------------------------
+
+seed_prefix <- function(s) file.path(out_dir, paste0("BGLR_seed_", s, "_"))
 
 fit_one <- function(seed_value) {
   message("\n--- fitting, seed ", seed_value, " ---")
-  set.seed(seed_value)
-  BGLR::Multitrait(
-    y         = Y,
-    ETA       = ETA,
-    intercept = FALSE,
-    resCov    = list(df0 = 4, S0 = NULL, type = "UN"),
-    nIter     = nIter,
-    burnIn    = burnIn,
-    thin      = thin,
-    saveAt    = file.path(out_dir, paste0("BGLR_seed_", seed_value, "_")),
-    verbose   = FALSE
+  fit_producer_associate(
+    grainWgt, G_oat_all, G_pea_all,
+    seed         = seed_value,
+    nIter        = nIter,
+    burnIn       = burnIn,
+    thin         = thin,
+    fit_mix_term = fit_mix_term,
+    saveAt       = seed_prefix(seed_value),
+    save_effects = c("G_oat", "G_pea"),
+    storage_mode = draw_storage_mode,
+    verbose      = FALSE
   )
 }
 
-fits <- rlang::set_names(purrr::map(seeds, fit_one), seeds)
+fp <- rlang::set_names(purrr::map(seeds, fit_one), seeds)
+
+# The raw BGLR objects, so the reporting below is unchanged by the refactor.
+fits  <- purrr::map(fp, "fit")
+# L is a deterministic function of the GRM, so it is identical across seeds.
+L_oat <- fp[[1]]$L$oat
+L_pea <- fp[[1]]$L$pea
+Y     <- as.matrix(grainWgt[, DGE_IGE_TRAITS])
+ETA   <- fits[[1]]$ETA
+
+stopifnot(
+  "the seeds disagree about which trials were fitted" =
+    length(unique(purrr::map(fp, "trials"))) == 1L,
+  "the fitted trial set is not the QC-kept set" =
+    setequal(fp[[1]]$trials, levels(grainWgt$trialF))
+)
+
+# ------------------------------------------------------------
+# What the fit actually saw
+#
+# Written out because nothing recorded it before, which is why a five-trial fit
+# could be reported as nine for two vintages. validation_inputs() reads
+# BGLR_fit_trials.csv and refuses to proceed if it disagrees with the
+# QC-filtered phenotype table.
+# ------------------------------------------------------------
+
+fit_trials <- grainWgt |>
+  dplyr::group_by(studyName, studyYear) |>
+  dplyr::summarise(
+    n_plots        = dplyr::n(),
+    n_oat          = dplyr::n_distinct(oatAcc),
+    n_pea          = dplyr::n_distinct(peaAcc),
+    n_combinations = dplyr::n_distinct(mixID),
+    .groups        = "drop"
+  ) |>
+  dplyr::arrange(studyName)
+
+readr::write_csv(fit_trials, file.path(out_dir, "BGLR_fit_trials.csv"))
+
+# Timestamps are taken BEFORE the tibble, because tibble() evaluates its
+# arguments in order and `pheno_file = basename(pheno_file)` would rebind the
+# name before file.mtime() saw it -- which silently wrote NA.
+qc_path     <- file.path(out_dir, "trial_qc.csv")
+pheno_mtime <- format(file.mtime(pheno_file))
+qc_mtime    <- if (file.exists(qc_path)) format(file.mtime(qc_path)) else NA_character_
+stopifnot("the phenotype file has no modification time" = !is.na(pheno_mtime))
+
+readr::write_csv(
+  tibble::tibble(
+    fit_date   = format(Sys.Date()),
+    fit_fn     = "fit_producer_associate",
+    pheno_file = basename(pheno_file),
+    pheno_mtime = pheno_mtime,
+    qc_file    = "trial_qc.csv",
+    qc_mtime   = qc_mtime,
+    n_trials   = nrow(fit_trials),
+    n_plots    = nrow(grainWgt),
+    n_oat      = dplyr::n_distinct(grainWgt$oatAcc),
+    n_pea      = dplyr::n_distinct(grainWgt$peaAcc),
+    nIter = nIter, burnIn = burnIn, thin = thin,
+    seeds      = paste(seeds, collapse = ","),
+    fit_mix_term = fit_mix_term,
+    draw_storage_mode = draw_storage_mode
+  ),
+  file.path(out_dir, "BGLR_fit_provenance.csv")
+)
+
+cat("\n=== Trials in the fit ===\n")
+print(as.data.frame(fit_trials), row.names = FALSE)
 
 saveRDS(
   fits[[1]],
@@ -487,6 +422,120 @@ readr::write_csv(oat_all_seeds,    file.path(out_dir, "BGLR_oat_effects_all_seed
 readr::write_csv(pea_all_seeds,    file.path(out_dir, "BGLR_pea_effects_all_seeds.csv"))
 readr::write_csv(oat_rank_summary, file.path(out_dir, "BGLR_oat_rank_stability.csv"))
 readr::write_csv(pea_rank_summary, file.path(out_dir, "BGLR_pea_rank_stability.csv"))
+
+# ------------------------------------------------------------
+# Per-accession prediction error variance
+#
+# WHY THE STREAMED DRAWS ARE THE ONLY ROUTE. The returned fit carries
+# `SD.beta`, the elementwise posterior SD of the coefficients on the L basis.
+# That is not enough: an accession effect is `L %*% beta`, so its variance is
+# `L Var(beta) L'` and needs the full p x p posterior covariance of beta, which
+# BGLR does not accumulate. Streaming each draw and rotating it to the
+# accession scale is exact.
+#
+# WHY IT MATTERS. Everything downstream used ONE reliability per species,
+# derived from var(BLUP)/sigma2. That gives an accession seen with twenty
+# partners the same prediction error as one seen with a single partner, and the
+# single-partner accessions are exactly the ones whose producer and associate
+# effects are aliased. A per-accession PEV turns the validation pools'
+# eligibility rule from a partner count into a reliability threshold.
+# ------------------------------------------------------------
+
+acc_pev <- function(seed_value, term, L) {
+  roles <- DGE_IGE_ROLES[[term]]
+  draws <- read_beta_draws(seed_prefix(seed_value), term = paste0("ETA_", term),
+                           nIter = nIter, burnIn = burnIn, thin = thin,
+                           p = ncol(L), traits = length(DGE_IGE_TRAITS),
+                           storage_mode = draw_storage_mode)
+
+  # Rotate every draw to the accession scale at once: [n_draws x n_acc] per
+  # trait. tcrossprod(draws[, , k], L) is draws %*% t(L), and L's rows are the
+  # accessions, so column j of the result is accession j across draws.
+  g <- purrr::map(seq_along(DGE_IGE_TRAITS),
+                  \(k) tcrossprod(draws[, , k], L)) |>
+    rlang::set_names(DGE_IGE_TRAITS)
+
+  Pr <- g[[roles[["Pr"]]]]
+  As <- g[[roles[["As"]]]]
+
+  # A cheap consistency check against BGLR's own posterior mean. This is the
+  # same identity tests/test_fits.R asserts at 1e-10 with double storage; here
+  # the draws are single-precision, so the tolerance is relative and loose. It
+  # catches a wrong burn-in offset, a wrong p, or a byte-order mistake, all of
+  # which would quietly corrupt every PEV.
+  beta_mean <- L %*% fits[[as.character(seed_value)]]$ETA[[term]]$beta
+  recovered <- cbind(colMeans(g[[DGE_IGE_TRAITS[1]]]),
+                     colMeans(g[[DGE_IGE_TRAITS[2]]]))
+  rel <- max(abs(recovered - beta_mean)) / max(abs(beta_mean))
+  if (!is.finite(rel) || rel > 1e-3) {
+    stop("seed ", seed_value, ", ", term, ": the streamed draws average to ",
+         "something other than BGLR's posterior mean (relative error ",
+         signif(rel, 3), "). Check burn-in, p and storage mode before ",
+         "trusting any PEV.", call. = FALSE)
+  }
+
+  n   <- nrow(Pr)
+  Prc <- sweep(Pr, 2, colMeans(Pr))
+  Asc <- sweep(As, 2, colMeans(As))
+
+  tibble::tibble(
+    seed     = as.integer(seed_value),
+    acc      = rownames(L),
+    PEV_Pr   = colSums(Prc^2) / (n - 1),
+    PEV_As   = colSums(Asc^2) / (n - 1),
+    cov_PrAs = colSums(Prc * Asc) / (n - 1),
+    # GMA = Pr + As, so its PEV carries the covariance. This is what the
+    # total-yield estimand needs and it is free here.
+    PEV_GMA  = PEV_Pr + PEV_As + 2 * cov_PrAs,
+    n_draws  = n
+  )
+}
+
+pev <- purrr::map(c("oat", "pea"), \(sp) {
+  term <- paste0("G_", sp)
+  L    <- if (sp == "oat") L_oat else L_pea
+  out  <- purrr::map(seeds, \(s) acc_pev(s, term, L)) |> purrr::list_rbind()
+  readr::write_csv(out, file.path(out_dir, paste0("BGLR_", sp, "_pev.csv")))
+  out
+}) |> rlang::set_names(c("oat", "pea"))
+
+cat("\n=== Per-accession PEV, averaged over chains ===\n")
+purrr::imap(pev, \(x, sp) {
+  m <- x |>
+    dplyr::group_by(acc) |>
+    dplyr::summarise(PEV_As = mean(PEV_As), PEV_GMA = mean(PEV_GMA),
+                     .groups = "drop")
+  tibble::tibble(
+    species = sp, n_acc = nrow(m),
+    PEV_As_min = min(m$PEV_As), PEV_As_median = stats::median(m$PEV_As),
+    PEV_As_max = max(m$PEV_As),
+    fold_range = max(m$PEV_As) / min(m$PEV_As)
+  )
+}) |>
+  purrr::list_rbind() |>
+  as.data.frame() |>
+  print(digits = 4, row.names = FALSE)
+
+cat("\n  fold_range is the point: a single global PEV would give every one of\n",
+    "  these accessions the middle value.\n", sep = "")
+
+# The accession-scale associate-effect draws for the first seed, kept so the
+# validation chain can compute the exact posterior variance of a pool contrast
+# -- including the posterior COVARIANCE between pool members, which a
+# per-accession PEV alone cannot give.
+for (sp in c("oat", "pea")) {
+  term <- paste0("G_", sp)
+  L    <- if (sp == "oat") L_oat else L_pea
+  d    <- read_beta_draws(seed_prefix(seeds[1]), term = paste0("ETA_", term),
+                          nIter = nIter, burnIn = burnIn, thin = thin,
+                          p = ncol(L), traits = length(DGE_IGE_TRAITS),
+                          storage_mode = draw_storage_mode)
+  As <- tcrossprod(d[, , match(DGE_IGE_ROLES[[term]][["As"]], DGE_IGE_TRAITS)], L)
+  colnames(As) <- rownames(L)
+  saveRDS(As, file.path(out_dir, paste0("BGLR_", sp, "_As_draws_seed",
+                                        seeds[1], ".rds")))
+}
+
 
 # ------------------------------------------------------------
 # Producer vs associate effects
