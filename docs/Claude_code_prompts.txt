@@ -801,3 +801,13 @@ from whatever that gives, rather than being the thing consulted.  I'm understand
 <pasted_content id="9b66">
 The last of the data for this year is now uploaded and has been analyzed through validate_refresh.R.  I have decided to retain all trials from IA, IL, ND, and NY for both 2025 and 2026 as indicated in trial_qc_manual.csv (8 trials).  Combining those trials, I would like a script for some final summary statistics from you.  Final number of oat and pea accessions.  The number of them with / without genotyping data and a list of accession names without genotyping data so we can get that completed soon.  The final sparsity level: what percentage of combinations were evaluated.  A distribution for both oat and pea of the number of combinations each accession was evaluated in.  A distribution for the specific combinations of how often they were evaluated (if making a histogram, remove the bar for the number evaluated once, which will dwarf all other bars), along with how often specific combinations were evaluated more than once in a single trial versus across trials.  Calculate these number for the full experiment over both years and separately for 2025 and 2026.
 </pasted_content id="9b66">
+[2026-10-03 06:37:58] 
+
+<pasted_content id="9b66">
+This section in your report was confusing:
+"collapsed names whose members are already genotyped: 8
+  these need code/create_GRMs_T3.R re-run so the GRM carries the
+  analysis names, NOT new marker data
+Worth doing: they cover 301 plots and 223 combinations that no kinship-based model can currently use. All pea accessions are in the GRM."
+That is, what happens in all of the analyses of validate_refresh.R with those 301 plots and 223 combinations?  For sure, they should not be dropped.  They need to be included through their analysis names.  THEN, if a particular "analysis name" is selected for the future validation experiment, we will have to examine the connection between the analysis name and the current germplasmName, source the seed, and rename the line definitively.  Please ensure that all of the data from the accessions that were given particular analysis names is used in all of the scripts of the validate_refresh pipeline and that it contributes to the summary statistics that we have (for example, it would affect how often specific combinations were repeated, etc.).  That is, all of the summary statistics should be calculated on the basis of analysis names, not germplasmName.
+</pasted_content id="9b66">

@@ -578,6 +578,37 @@ Both are dropped by the QC screen at the current thresholds — AL on high CV, l
 mean and low repeatability; IA on high CV and low mean, the latter acquired only
 when the 2026 trials raised the across-trial median it is compared against.
 
+## 7c. Collapsed analysis names are one genotype but not one seed lot
+
+Curation pools entries it finds not to segregate under a single **analysis
+name** — `<seed>_<pollen>_no_cross` for a full-sib family that did not
+segregate, `<line>_self` for a selfed line appearing under several cross names
+(CURATION.md). Eight oat names do this, standing for 50 original entries across
+301 plots.
+
+Everything downstream is keyed on those names and nothing is lost by it.
+`assemble_B4I_phenotypes.R` rewrites `germplasmName` to the analysis name, and
+every script that reads a GRM collapses it to match with `collapse_grm()`, which
+averages the rows and columns of the members — exactly right for lines that are
+genetically identical. All 462 oat and 434 pea accessions are present after the
+collapse; no plot is dropped for want of a genotype.
+
+**But a pooled name is not a seed lot.** If one is selected into a validation
+pool, somebody has to decide which member entry to sow, source that seed, and
+name the line definitively before the trial is planted. The largest,
+`IL18-735_IL17-10306_no_cross`, stands for 13 entries.
+
+`output/summary_collapsed_names.csv` is the worklist: every pooled name with its
+member entries, the curation reason, and how many plots and partners it carries.
+Check the selected pools against it (`output/validation/<vintage>/pools.csv`)
+before ordering seed.
+
+A second consequence worth remembering when reading any per-accession figure:
+a pooled name inherits every partner its members had, so it looks far better
+connected than a real accession. The largest has 59 partners against a median of
+5, which is why the partners histogram in
+`output/summary_partners.png` clips its axis.
+
 ## 8. Open decisions
 
 | # | decision | status |

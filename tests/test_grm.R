@@ -106,6 +106,44 @@ check(nrow(collapse_grm(G_full, nf2)) == 5,
       "collapse_grm merges onto an existing name")
 
 # ------------------------------------------------------------
+# The collapse is not optional, and forgetting it is silent.
+#
+# The plot table is keyed on ANALYSIS names (assemble_B4I_phenotypes.R rewrites
+# germplasmName when curation found two entries to be one genotype). The GRM on
+# disk is keyed on the ORIGINAL names. So a script that reads the GRM without
+# collapsing finds every collapsed accession missing, and anything that drops
+# unmatched accessions -- b4i_plot_table() does -- silently discards their
+# plots. Measured on the real data: 8 oat analysis names, 301 plots, which a
+# summary script once reported as a genotyping gap that did not exist.
+#
+# This pins the asymmetry rather than any particular caller: the collapsed names
+# must be absent before and present after.
+# ------------------------------------------------------------
+
+# The real case: a family pooled under a name that is nobody's germplasmName,
+# which is what `<seed>_<pollen>_no_cross` and `<line>_self` are.
+nf3 <- tempfile(fileext = ".csv")
+NEW <- "a1_a2_no_cross"
+readr::write_csv(tibble::tibble(germplasmName = c("a1", "a2", "a3"),
+                                analysis_name = NEW), nf3)
+G_new <- collapse_grm(G_full, nf3)
+
+check(!NEW %in% rownames(G_full),
+      "a collapsed family name is ABSENT from the raw GRM")
+check(NEW %in% rownames(G_new),
+      "and PRESENT once collapse_grm() has run")
+check(nrow(G_new) == 4, "the three members become one row")
+
+# And the consequence, which is the thing worth guarding: matching a plot table
+# keyed on analysis names against the RAW GRM loses those accessions entirely,
+# so anything that drops unmatched accessions drops their plots silently.
+plot_accessions <- c(NEW, "a4", "a5")
+check(sum(plot_accessions %in% rownames(G_full)) == 2,
+      "against the raw GRM the collapsed accession does not match")
+check(all(plot_accessions %in% rownames(G_new)),
+      "against the collapsed GRM every accession matches")
+
+# ------------------------------------------------------------
 # 3. incidence and dummy_matrix
 #
 # model.matrix() DROPS rows with an NA factor level rather than complaining, so

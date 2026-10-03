@@ -22,23 +22,25 @@
 # B4I_2025_AL dropped as a crop failure. `--no-qc` reports on every trial
 # instead, which is the right flag if you want to see what the screen removed.
 #
-# GENOTYPED is asked in two steps, because the obvious one-step version gives
-# the wrong answer here. An accession absent from the GRM cannot enter any model
-# that borrows strength through kinship -- but absence has two causes:
+# EVERYTHING HERE IS ON ANALYSIS NAMES, which is what the rest of the pipeline
+# uses and what makes the counts mean anything.
 #
-#   NOT GENOTYPED       no marker data for it or for anything it stands for.
-#                       A request to the lab.
-#   NAME NOT IN THE GRM the accession is a CURATION COLLAPSE -- a full-sib
-#                       family that did not segregate, pooled under one analysis
-#                       name (`<seed>_<pollen>_no_cross`, `<line>_self`; see
-#                       CURATION.md) -- and every member of it IS genotyped. The
-#                       GRM simply still carries the original names. A request
-#                       to rebuild the GRM, not to the lab.
+# assemble_B4I_phenotypes.R:121-138 rewrites germplasmName to the analysis name
+# when curation found two entries to be one genotype, so the plot table this
+# script reads is already keyed that way. The GRM is NOT: data/GRM_Avena.rds
+# carries the original names, and `collapse_grm()` averages the rows and columns
+# of lines sharing an analysis name into one -- which for a non-segregating
+# family is exactly right, since averaging the relationships of identical lines
+# is the GRM of their averaged marker profiles.
 #
-# Measured on the 2026-10-03 data: all 8 oat accessions missing from the GRM are
-# of the second kind, with 13/13, 12/12, 6/6 and so on of their members present.
-# Reporting them as "needs genotyping" would have sent someone to re-sequence
-# material that is already done.
+# EVERY production script already does this -- BGLR_multi_trait_model.R:252,
+# validate_crossval.R:86, cross_validate_combinations.R:78,
+# megalmm_build_inputs.R:253 -- so nothing in the validate_refresh pipeline
+# drops a plot for want of a genotype. An earlier version of THIS script read
+# the GRM without collapsing, found 8 oat analysis names absent, and reported
+# 301 plots as unusable. That was wrong: after the collapse all 462 oat
+# accessions are present and none are dropped. tests/test_grm.R pins it so the
+# bare read cannot come back.
 #
 # Outputs: output/summary_accessions.csv      counts and genotyping, per scope
 #          output/summary_ungenotyped.csv     the accessions to chase
@@ -84,15 +86,19 @@ message(nrow(plots), " intercrop plot(s) from ",
         dplyr::n_distinct(plots$trial), " trial(s): ",
         paste(sort(unique(plots$trial)), collapse = ", "))
 
-grms <- list(oat = read_grm(here::here("data", "GRM_Avena.rds")),
-             pea = read_grm(here::here("data", "GRM_Pisum.rds")))
+name_files <- list(oat = here::here("output", "oat_analysis_names.csv"),
+                   pea = here::here("output", "pea_analysis_names.csv"))
+
+# collapse_grm(), not bare read_grm(). See the header.
+grms <- list(
+  oat = collapse_grm(read_grm(here::here("data", "GRM_Avena.rds")),
+                     name_files$oat),
+  pea = collapse_grm(read_grm(here::here("data", "GRM_Pisum.rds")),
+                     name_files$pea))
 
 # analysis_name -> the original entries it stands for, from the curation step
-name_maps <- list(
-  oat = here::here("output", "oat_analysis_names.csv"),
-  pea = here::here("output", "pea_analysis_names.csv")) |>
-  purrr::map(\(f) if (file.exists(f))
-    readr::read_csv(f, show_col_types = FALSE) else NULL)
+name_maps <- purrr::map(name_files, \(f) if (file.exists(f))
+  readr::read_csv(f, show_col_types = FALSE) else NULL)
 
 #' Why is this accession not in the GRM?
 #'
@@ -108,10 +114,9 @@ diagnose_missing <- function(missing, sp) {
     tibble::tibble(
       accession = a, n_members = n_mem, n_members_genotyped = n_gt,
       diagnosis = dplyr::case_when(
-        n_mem > 0 && n_gt == n_mem ~ "collapsed name; all members genotyped -- rebuild the GRM",
-        n_mem > 0 && n_gt > 0      ~ "collapsed name; SOME members genotyped",
-        n_mem > 0                  ~ "collapsed name; no member genotyped -- needs genotyping",
-        TRUE                       ~ "not in the GRM and not a collapsed name -- needs genotyping"),
+        n_mem > 0 && n_gt > 0 ~ "collapsed name present in the map but absent after collapse -- a bug, not a genotyping gap",
+        n_mem > 0             ~ "collapsed name; no member genotyped -- needs genotyping",
+        TRUE                  ~ "not in the GRM and not a collapsed name -- needs genotyping"),
       members = paste(utils::head(members, 20), collapse = "; "))
   }) |> purrr::list_rbind()
 }
@@ -209,6 +214,40 @@ partner_summary <- partners |>
                    max = max(n_partners), .groups = "drop")
 
 # ------------------------------------------------------------
+# 3b. Analysis names that stand for more than one entry
+#
+# These behave as one genotype in every model, which is correct -- curation
+# found them not to segregate. But they are not one SEED LOT. If one of them is
+# selected into a validation pool, somebody has to decide which of its member
+# entries to actually sow, source that seed, and then name the line definitively.
+# This is that worklist, produced now rather than discovered at planting.
+# ------------------------------------------------------------
+
+collapsed <- purrr::imap(name_files, function(f, sp) {
+  if (!file.exists(f)) return(NULL)
+  map <- readr::read_csv(f, show_col_types = FALSE)
+  used <- accessions_of(scopes[["both years"]], sp)
+  map |>
+    dplyr::filter(analysis_name %in% used) |>
+    dplyr::group_by(analysis_name) |>
+    dplyr::summarise(n_entries = dplyr::n(),
+                     entries = paste(sort(germplasmName), collapse = "; "),
+                     reasons = paste(sort(unique(reason)), collapse = "; "),
+                     .groups = "drop") |>
+    dplyr::filter(n_entries > 1) |>
+    dplyr::mutate(species = sp, .before = 1)
+}) |> purrr::compact() |> purrr::list_rbind()
+
+if (nrow(collapsed) > 0) {
+  use <- dplyr::bind_rows(
+    partners |>
+      dplyr::filter(scope == "both years") |>
+      dplyr::select(species, analysis_name = accession, n_plots, n_partners))
+  collapsed <- dplyr::left_join(collapsed, use, by = c("species", "analysis_name")) |>
+    dplyr::arrange(species, dplyr::desc(n_plots))
+}
+
+# ------------------------------------------------------------
 # 4. How often was a specific combination evaluated, and where
 #
 # A combination repeated inside ONE trial is replication: the same pairing in
@@ -254,6 +293,9 @@ readr::write_csv(sparsity_tbl,   file.path(out_dir, "summary_sparsity.csv"))
 readr::write_csv(partners,       file.path(out_dir, "summary_partners.csv"))
 readr::write_csv(combo_reps,     file.path(out_dir, "summary_combination_reps.csv"))
 readr::write_csv(replication,    file.path(out_dir, "summary_replication.csv"))
+if (nrow(collapsed) > 0) {
+  readr::write_csv(collapsed, file.path(out_dir, "summary_collapsed_names.csv"))
+}
 
 # ------------------------------------------------------------
 # Report
@@ -294,6 +336,24 @@ if (nrow(ungenotyped) > 0) {
   }
 } else {
   cat("\nEvery accession in the kept trials is in the GRM.\n")
+}
+
+rule("1b. Analysis names standing for more than one entry")
+if (nrow(collapsed) > 0) {
+  cat("These are ONE genotype in every model -- curation found them not to\n",
+      "segregate -- but they are not one seed lot. If one is selected into a\n",
+      "validation pool, its member entries have to be resolved, seed sourced,\n",
+      "and the line named definitively.\n\n", sep = "")
+  # `reasons` is a paragraph per row; it stays in the CSV and out of the console
+  print(as.data.frame(dplyr::select(collapsed, species, analysis_name,
+                                    n_entries, n_plots, n_partners)),
+        row.names = FALSE)
+  cat("\n", nrow(collapsed), " collapsed name(s) covering ",
+      sum(collapsed$n_entries), " original entries, ",
+      sum(collapsed$n_plots, na.rm = TRUE), " plots.\n", sep = "")
+  cat("Member entries are in output/summary_collapsed_names.csv.\n")
+} else {
+  cat("No analysis name stands for more than one entry.\n")
 }
 
 rule("2. Grid occupancy")
@@ -398,4 +458,5 @@ ggplot2::ggsave(file.path(out_dir, "summary_combination_reps.png"), p_reps,
 message("\nwrote:\n  output/summary_accessions.csv\n  output/summary_ungenotyped.csv\n",
         "  output/summary_sparsity.csv\n  output/summary_partners.csv\n",
         "  output/summary_combination_reps.csv\n  output/summary_replication.csv\n",
+        "  output/summary_collapsed_names.csv\n",
         "  output/summary_partners.png\n  output/summary_combination_reps.png")
