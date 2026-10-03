@@ -1247,3 +1247,2471 @@ Shared settings also live in this file and are read by all four drivers: `VALIDA
 <status>completed</status>
 <summary>Background command "Re-run cross-validation in the background" completed (exit code 0)</summary>
 </task-notification>
+[2026-10-03 08:51:42] 
+
+<pasted_content id="fc4c">
+This last session, looking at the way the As+ and As- pools were constructed, was of course very good.  What makes me nervous is that it arose from my concern over what appeared to be a pretty small, off-hand, comment of yours "because the pool builder is a greedy constrained search rather than an optimum".  If you had not made that comment and if I had not had the bandwidth to be curious about it, we might have gone into field season with a suboptimal validation experiment and lower power to validate that our breeding for intercropping experiment found something valuable.  Given the crush of needing to prepare for field season, I have not had the time to evaluate a lot of your code.  Even if I could, a fair amount of it is at the borders of my ability to evaluate.  For example, I know what a Lagrangian multiplier is, but work with them very infrequently and so would have difficulty evaluating the script's use of them.  We are about to invest substantial resources into this validation experiment and I want to do everything I can to get it right.  Whenever you write code or new aspects of code, you write unit tests to ensure that the functions implementing the logic actually do what the logic says they should.  That begs the question of the overall logic.  Take a step back from the code you have written.  Consider the data that we have and the objective of the validation we want to perform.  Consider the pathway to get from the data to the design of the validation experiment and all of the tasks along that pathway.  Does the overall logic of the pathway make sense?  Are the methods used within each task the most appropriate?  Write a self-critique document.
+</pasted_content id="fc4c">
+[2026-10-03 11:30:18] 
+
+<pasted_content id="fc4c">
+From the SELF_CRITIQUE document, here are my instructions:
+Fix the trial set (A). I am assuming that the values from trial_qc.csv were correctly derived.  From there, I decided to keep 8 trials, dropping only 2025_AL, as specified in trial_qc_manual.csv. BGLR_multi_trait_model.R should not have a hard-coded whitelist. Write the fitted trial set out with the effects; make validation_vintage() read it from there and assert it matches the phenotype table. Re-run validate_refresh.R.
+Recount eligibility on the fitted data (A1). Filter on per-accession reliability (J). That is, make the eligibility filter a reliability filter rather than a partner count.  I want to be somewhat easy on eligibility, so if this threshold makes sense, take the first quartile of reliability of accessions that have three partners as the eligibility threshold.
+Let σ²within be pool-specific. The effects files save only four seed-level point estimates per accession, so this needs BGLR’s draws retained — a small change to BGLR_multi_trait_model.R.
+Estimate λ both as it is done currently and on a within-trial standardised scale and compare Interaction_frac across these methods.
+Quote λ by year (B).  I think re-sizing to the forward-looking value of 0.6 is too pessimistic.  Use 0.7.  That splits the difference between 0.8 more or less currently used and 0.6.
+Pre-register one analysis model (C).  All power analyses and simulations should derive from that model. Add pool × location; compute power for the model that will be fitted; extend the null simulation to generate As × location with zero mean.  Develop theory and code to also compute power on the continuous slope of observed As against predicted As.
+Add the free outcomes (H). Total yield as co-primary.  That is, how does observed total yield stack up against predicted total yield.  This comparison can also be subject to a power analysis.  We will not plant any third pool beyond the As+ and As- ones.
+Height, flowering and maturity will be  recorded on every plot.  If that can be made useful, let's discuss.
+</pasted_content id="fc4c">
+[2026-10-03 11:35:54] <task-notification>
+<task-id>aae64a11805f28b6f</task-id>
+<tool-use-id>toolu_01FRFhsvZgN92jKQSnYdMn1K</tool-use-id>
+<output-file>/private/tmp/claude-1334918876/-Users-jj332-Documents-GitRepo-B4I-Fall2026/cc7612c1-3004-4630-aee6-8449e3e08a76/tasks/aae64a11805f28b6f.output</output-file>
+<status>completed</status>
+<summary>Agent "Check trait availability for height and phenology" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>I have everything. Here are the findings.
+
+---
+
+# A) What trait data exists
+
+## A1. Availability in the nine B4I trials
+
+From `/Users/jj332/Documents/GitRepo/B4I_Fall2026/output/B4I_trait_availability.csv` (34 trials × 38 traits; the matrix holds **observation counts**, not plots — see the caveat below). Restricted to the nine B4I trials, with exact trait strings as they appear:
+
+| trait (exact name) | 25_AL | 25_IA | 25_IL | 25_ND | 25_NY | 26_IA | 26_IL | 26_ND | 26_NY |
+|---|---|---|---|---|---|---|---|---|---|
+| `Grain yield - g/m2\|CO_350:0000260` | 386 | 400 | 400 | 400 | 398 | 401 | 400 | 396 | 423 |
+| `Pea Grain Yield - g/m2\|CO_xxx:0003008` | 392 | 400 | 400 | 400 | 398 | 404 | 400 | 396 | 423 |
+| **Heading / flowering** | | | | | | | | | |
+| `Heading date - Julian day\|CO_350:0000270` | 400 | 400 | 400 | 400 | 400 | **0** | 400 | 396 | 440 |
+| `Pea Flowering Date - 10% - Julian Day\|CO_xxx:0003014` | 400 | 400 | 400 | 400 | 400 | **0** | 400 | 396 | 439 |
+| **Maturity** | | | | | | | | | |
+| `Maturity date - Julian day\|CO_350:0000271` | **0** | 400 | 400 | 400 | 400 | **0** | 400 | 396 | 410 |
+| `Pea Maturity Date - Julian Day\|CO_xxx:0003015` | **0** | 400 | 400 | 400 | 400 | **0** | 400 | 396 | 420 |
+| **Oat height** | | | | | | | | | |
+| `Plant height - cm\|CO_350:0000232` | 400 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| `Plant height - cm\|timepoint 1\|COMP:0000114` | 1600 | 1200 | 400 | 1198 | 1201 | 0 | 400 | 396 | 427 |
+| `Plant height - cm\|timepoint 2\|COMP:0000115` | 1600 | 1200 | 400 | 1197 | 1198 | 0 | 400 | 396 | 433 |
+| `Plant height - cm\|timepoint 3\|COMP:0000116` | 0 | 1200 | 400 | 1200 | 1197 | 0 | 400 | 396 | 437 |
+| `Plant height - cm\|timepoint 4\|COMP:0000117` | 0 | 1200 | 0 | 0 | 1194 | 0 | 0 | 395 | 430 |
+| **Pea height** | | | | | | | | | |
+| `Pea Plant Height - cm\|CO_xxx:0003005` | 400 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| `Pea Plant Height - cm\|timepoint 1\|COMP:0000122` | 1600 | 1200 | 400 | 1200 | 1200 | 0 | 400 | 396 | 428 |
+| `Pea Plant Height - cm\|timepoint 2\|COMP:0000123` | 1600 | 1200 | 400 | 1200 | 1200 | 0 | 400 | 396 | 440 |
+| `Pea Plant Height - cm\|timepoint 3\|COMP:0000124` | 0 | 1200 | 400 | 1200 | 1199 | 0 | 400 | 396 | 439 |
+| `Pea Plant Height - cm\|timepoint 4\|COMP:0000125` | 0 | 1200 | 0 | 0 | 1200 | 0 | 0 | 396 | 424 |
+| **Lodging** | | | | | | | | | |
+| `Lodging severity - 0-9 Rating\|CO_350:0005007` | 381 | 377 | 367 | 400 | 338 | 0 | 0 | 396 | 396 |
+| `Lodging incidence - percent\|CO_350:0000165` | 0 | 0 | 367 | 0 | 0 | 0 | 0 | 0 | 0 |
+| **Biomass** (NY 2026 only, ~15 plots) | | | | | | | | | |
+| `Above ground dry biomass - g\|timepoint 1\|COMP:0000110` | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 15 |
+| `Above ground dry biomass - g\|timepoint 2\|COMP:0000111` | | | | | | | | | 15 |
+| `Above ground dry biomass - g\|timepoint 3\|COMP:0000112` | | | | | | | | | 15 |
+| `Pea Aboveground Dry Biomass - g\|timepoint 1\|COMP:0000118` | | | | | | | | | 15 |
+| `Pea Aboveground Dry Biomass - g\|timepoint 2\|COMP:0000119` | | | | | | | | | 15 |
+| `Pea Aboveground Dry Biomass - g\|timepoint 3\|COMP:0000120` | | | | | | | | | 13 |
+| `Weed above ground dry biomass - g\|timepoint 2\|COMP:0000127` | | | | | | | | | 19 |
+| `Weed above ground dry biomass - g\|timepoint 3\|COMP:0000128` | | | | | | | | | 8 |
+| **Other present** | | | | | | | | | |
+| `Plant establishment - plants/ft2\|CO_350:0005124` | 1600 | 1200 | 400 | 1197 | 1200 | 0 | 400 | 396 | 426 |
+| `Pea Plant Establishment - plants/ft2\|CO_xxx:0003011` | 1599 | 1199 | 400 | 1200 | 1194 | 0 | 400 | 396 | 425 |
+| `Grain weight - g\|CO_350:0005123` / `Pea Grain Weight - g\|CO_xxx:0003006` | yes | yes | yes | yes | yes | yes | yes | yes | yes |
+| `Thousand grain weight - g\|CO_350:0000251` / `Pea Thousand Grain Weight - g\|CO_xxx:0003017` | 400 | 400 | 0 | 0 | 398 | 0 | 0 | 0 | 0 |
+| `Test weight - g/L\|CO_350:0000259` | 0 | 400 | 400 | 0 | 397 | 396 | 400 | 0 | 0 |
+| `Pea Test Weight - g/L\|CO_xxx:0003016` | 0 | 400 | 0 | 0 | 388 | 309 | 0 | 0 | 0 |
+| `Grain moisture content - percent\|CO_350:0000536` | 0 | 0 | 0 | 0 | 392 | 396 | 0 | 0 | 0 |
+| `Pea Grain Moisture Content - %\|CO_xxx:0003018` | 0 | 0 | 0 | 0 | 281 | 309 | 0 | 0 | 0 |
+| `Crown rust severity (flag leaf) - percent\|CO_350:0005029` | 0 | 0 | 0 | 0 | 392 | 0 | 0 | 0 | 372 |
+| `Crown rust severity (flag leaf) - percent\|day 153\|COMP:0000162` / `day 161\|COMP:0000163` | 0 | 0 | 0 | 0 | 392 | 0 | 0 | 0 | 0 |
+
+Seven traits in the 38-trait matrix are **zero in every B4I trial** (they come from the UIUC monoculture trials): `Grain plumpness - 5.0/64 thin - %|CO_350:0005050`, `Groat content (machine dehulled) - percent|CO_350:0000162`, and the five `Whole kernel average *` traits.
+
+### Critical caveat: height is recorded at the *subplot* level in 2025 IA/ND/NY
+
+The 1200/1600/2800 counts are not plots. I re-counted the same traits in `data/B4I_observations.rds` restricted to the plot-level `observationUnitDbId`s that actually appear in the phenotype table. Height collapses:
+
+| trait | 25_AL | 25_IA | 25_IL | 25_ND | 25_NY | 26_IA | 26_IL | 26_ND | 26_NY |
+|---|---|---|---|---|---|---|---|---|---|
+| Heading date (oat) | 392 | 387 | 400 | 400 | 398 | 0 | 400 | 396 | 408 |
+| Pea Flowering Date | 392 | 387 | 400 | 400 | 398 | 0 | 400 | 396 | 408 |
+| Maturity date (oat) | 0 | 387 | 400 | 400 | 398 | 0 | 400 | 396 | 394 |
+| Pea Maturity Date | 0 | 387 | 400 | 400 | 398 | 0 | 400 | 396 | 403 |
+| Plant height tp1 (oat) | 392 | **0** | 400 | **0** | **1** | 0 | 400 | 396 | 408 |
+| Plant height tp2 | 392 | **0** | 400 | **0** | **0** | 0 | 400 | 396 | 403 |
+| Plant height tp3 | 0 | **0** | 400 | **0** | **0** | 0 | 400 | 396 | 407 |
+| Plant height tp4 | 0 | **0** | 0 | **0** | **0** | 0 | 0 | 395 | 408 |
+| Pea Plant Height tp1–tp2 | 392 | **0** | 400 | **0** | **0** | 0 | 400 | 396 | 408 |
+| Lodging severity | 373 | 366 | 367 | 400 | 336 | 0 | 0 | 396 | 373 |
+| Lodging incidence | 0 | 0 | 367 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Biomass (oat/pea tp1) | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | **10** |
+
+The unit names confirm it: `B4I_2025_IA_2001_subplot_1` etc. So in **2025_IA, 2025_ND and 2025_NY all height data lives on subplots (3 per plot) and does not join to the plot table by `observationUnitDbId`**. `B4I_2025_AL` stores height at both levels (392 plot + 1208 subplot). `2025_IL`, `2026_IL`, `2026_ND`, `2026_NY` are plot-only and clean. `docs/B4I_followups.md` section 2 documents the related IA/ND plot-record duplication (each plot emitted 4× on a 2×2 position grid, copies carrying zero observations).
+
+Summary of the useful signal:
+- **Phenology (oat heading + pea flowering): plot-level, 8 of 9 trials, ~100% of plots.** The strongest non-yield asset in the data.
+- **Maturity (oat + pea): plot-level, 7 of 9 trials** — absent in AL 2025 and IA 2026.
+- **Height: plot-level in only 5 of 9 trials** (AL/IL 2025, IL/ND/NY 2026); recorded but subplot-only in IA/ND/NY 2025; absent in IA 2026. Also inconsistent in number of timepoints (2–4) and in trait identity (`Plant height - cm|CO_350:0000232` vs the `COMP:` timepoint variables).
+- **Lodging: plot-level in 7 of 9 trials**, but two incompatible scales (0–9 severity vs percent incidence, the latter only in IL 2025).
+- **Biomass: effectively does not exist** — 8–19 observations in NY 2026 only (10 at plot level). Not analysable.
+- **`B4I_2026_IA` has no phenology, height, lodging or establishment at all** — yields, grain weight, test weight, moisture only.
+
+## A2. What is carried into `output/B4I_intercrop_pheno.rds`
+
+`code/assemble_B4I_phenotypes.R` hard-codes exactly two traits:
+
+```r
+oat_yield_trait &lt;- "Grain yield - g/m2|CO_350:0000260"
+pea_yield_trait &lt;- "Pea Grain Yield - g/m2|CO_xxx:0003008"
+```
+and filters `observationVariableName %in% c(oat_yield_trait, pea_yield_trait)`. **Everything else in the 38-trait matrix is dropped at assembly.** There is no trait loop, no trait argument, no settings vector of traits — it is two scalars and an `if_else`.
+
+Columns of `output/B4I_intercrop_pheno.rds` — 3,575 rows × **13** columns:
+
+```
+trialDbId, studyYear, studyName, observationUnitDbId, observationUnitName,
+germplasmName, intercropGermplasmName, repNumber, blockNumber,
+pea_yield, oat_yield, oat_renamed, pea_renamed
+```
+
+Non-yield columns: there are **no other phenotype columns at all**. The nine non-yield/non-flag columns are identifiers and design factors (`trialDbId`, `studyYear`, `studyName`, `observationUnitDbId`, `observationUnitName`, `germplasmName`, `intercropGermplasmName`, `repNumber`, `blockNumber` — all `chr` except `studyYear` `int`); `oat_renamed`/`pea_renamed` are logical bookkeeping flags from the analysis-name substitution. All of these are complete (zero NA) in every trial, so "missing per trial" for non-yield columns is vacuous — there is nothing there to be missing. Plot counts per trial: AL 392, IA 387, IL 400, ND 400, NY 398 (2025); IA 394, IL 400, ND 396, NY 408 (2026).
+
+Note the README (line 200) still says "2,371 plots"; the current file has 3,575 (the 2026 trials were added).
+
+The trait data itself is not lost — `data/B4I_observations.rds` is 158,740 rows × 11 columns (`trialDbId, trialName, observationUnitDbId, observationUnitName, germplasmDbId, germplasmName, observationVariableDbId, observationVariableName, value, season, observationTimeStamp`) and covers all 37 trials including every trait above. Adding a trait is a matter of widening the pivot in `assemble_B4I_phenotypes.R`, not of re-downloading.
+
+---
+
+# B) How the repo already computes trait BLUEs
+
+All of it is in `/Users/jj332/Documents/GitRepo/B4I_Fall2026/code/megalmm_build_inputs.R`. Two functions:
+
+### `pea_blue(plot_data, value_col)` — the model
+```r
+fit &lt;- stats::lm(stats::reformulate(c("studyName", "peaAcc"), response = value_col), data = x)
+```
+- **Package: base `stats::lm`.** No lme4, no ASReml, no sommer. Both terms **fixed**, additive, no interaction, no block, no spatial term, no weights.
+- **Trials:** `studyName` enters as a fixed factor. The BLUE is then recovered by *marginalising over trials* rather than by reading a coefficient: it builds `expand_grid(peaAcc = levels, studyName = levels)`, `predict()`s the full balanced grid, and averages the fitted values within `peaAcc`. The comment states the intent: "an accession seen only in a high-yielding trial is not credited with that trial's mean." Because the model is additive this is estimable even for a pea seen in one trial, and the result is a least-squares mean on a balanced trial set.
+- **Single-trial fallback:** `if (nlevels(x$studyName) &lt; 2)` it returns the plain accession mean.
+- **Missing handling:** rows with `is.na(value)` or `is.na(peaAcc)` are filtered first.
+
+### `pea_trait_blues(obs_file, cache_dir, trait_names, name_file)` — the driver
+- Reads `data/B4I_observations.rds` and joins to observation units assembled from **every** `output/trial_cache/units_*.rds` file (`units_6821, 6822, 6823, 6824, 6881, 6954, 6997, 7002, 7014` — i.e. all nine B4I trials). It maps `intercropGermplasmName → peaAcc`, then applies `output/pea_analysis_names.csv` so BLUEs key to the collapsed analysis names used as matrix columns.
+- Loops over `c("pea_yield", "flower", "maturity")`, skipping any trait with zero rows, and `full_join`s the three into one table.
+- Trait names it knows:
+```r
+trait_names &lt;- c(
+  oat_yield = "Grain yield - g/m2|CO_350:0000260",
+  pea_yield = "Pea Grain Yield - g/m2|CO_xxx:0003008",
+  flower    = "Pea Flowering Date - 10% - Julian Day|CO_xxx:0003014",
+  maturity  = "Pea Maturity Date - Julian Day|CO_xxx:0003015")
+```
+`oat_yield` is listed but **never used** by `pea_trait_blues` — the loop is hard-coded to the three pea traits.
+
+### Missing-trial handling, and what the AL note actually means
+```r
+phenology_trait &lt;- "flower"   # "flower" or "maturity"
+```
+with the comment: "Flowering and maturity BLUEs correlate 0.68, so using both adds little; flowering is the default because it was scored in all six trials while maturity was not scored in AL." The driver prints the realised correlation (I confirmed **0.679**). In practice the "missing in AL" handling is implicit — maturity simply has fewer plots feeding its `lm`; it is not excluded, and because every pea appears in several trials the stored `blues` table has **423 rows with zero NA in all three columns** (`pea_yield`, `flower`, `maturity`). So the AL gap costs precision, not coverage, and switching `phenology_trait &lt;- "maturity"` would work today.
+
+A separate missing-value path does exist downstream: peas that are matrix columns but have no BLUE take the column mean (`tidyr::replace_na(x, mean(x, na.rm = TRUE))`) with a count reported as "N pea environment(s) had no BLUE and took the mean".
+
+### What it writes
+`output/megalmm_inputs_{raw,centered,standardized}.rds`, each a list of `fill, Y, G_oat, G_pea, X_Env, X_Env_groups, blues, settings`. The BLUEs enter as the phenotypic block of `X_Env`:
+- `X_Env = cbind(intercept = 1, scale(cbind(pea_yield, &lt;phenology&gt;)), pea-GRM eigenvectors)`
+- `X_Env_groups = c(1, rep(2, 2), rep(3, n_eig))` so MegaLMM's ARD prior shrinks the intercept, the two phenotypic covariates, and the markers as three separate groups — explicitly so "98 eigenvectors cannot swamp the two phenotypic covariates by sheer number."
+- Realised in `output/megalmm_inputs_centered.rds`: `Y` is 237 oat × 222 pea; `X_Env` columns begin `intercept, pea_yield, flower, PC1, PC2, …`; `settings$n_eigenvectors = 58`, `eigen_variance = 0.80`, `min_obs_per_env = 3`, `min_obs_per_oat = 2`. The full 423-row `blues` table (including the unused `maturity` column) is saved inside each `.rds`.
+
+### Factored, or inline?
+**Inline in the driver script.** `pea_blue()` and `pea_trait_blues()` are defined in `code/megalmm_build_inputs.R` itself, not in a shared functions file. The repo's shared function files are `code/dge_ige_functions.R`, `code/curation_functions.R`, `code/t3_functions.R`, `code/validation_functions.R` — none contains BLUE code (a repo-wide grep for `blue|BLUE` outside `megalmm_build_inputs.R` hits only `code/evaluation.R`).
+
+They are *reachable* without being reusable: `code/evaluation.R` lists them in `EVAL_GROUPS$matrix` (`"scale_within_trial", "build_matrix", "trim_matrix", "grm_eigenvectors", "pea_blue", "pea_trait_blues"`) and pulls them out of the driver via `eval_defs("code/megalmm_build_inputs.R")`, which evaluates only function definitions and literal settings and skips anything that reads a file or fits a model. So the functions can be inspected interactively, but nothing else in the pipeline can `source()` them. There is also **no unit test**: `tests/` (`test_curation.R`, `test_fits.R`, `test_trial_qc.R`, `test_grm.R`, …) never mentions `pea_blue`.
+
+### Anything equivalent for oat traits?
+**No.** `pea_blue` is hard-named for peas (`peaAcc` is a literal column name in the function body, and the loop is over the three pea traits). No script computes an oat height, heading, maturity or lodging BLUE anywhere. The oat side is only ever the response: oat yield enters MegaLMM as the matrix cells via `scale_within_trial()`, which does within-trial centering/standardizing of `oat_yield`, not a BLUE.
+
+Generalising `pea_blue` to oat traits is small — the only pea-specific thing is the `peaAcc` literal, and `pea_trait_blues` already fetches arbitrary `observationVariableName`s and maps analysis names for either species. The real work is (i) parameterising the grouping column, (ii) extending `assemble_B4I_phenotypes.R` past the two yields, and (iii) deciding what to do about the subplot-level height in 2025 IA/ND/NY.
+
+---
+
+# C) `code/curate_trials.R` — the `--traits` flag
+
+```r
+TRIAL_QC_TRAITS &lt;- strsplit(arg_value("--traits", "oat_yield,pea_yield"), ",")[[1]]
+```
+
+- **Default: `oat_yield,pea_yield`** — note the header's usage line `--traits oat_yield,pea_yield,oat_biomass` is **aspirational**. `oat_biomass` does not exist as a column in `B4I_intercrop_pheno.rds`, is not produced by `assemble_B4I_phenotypes.R`, and appears nowhere else in the repo (that header line is its only occurrence). Passing it today triggers the graceful skip: `"not in the phenotype file, skipped: oat_biomass"`.
+- **What it can screen on:** anything numeric already in `output/B4I_intercrop_pheno.rds` — so, as the file stands, only `oat_yield` and `pea_yield`. The settings-block comment is explicit: *"TRIAL_QC_TRAITS is the line to edit when the trials start carrying more than the two yields. Anything numeric in output/B4I_intercrop_pheno.rds can go here; a trait absent from a given trial is reported as such rather than failing it."* The gate is `have &lt;- intersect(TRIAL_QC_TRAITS, names(pheno))`, with an error only if **none** match.
+- **The model per trial × trait** (no GRM, deliberately — "borrowing strength through a GRM would partly manufacture the answer"):
+  `trait ~ (1 | g) + (1 | ic) [+ (1 | bl)]` via `lme4::lmer`, with `g = germplasmName`, `ic = intercropGermplasmName`, `bl = blockNumber`; **the block term is included only if `nlevels(bl) &gt; 1`** because four of the trials carry a single block. Bail-outs: `n_obs &lt; 10`, non-finite or non-positive mean, or `try`-error on the fit.
+- **Diagnostics per trial × trait:** `n_plots, n_obs, pct_missing, mean, sd, cv, var_geno, var_partner, var_resid, repeat_geno, repeat_partner, singular, fitted, rel_mean` where `repeat_geno = var_geno/(var_geno+var_resid)`, `repeat_partner = var_partner/(var_partner+var_resid)`, and `rel_mean = mean / median(mean across trials)` — computed within trait, so each trait sets its own scale and unitless traits like Julian days or 0–9 ratings would work without new thresholds.
+- **Other flags and defaults:** `--min-h2 0.05` (`min_repeat`), `--max-cv 0.75`, `--min-rel-mean 0.20`, `--min-plots 50`, `--max-missing 0.25`. Flags: `model_failed, too_few_plots, missing_data, high_cv, low_mean, low_repeatability`. ≥2 flags or zero genotypic variance = `fail`; 1 flag = `review`; a trial fails if any of its traits fails.
+- **Outputs:** `output/trial_diagnostics.csv` (one row per trial × trait; `cut -f2` confirms only `oat_yield` and `pea_yield` present) and `output/trial_qc.csv`. Manual overrides come from `data/trial_qc_manual.csv`, which wins and is reported loudly.
+- Current verdict in `output/trial_qc.csv`: `B4I_2025_AL` fail/`keep=FALSE` (high_cv; low_mean; low_repeatability); `B4I_2025_IA` fail but manually overridden to `keep=TRUE`; `B4I_2026_IA` review (low_repeatability), kept; the other six pass. Consumed by `apply_trial_qc()` in `code/dge_ige_functions.R:234`, which is called by `code/BGLR_multi_trait_model.R:127`, `code/summarise_experiment.R:72` and `b4i_plot_table()` — but **not** by `code/megalmm_build_inputs.R`, which reads the raw pheno, so the pea BLUEs currently include the AL crop-failure trial.
+
+---
+
+# What there is to build on for a trait benchmark
+
+**Already there and directly reusable:**
+1. `pea_blue()` / `pea_trait_blues()` in `code/megalmm_build_inputs.R` — a working trial-adjusted BLUE pipeline that already handles analysis-name collapsing, the single-trial degenerate case, and absent-trait skipping, and whose output already feeds a covariate design matrix with its own ARD shrinkage group (`X_Env_groups == 2`). Pea flowering BLUE is the existing proof that a phenology covariate can be fitted and used.
+2. `code/curate_trials.R` is already trait-generic — variance-component repeatability per trial × trait on relative rather than absolute scales. Point `--traits` at a new height/heading column and it works as-is.
+3. `data/B4I_observations.rds` already holds every trait listed in A1 for all nine trials. No new download needed to prototype.
+4. `output/trial_cache/units_*.rds` already resolves the pea half of every plot (`intercropGermplasmName`) for all nine trials, which is what makes any plot-level partner-trait analysis possible.
+
+**Gaps that would have to be closed:**
+1. `assemble_B4I_phenotypes.R` is hard-wired to two trait scalars. Nothing numeric beyond the yields reaches any downstream script.
+2. No oat-side BLUE machinery of any kind; `pea_blue` is pea-named in its body.
+3. The BLUE code is not in a shared functions file and is untested, so a second consumer means either `source()`ing a driver script or lifting the code.
+4. Height — the trait most obviously relevant to an associate (competition) effect — is the *least* usable historically: plot-level in only 5 of 9 trials, subplot-level in 3, absent in 1, with 2–4 inconsistent timepoints and two different trait identities. Heading/flowering is the trait with near-complete plot-level coverage (8 of 9 trials) and is the natural benchmark to regress against. Biomass is not a real option retrospectively (≤19 observations, one trial).
+5. `megalmm_build_inputs.R` does not apply trial QC before computing BLUEs, so a new-trait BLUE would inherit AL 2025 unless that is changed.
+6. Nothing in `VALIDATION_DESIGN.md` mentions height, flowering or maturity at all — the validation trial design is currently yield-only, so recording these on every plot would be new scope rather than a documented plan.</result>
+<usage><subagent_tokens>76958</subagent_tokens><tool_uses>29</tool_uses><duration_ms>243606</duration_ms></usage>
+</task-notification>
+[2026-10-03 11:36:22] <task-notification>
+<task-id>ac36abc35f05c3c20</task-id>
+<tool-use-id>toolu_01896sjbkUnvYp26QQ3zJ5bs</tool-use-id>
+<output-file>/private/tmp/claude-1334918876/-Users-jj332-Documents-GitRepo-B4I-Fall2026/cc7612c1-3004-4630-aee6-8449e3e08a76/tasks/ac36abc35f05c3c20.output</output-file>
+<status>completed</status>
+<summary>Agent "Trace BGLR fit and draw retention" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>## A) `code/BGLR_multi_trait_model.R` — end to end
+
+### Settings block (lines 36–100)
+
+`/Users/jj332/Documents/GitRepo/B4I_Fall2026/code/BGLR_multi_trait_model.R`
+
+- `:36` `library(tidyverse)`; `:38` `here::i_am(...)`; `:40` `source(here::here("code","dge_ige_functions.R"))` — **the only source; all helpers come from that one file.**
+- `:51` `pheno_file &lt;- here::here("output", "B4I_intercrop_pheno.rds")`
+- `:53-56` `grm_files &lt;- c(oat = data/GRM_Avena.rds, pea = data/GRM_Pisum.rds)`
+- `:61-64` `analysis_name_files &lt;- c(oat = output/oat_analysis_names.csv, pea = output/pea_analysis_names.csv)`
+- `:66` `out_dir &lt;- here::here("output")`
+- `:68` `study_years &lt;- c(2025L, 2026L)`
+- `:72-79` **the hard-coded whitelist:**
+
+```r
+trials &lt;- c(
+  "B4I_2025_AL",
+  "B4I_2025_IA",
+  "B4I_2025_IL",
+  "B4I_2025_ND",
+  "B4I_2025_NY",
+  "B4I_2026_IL"
+)
+```
+
+- `:83` `seeds &lt;- c(12567, 129, 456, 789)` (comment at `:81-82`: first seed is the fit that gets saved, rest check rank stability)
+- `:85-87` `nIter &lt;- 20000`, `burnIn &lt;- 3000`, `thin &lt;- 10`
+- `:94` `fit_mix_term &lt;- FALSE`
+- `:100` `monoculture_labels &lt;- c("NO_OATS_PLANTED", "NO_PEAS_PLANTED")`
+
+### `apply_trial_qc()` call
+
+`:127` — a single call, immediately after reading the phenotype file (`:116-120`) and **before** the column check (`:129-134`):
+
+```r
+pheno &lt;- apply_trial_qc(pheno)
+```
+
+No arguments, so it uses the default `qc_file = here::here("output","trial_qc.csv")`, which exists. It filters rows by `studyName`.
+
+### The whitelist is currently the binding constraint
+
+`output/trial_qc.csv` keeps 8 of 9 trials (only `B4I_2025_AL` has `keep = FALSE`), including `B4I_2026_IA`, `B4I_2026_ND`, `B4I_2026_NY`. The `trials` vector at `:72-79` **omits all three 2026 non-IL trials and still lists `B4I_2025_AL`**. So:
+
+- `B4I_2025_AL` is dropped twice (QC at `:127`, then absent from the fit anyway — no, it *is* in `trials`, so QC is what drops it).
+- `B4I_2026_IA`, `B4I_2026_ND`, `B4I_2026_NY` pass QC but are silently excluded by the whitelist at `:181`.
+
+Removing the whitelist would therefore change the data that reaches the fit (3 extra trials).
+
+### Every place `trials` / `study_years` is used as a filter
+
+Only one site — `:179-184`, inside the `grainWgt` pipeline:
+
+```r
+  dplyr::filter(
+    studyYear %in% study_years,
+    studyName %in% trials,
+    !is.na(oatYield), !is.na(peaYield),
+    !is.na(oatAcc), !is.na(peaAcc)
+  ) |&gt;
+```
+
+`:68` and `:72` are the definitions; `:71` is a comment pointing at `output/B4I_trials_selected.csv`. There is no other use of either variable anywhere in the repo (grep confirmed: `trials`/`study_years` appear nowhere else in `code/`).
+
+Monoculture filtering is separate, at `:145-163`.
+
+### Per-seed loop structure
+
+`:369-385`:
+
+```r
+fit_one &lt;- function(seed_value) {
+  message("\n--- fitting, seed ", seed_value, " ---")
+  set.seed(seed_value)
+  BGLR::Multitrait(
+    y         = Y,
+    ETA       = ETA,
+    intercept = FALSE,
+    resCov    = list(df0 = 4, S0 = NULL, type = "UN"),
+    nIter     = nIter,
+    burnIn    = burnIn,
+    thin      = thin,
+    saveAt    = file.path(out_dir, paste0("BGLR_seed_", seed_value, "_")),
+    verbose   = FALSE
+  )
+}
+
+fits &lt;- rlang::set_names(purrr::map(seeds, fit_one), seeds)
+```
+
+Note: **this script does not call `fit_producer_associate()`** — it builds its own ETA inline (`:351-363`) and calls `BGLR::Multitrait()` directly. `saveAt` is per-seed; `saveEffects` is **not** passed on any term. All four fits are held in memory simultaneously in `fits`.
+
+ETA (`:351-363`), in final order `trial, block, G_pea, G_oat`:
+
+```r
+ETA &lt;- list(
+  trial = list(X = incTrials,      model = "FIXED"),
+  G_pea = list(X = Z_pea %*% L_pea, model = "BRR"),
+  G_oat = list(X = Z_oat %*% L_oat, model = "BRR")
+)
+if (ncol(incBlocks) &gt; 0) {
+  ETA &lt;- append(ETA, list(block = list(X = incBlocks, model = "BRR")), after = 1)
+}
+if (fit_mix_term) {
+  ETA$G_mix &lt;- list(X = Z_mix %*% L_mix, model = "BRR")
+}
+```
+
+`Y &lt;- as.matrix(grainWgt[, c("peaYield","oatYield")])` at `:293-294` — trait 1 = pea, trait 2 = oat.
+
+### Outputs
+
+**`output/BGLR_variance_components.csv`** — built at `:411-443`. It is a `bind_rows` of two differently shaped tibbles, so the union of columns with `NA` padding. Observed header:
+
+```
+seed,term,var_Pr,var_As,cov_PrAs,cor_PrAs,component,var_pea,var_oat,cov_pea_oat,cor_pea_oat
+```
+
+- genetic rows (`component = "genetic"`): one per seed × genetic term, from `covariance_components()`; `var_pea`/`var_oat`/`cov_pea_oat`/`cor_pea_oat` are `NA`.
+- residual rows (`term = "residual"`, `component = "residual"`): one per seed, built at `:421-432` from `fit$resCov$R`; `var_Pr`…`cor_PrAs` are `NA`.
+- 12 data rows currently (4 seeds × 2 genetic terms + 4 residual).
+
+**`output/BGLR_oat_effects_all_seeds.csv`** — `:461`, `:486`. Columns `seed, oatAcc, PrEff, AsEff, GMA`. 442 rows per seed × 4 seeds = 1768. Built by `species_effects("G_oat", L_oat, "oatAcc")` (`:452-459`), which wraps `accession_effects()` and renames `accession` → `oatAcc`. **Posterior means only — one row per accession per seed, no SD, no draws.**
+
+**`output/BGLR_pea_effects_all_seeds.csv`** — `:462`, `:487`. Columns `seed, peaAcc, PrEff, AsEff, GMA`. 423 rows per seed.
+
+**`output/BGLR_oat_rank_stability.csv`** / **`BGLR_pea_rank_stability.csv`** — `:464-465`, `:488-489`, built by `rank_summary()` (`dge_ige_functions.R:504-519`). Columns:
+
+```
+oatAcc,mean_rank,sd_rank,mean_GMA,sd_GMA,mean_Pr,mean_As
+```
+
+The `sd_*` columns are **between-chain** SDs over 4 seeds — not posterior SDs. This is the closest thing to a per-accession uncertainty that currently exists, and it is not one.
+
+**`.rds`** — `:387-390`: `fits[[1]]` (seed 12567 only) → `output/BGLR_multitrait_pea_oat_yield_Gpea_Goat_Gmix.rds` (87 KB; `X`, `x2`, `post_beta*` are stripped by BGLR before return).
+
+**`.dat`** — written by BGLR itself from `saveAt`, not by this script: `BGLR_seed_&lt;s&gt;_Omega_2.dat`, `_Omega_3.dat`, `_Omega_4.dat`, `_R.dat` for each of the 4 seeds. Each has 2000 lines (= `nIter/thin`), 3 whitespace-separated numbers per line (`vech` of a 2×2). `Omega_2/3/4` = the `block`, `G_pea`, `G_oat` terms (index `j` in ETA; `trial` is FIXED so has no Omega). **These include burn-in** (see §C). No `mu.dat` because `intercept = FALSE`.
+
+**Figures** — `:528-531`: `BGLR_oat_Pr_vs_As.png`, `BGLR_pea_Pr_vs_As.png` (8×6 in, 150 dpi), faceted by seed, built by `pr_as_plot()` (`:495-520`). Also `print()`ed, which is what produces the stray `Rplots.pdf` in the repo root.
+
+Console-only (not written): design diagnostics `:210-244`, GRM diagnostics `:280-287`, top-20 rank tables `:467-470`, between-chain Spearman matrices `:473-484`.
+
+### Does anything record which trials entered the fit?
+
+**No.** `:197` `print(table(grainWgt$studyName))` and the `:190-195` message go to stdout only. Nothing in any written artefact records the trial set, the whitelist, `study_years`, the seeds, or the MCMC settings. Downstream consumers re-derive the trial set independently and inconsistently — see `validation_functions.R:121-122`, which reads `B4I_intercrop_pheno.rds` with **no** `apply_trial_qc()` and **no** whitelist, then reports `n_trials = dplyr::n_distinct(pheno$studyName)` (`validation_functions.R:170`). That number does not describe the fit.
+
+## B) `code/dge_ige_functions.R`
+
+### `apply_trial_qc()` — `:234-262`
+
+```r
+apply_trial_qc &lt;- function(dat,
+                           qc_file = here::here("output", "trial_qc.csv"),
+                           quiet = FALSE) {
+```
+
+- Missing file → message and `return(dat)` untouched (`:237-243`), deliberately not an error (doc comment `:226-230`).
+- Picks the filter column: `studyName` if present, else `trialF`, else returns `dat` (`:244-246`).
+- `qc &lt;- readr::read_csv(qc_file)`; `drop &lt;- qc$studyName[!qc$keep]` (`:248-249`). Only the `studyName` and `keep` columns are used.
+- Filters with base `[` (`:255`), then `droplevels()` on `trialF` if present (`:260`).
+- Messages the plot count and the dropped trial names (`:256-259`).
+
+`output/trial_qc.csv` columns: `studyName,n_fail,n_review,status,reason,keep,decided_by,note,overridden`. Written by `code/curate_trials.R:274`; manual overrides from `data/trial_qc_manual.csv` (`curate_trials.R:242-261`).
+
+### `fit_producer_associate()` — `:324-502`
+
+Signature (`:324-329`):
+
+```r
+fit_producer_associate &lt;- function(dat, G_oat, G_pea, seed = 12567,
+                                   nIter = 20000, burnIn = 3000, thin = 10,
+                                   fit_mix_term = FALSE, kron_rank = NA,
+                                   saveAt = NULL, verbose = FALSE,
+                                   save_effects = FALSE,
+                                   storage_mode = "double") {
+```
+
+The `BGLR::Multitrait()` call (`:435-443`):
+
+```r
+  set.seed(seed)
+  save_prefix &lt;- saveAt %||% file.path(tempdir(), "dge_ige_")
+  fit &lt;- BGLR::Multitrait(
+    y = Y, ETA = ETA, intercept = FALSE,
+    resCov = list(df0 = 4, S0 = NULL, type = "UN"),
+    nIter = nIter, burnIn = burnIn, thin = thin,
+    saveAt = save_prefix,
+    verbose = verbose
+  )
+```
+
+ETA (`:394-402`), identical in structure and order to the production script:
+
+| term | model | X |
+|---|---|---|
+| `trial` | `"FIXED"` | `dummy_matrix(dat$trialF)` |
+| `block` | `"BRR"` | `incBlocks` (appended `after = 1`, only if `ncol &gt; 0`) |
+| `G_pea` | `"BRR"` | `Z_pea %*% L_pea` |
+| `G_oat` | `"BRR"` | `Z_oat %*% L_oat` |
+| `G_mix` | `"BRR"` | exact `Z_mix %*% L_mix` (`:419`) or `kron_basis(...)` (`:426`) |
+
+`saveAt` is **always** passed (`:436`, defaulting to `tempdir()`). `saveEffects` is set on **exactly one term, and only the mix term** (`:428-431`):
+
+```r
+      if (save_effects) {
+        ETA$G_mix$saveEffects &lt;- TRUE
+        ETA$G_mix$storageMode &lt;- storage_mode
+      }
+```
+
+Guards at `:331-346`: `save_effects` requires `fit_mix_term &amp;&amp; !is.na(kron_rank)` and an explicit non-NULL `saveAt`.
+
+Returns a 12-element list (`:453-501`): `fit`, `L_oat`, `L_pea`, `L_mix`, `effects` (list of `oat`/`pea` tibbles from `accession_effects()`), `varcomp`, `resid_cov`, `accessions` (the sorted name vectors), `interaction`, `kron` (with `effects_file = paste0(save_prefix, "ETA_G_mix_beta.bin")` at `:493`), `mcmc = list(nIter, burnIn, thin)` (`:499`), `n_plots`, `n_blocks_fitted`.
+
+The `mcmc` element exists precisely so burn-in can be stripped from the streamed draws — comment at `:497-498`: *"BGLR writes every thinned iteration, including burn-in. See read_beta_draws()."*
+
+Constants at `:190-196`: `DGE_IGE_TRAITS &lt;- c("peaYield","oatYield")` and `DGE_IGE_ROLES`.
+
+### `covariance_components()` — `:105-115`
+
+```r
+covariance_components &lt;- function(fit, term, trait_names, roles) {
+  Omega &lt;- fit$ETA[[term]]$Cov$Omega
+  dimnames(Omega) &lt;- list(trait_names, trait_names)
+  tibble::tibble(
+    term        = term,
+    var_Pr      = Omega[roles[["Pr"]], roles[["Pr"]]],
+    var_As      = Omega[roles[["As"]], roles[["As"]]],
+    cov_PrAs    = Omega[roles[["Pr"]], roles[["As"]]],
+    cor_PrAs    = cov_PrAs / sqrt(var_Pr * var_As)
+  )
+}
+```
+
+Posterior **mean** of Omega only (BGLR replaces `Cov$Omega` with `post_Omega` on return). `Cov$SD.Omega` is also present in the fit object but unused here.
+
+### `accession_effects()` — `:117-128`
+
+```r
+accession_effects &lt;- function(fit, term, L, trait_names, roles) {
+  g &lt;- L %*% fit$ETA[[term]]$beta
+  dimnames(g) &lt;- list(rownames(L), trait_names)
+
+  tibble::as_tibble(g, rownames = "accession") |&gt;
+    dplyr::transmute(
+      accession,
+      PrEff = .data[[roles[["Pr"]]]],
+      AsEff = .data[[roles[["As"]]]],
+      GMA   = PrEff + AsEff   # GMA = Pr + As, docs/B4I_Proposal_Models.docx
+    )
+}
+```
+
+**This is the single point where per-accession uncertainty is destroyed.** `fit$ETA[[term]]$beta` is the posterior mean matrix (`p × 2`); `L %*% beta` is a point estimate. The per-draw analogue is exactly `L %*% draws[s, , ]` → `442 × 2` per draw, so this function generalises to draws with no change in algebra.
+
+Note `fit$ETA[[term]]$SD.beta` *is* available (BGLR computes it, see §C) but is **not** a usable route to per-accession PEV: it is the elementwise SD of `beta` on the L basis, and `Var(L b) = L Var(b) L'` needs the full `p × p` posterior covariance of `b`, which BGLR does not accumulate. Streaming draws is the only correct route.
+
+### `grm_factor()` — `:62-72`
+
+```r
+grm_factor &lt;- function(G, tol = 1e-8) {
+  e &lt;- eigen(G, symmetric = TRUE)
+  keep &lt;- e$values &gt; tol * max(e$values)
+  ...
+  L &lt;- sweep(e$vectors[, keep, drop = FALSE], 2, sqrt(e$values[keep]), "*")
+  rownames(L) &lt;- rownames(G)
+  L
+}
+```
+
+I verified the actual ranks by re-running the pipeline's own GRM path read-only: **`ncol(L_oat) = 442` (442 accessions, full rank), `ncol(L_pea) = 423`** (423 accessions, full rank). So `p` for the `G_oat` BRR is 442 and for `G_pea` is 423 — no dimensions are dropped, and the coefficient vector length equals the accession count. (`collapse_grm` reduces 508→466 oat and 435→434 pea lines before subsetting to the phenotyped set.)
+
+### `collapse_grm()` — `:28-51`
+
+Reads `output/{oat,pea}_analysis_names.csv`, requires columns `germplasmName` and `analysis_name`, builds an averaging matrix `A` and returns `t(A) %*% G %*% A`. Returns `G` untouched if the file is missing or lacks the columns.
+
+### `incidence()` — `:75-79`
+
+```r
+incidence &lt;- function(x, levels) {
+  Z &lt;- stats::model.matrix(~ 0 + factor(x, levels = levels))
+  colnames(Z) &lt;- levels
+  Z
+}
+```
+
+Used at `BGLR_multi_trait_model.R:328-330` and `dge_ige_functions.R:387-388`. Forces factor levels to GRM row order, which is what makes `L %*% beta` row-aligned with `rownames(L)`. `dummy_matrix()` (`:88-97`) is the single-level-tolerant variant used for `trialF`/`blockNumberF` inside `fit_producer_associate()`; the production script uses raw `model.matrix(~ 0 + ...)` instead (`:301`, `:320`).
+
+## C) BGLR capability — definitive
+
+Installed at `/Users/jj332/Library/R/arm64/4.6/library/BGLR`, **version 1.1.4**. No `R/*.R` sources (lazy-load DB only), so I inspected the parsed function bodies.
+
+### Yes — `Multitrait()` supports `saveEffects = TRUE` inside an ETA term
+
+Setup, in `BGLR:::setLT.BRR_mt` (the handler dispatched at `Multitrait` deparsed line 78):
+
+```r
+    if (is.null(LT$saveEffects)) {
+        LT$saveEffects &lt;- FALSE
+    }
+    if (LT$saveEffects) {
+        if (is.null(LT$storageMode)) {
+            LT$storageMode &lt;- "double"
+        }
+        if (!LT$storageMode %in% c("single", "double")) {
+            stop("storageMode of LP ", j, " can either be 'single' or 'double' (default)")
+        }
+        fname &lt;- paste(saveAt, LT$Name, "_beta.bin", sep = "")
+        LT$fileEffects &lt;- file(fname, open = "wb")
+        writeBin(object = c(nRow, traits, LT$p), con = LT$fileEffects,
+            size = ifelse(LT$storageMode == "single", 4, 8))
+    }
+```
+
+The write, in the `Multitrait` MCMC loop (deparsed lines 332-347):
+
+```r
+            for (j in 1:nLT) {
+                if (ETA[[j]]$model %in% c("SpikeSlab", "BRR", "FIXED")) {
+                  if (ETA[[j]]$saveEffects) {
+                    writeBin(object = as.vector(ETA[[j]]$beta),
+                      con = ETA[[j]]$fileEffects, size = ifelse(ETA[[j]]$storageMode ==
+                        "single", 4, 8))
+```
+
+Supported models: **`SpikeSlab`, `BRR`, `FIXED`**. **`RKHS` is not** — another reason the project's BRR-on-`Z L` parameterisation matters. `setLT.FIXED_mt` has the identical `saveEffects` block (with a different header when `common = FALSE`).
+
+`ETA[[j]]$Name` is `paste("ETA_", names(ETA)[j], sep = "")` (deparsed line 69), so term `G_oat` → `ETA_G_oat`.
+
+### Filename pattern and binary format
+
+**`paste0(saveAt, "ETA_", &lt;term name&gt;, "_beta.bin")`** — e.g. with the production `saveAt`, `output/BGLR_seed_12567_ETA_G_oat_beta.bin`.
+
+Layout: a 3-number header `(nRow, traits, p)` then, for each saved iteration, `as.vector(beta)` where `beta` is `p × traits` — column-major, i.e. all `p` coefficients for trait 1, then all `p` for trait 2. Element size 8 bytes (`double`) or 4 bytes (`single`). No compression unless you additionally set `ETA[[j]]$compressEffects &lt;- TRUE`, in which case `BGLR:::compressFile` writes `&lt;name&gt;.bin.gz` and **unlinks the original** at the end of the run (deparsed lines 498-510) — that would break the repo's `read_beta_draws()`, which looks for the uncompressed name and asserts on `file.size()`. Leave it off.
+
+### Reader: `BGLR::readBinMatMultitrait()`
+
+Exported (`NAMESPACE:25`). Full body:
+
+```r
+function (filename, storageMode = "double")
+{
+    if (!storageMode %in% c("single", "double")) {
+        stop("storageMode can either be 'single' or 'double' (default)")
+    }
+    fileIn &lt;- gzfile(filename, open = "rb")
+    nRow &lt;- readBin(fileIn, n = 1, what = numeric(), size = ifelse(storageMode == "single", 4, 8))
+    traits &lt;- readBin(fileIn, n = 1, what = numeric(), size = ifelse(storageMode == "single", 4, 8))
+    p &lt;- readBin(fileIn, n = 1, what = numeric(), size = ifelse(storageMode == "single", 4, 8))
+    Beta &lt;- array(data = NA, dim = c(nRow, p, traits))
+    for (j in 1:nRow) {
+        for (k in 1:traits) {
+            Beta[j, , k] &lt;- readBin(fileIn, n = p, what = numeric(),
+                size = ifelse(storageMode == "single", 4, 8))
+        }
+    }
+    close(fileIn)
+    return(Beta)
+}
+```
+
+**Returns a 3-d array `[nRow, p, traits]` — draws × effects × traits**, exactly the shape you want. `gzfile` reads plain files transparently, so it works compressed or not. Two traps, both already documented in the repo:
+
+1. The array is pre-allocated `NA` from the header, and `readBin` short-reads silently, so a **truncated file returns NAs with no error**.
+2. `nRow` comes from the header, which is `nIter/thin` — see next point.
+
+(`BGLR::readBinMat()` is the single-trait reader: header `(n, p)`, returns an `n × p` matrix, `byrow = TRUE` default. Not applicable to `Multitrait`.)
+
+### `thin` is honoured; `burnIn` is NOT
+
+- Header: `nRow &lt;- nIter/thin` (deparsed line 61), with `if (nRow &lt; 1) stop("Check nIter, thin\n")`.
+- The `saveEffects` write is gated **only** by `if (iter %% thin == 0)` (deparsed line 291, enclosing the block at 332-347).
+- The posterior-mean accumulation is gated separately by `if ((iter &gt; burnIn) &amp; (iter %% thin == 0))` (deparsed line 349).
+
+So the file contains **every thinned iteration including burn-in**: `nIter %/% thin` rows, of which the first `burnIn %/% thin` must be discarded by the caller. With `nIter = 20000, burnIn = 3000, thin = 10`: **2000 rows written, drop the first 300, keep 1700.**
+
+The `.dat` files behave identically (same `iter %% thin == 0` gate, deparsed lines 291-298) — which is confirmed by `wc -l output/BGLR_seed_12567_Omega_4.dat` = **2000**, not 1700. Anything summarising those `.dat` files must drop 300 rows too.
+
+### What `Multitrait` saves by default
+
+With `saveAt` set and no `saveEffects` anywhere — exactly what is in `output/` now:
+
+- **`&lt;saveAt&gt;Omega_&lt;j&gt;.dat`** — from `BGLR:::setCov.UN`: `Cov$fName_Omega &lt;- paste(saveAt, "Omega_", j, ".dat", sep = "")`. One per BRR/RKHS/SpikeSlab term with `Cov$type %in% c("UN","DIAG")`, written as `vech(Omega)` (3 numbers for 2 traits). `j` is the ETA index: `Omega_2` = `block`, `Omega_3` = `G_pea`, `Omega_4` = `G_oat`. No `Omega_1` because `trial` is `FIXED`.
+- **`&lt;saveAt&gt;R.dat`** — `vech(resCov$R)`, 3 numbers per row.
+- **`&lt;saveAt&gt;mu.dat`** — only `if (intercept)`; absent here because `intercept = FALSE` (deparsed lines 48-54).
+- (`W.dat`/`PSI.dat` only for `REC`/`FA` covariance types — not used.)
+
+All files are closed and the handles nulled before the fit object is returned (deparsed lines 480-521). The returned object keeps `beta` (= `post_beta`), `SD.beta` (= `sqrt(post_beta2 - post_beta^2)`), `u = X %*% post_beta`, `Cov$Omega`, `Cov$SD.Omega`, `resCov$R`, `resCov$SD.R`, `ETAHat`, `SD.ETAHat`, `fit` (DIC); it **drops** `X`, `x2`, `post_beta`, `post_beta2` (deparsed lines 418-462).
+
+### On-disk size implication
+
+Bytes = `3 * size + (nIter %/% thin) * p * traits * size`.
+
+At the production settings (`nIter = 20000`, `thin = 10` → 2000 rows; `traits = 2`):
+
+| term | `p` | `double` (8 B) | `single` (4 B) |
+|---|---|---|---|
+| `G_oat` | 442 | 14,144,024 B ≈ **13.5 MiB** | ≈ **6.7 MiB** |
+| `G_pea` | 423 | 13,536,024 B ≈ **12.9 MiB** | ≈ **6.5 MiB** |
+| both | — | ≈ **26.4 MiB / seed** | ≈ **13.2 MiB / seed** |
+| both × 4 seeds | — | ≈ **106 MiB** | ≈ **53 MiB** |
+
+(`block` would add `2000 * ncol(incBlocks) * 2 * 8`; `trial` would add `2000 * n_trials * 2 * 8` ≈ 0.2 MiB — both negligible, but neither is needed.)
+
+Two notes for planning:
+
+- **The file is 15% larger than the useful content** (2000 rows stored, 1700 kept) — unavoidable, BGLR sizes the file from `nIter/thin`.
+- Reading is pure R double loops: `nRow * traits` = 4000 `readBin` calls per file, each of `p` doubles. Cheap. The returned array is `1700 × 442 × 2` doubles ≈ 12 MiB in memory after burn-in removal, and per-accession summaries (`L %*% draws[s,,]` per draw) can be streamed draw-by-draw if you prefer not to hold `L %*% draws` for all draws (`442 × 2 × 1700` ≈ 12 MiB, also fine to hold).
+
+## D) Existing code that reads BGLR draws from disk
+
+**`read_beta_draws()` — `/Users/jj332/Documents/GitRepo/B4I_Fall2026/code/interaction_decomp.R:259-304`. This is the reusable helper.** Signature:
+
+```r
+read_beta_draws &lt;- function(prefix, term = "ETA_G_mix", nIter, burnIn, thin,
+                            p, traits, storage_mode = "double")
+```
+
+It does all four things you need: builds `paste0(prefix, term, "_beta.bin")`, asserts `file.size(f) == 3*size + (nIter %/% thin)*p*traits*size` (because a truncated file reads back as NA), calls `BGLR::readBinMatMultitrait(f, storageMode = storage_mode)`, checks `anyNA`, then drops the first `burnIn %/% thin` rows. Returns `[n_kept, p, traits]`.
+
+**It is directly reusable for the producer/associate terms** — only `term` changes, to `"ETA_G_oat"` / `"ETA_G_pea"`, with `p = ncol(L_oat)` / `ncol(L_pea)` and `traits = 2L`. The function has no mix-term-specific logic; `term` is already a parameter with a mix-term default. Its doc comment at `:246-257` is the authoritative in-repo statement of the burn-in trap and matches the source I read above exactly.
+
+Everything else in `interaction_decomp.R` is bilinear/Kronecker-specific and **not** reusable for per-accession PEV: `beta_from_vector()` (`:236`), `decompose_draws()` (`:355`), `align_to_reference()` (`:307`), `decompose_bilinear()` (`:209`), `.whiten()` (`:194`), `double_centre()` (`:60`), `effective_rank()` (`:73`), `component_summary()` (`:446`).
+
+Callers of `read_beta_draws()`, i.e. the existing streaming patterns to copy:
+
+- **`code/sim_decomp_run.R:224-237`** — `fit_dge_ige(..., save_effects = TRUE, saveAt = prefix, storage_mode = "single")` then `read_beta_draws(prefix, nIter = n_iter, burnIn = burn_in, thin = thin, p = ka*kb, traits = 2L, storage_mode = "single")`. Cleanup at `:309`: `if (!keep_draws) unlink(paste0(prefix, "ETA_G_mix_beta.bin"))`. Second call at `:336-339`.
+- **`tests/test_fits.R:283-342`** — the test that proves the whole chain. `:321-324` asserts `dim(draws)[1] == nIter %/% thin - burnIn %/% thin`; `:326-328` asserts `colMeans(draws[,,k]) == fit beta` to 1e-10 — **this is the exact assertion you want for the per-accession version**, since BGLR's returned `beta` is the running mean over precisely the post-burn-in thinned draws, so `colMeans(draws) == beta` can only hold if burn-in offset, byte order, trait-major layout and storage mode are all correct. `:331-333` is the negative control (keeping burn-in must disagree).
+- **`code/sim_fit.R:126-150`** — `fit_dge_ige()` passes `save_effects`/`saveAt`/`storage_mode` straight through to `fit_producer_associate()`.
+- **`code/scinet/sim_decomp_array.sbatch:38`** — comment on why `saveAt` must be a per-task prefix, not a bare directory.
+
+`code/evaluation.R:98-104` registers `read_beta_draws` in the `sim_decomp` evaluation group, so adding a per-accession reader there would want a matching registration.
+
+`saveAt` elsewhere, for completeness: `code/cross_validate_combinations.R:184` and `code/pilot/pilot_dge_ige.R:180` both pass a `saveAt` prefix but no `saveEffects`, so they only produce `.dat` files. Nothing in the repo reads any `.dat` file, and there is no `read_omega` helper — the `Omega_*.dat` / `R.dat` files in `output/` are currently write-only byproducts.
+
+### Two things worth flagging for your two changes
+
+1. **The global reliability you want to replace lives at `/Users/jj332/Documents/GitRepo/B4I_Fall2026/code/validation_functions.R:152-171`**, inside `validation_inputs()`. It derives reliability from the variance-component ratio rather than from draws:
+
+```r
+    rel &lt;- function(v_blup, sigma2) min(max(v_blup / sigma2, 1e-6), 0.999)
+    ...
+      rel_Pr       = rel(stats::var(acc$Pr), sigma2_Pr),
+      rel_As       = rel(stats::var(acc$As), sigma2_As),
+      PEV_As       = sigma2_As * (1 - rel(stats::var(acc$As), sigma2_As)),
+```
+
+`var(acc$Pr)` is the variance of the chain-averaged BLUPs **across accessions**, and `sigma2_*` is the across-seed mean of `var_Pr`/`var_As` from `BGLR_variance_components.csv`. One scalar per species per role, clamped. Consumers: `code/validate_power.R:132` (`rnorm(nrow(a), 0, sqrt(inp$PEV_As))` — a single PEV for every accession), `validation_functions.R:339` (`sigma2_within = inp$PEV_As + var_blup_within`), `:639`, `code/validate_pool_selection.R:64,89,110-111`, `code/validation_report.R:77-81`. `code/validate_crossval.R:224` passes `PEV_As = 0` deliberately. A per-accession PEV column would need to flow into `validate_power.R:132` as a vector rather than a scalar.
+
+2. **Removing the whitelist changes the fitted data, and nothing downstream will notice.** `validation_inputs()` already reads the raw phenotype table with neither QC nor whitelist, so its `n_trials`, `n_plots` and partner counts are computed over a different plot set than the fit's. If the whitelist goes away, the mismatch shrinks from 4 trials to 1 (`B4I_2025_AL`, dropped by QC) but does not vanish. Writing the realised trial set from the fit — there is currently no such artefact — would be the thing that makes the change verifiable.</result>
+<usage><subagent_tokens>100257</subagent_tokens><tool_uses>26</tool_uses><duration_ms>272872</duration_ms></usage>
+</task-notification>
+[2026-10-03 11:37:24] <task-notification>
+<task-id>a43d83ea81133d53a</task-id>
+<tool-use-id>toolu_014uAdjPEH8QppKMmxzFK5ra</tool-use-id>
+<output-file>/private/tmp/claude-1334918876/-Users-jj332-Documents-GitRepo-B4I-Fall2026/cc7612c1-3004-4630-aee6-8449e3e08a76/tasks/a43d83ea81133d53a.output</output-file>
+<status>completed</status>
+<summary>Agent "Inventory validate_* scripts and tests" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>I have everything. Here is the complete inventory.
+
+---
+
+# Validation-trial design chain — complete inventory
+
+**Shared library**: `/Users/jj332/Documents/GitRepo/B4I_Fall2026/code/validation_functions.R` (643 lines, "Sourced, not run"). All four `validate_*` scripts and `validation_report.R` `source()` it. Nothing else does.
+
+---
+
+## A) `code/validate_pool_selection.R` (221 lines)
+
+### Settings block — lines 36-49
+
+```r
+out_root &lt;- here::here("output", "validation")
+vintage &lt;- format(Sys.Date(), "%Y-%m-%d")          # L40
+n_per_pool   &lt;- validation_setting("n_per_pool")    # L46
+pr_quantile  &lt;- validation_setting("pr_quantile")   # L47
+pr_tolerance &lt;- validation_setting("pr_tolerance")  # L48
+min_partners &lt;- validation_setting("min_partners")  # L49
+```
+
+No local constants at all — every knob comes from `VALIDATION_DEFAULTS`. Vintage is `Sys.Date()`, so the output dir is created fresh per day (`L55-56`).
+
+### What it reads from `output/`
+
+All indirect, through `validation_inputs(min_partners = min_partners)` at **L58**. That function (`validation_functions.R:112-174`) reads:
+
+| file | where | used for |
+|---|---|---|
+| `output/BGLR_variance_components.csv` | `validation_functions.R:116-119` | `sigma2_Pr`, `sigma2_As` (rows `component == "genetic"`, filtered by `term` = `G_oat`/`G_pea`), `sigma2_e` (row `component == "residual"`, column `var_pea` for oat / `var_oat` for pea) |
+| `output/B4I_intercrop_pheno.rds` | `validation_functions.R:121-122` | partner counts + plot counts; filtered to `!is.na(oat_yield), !is.na(pea_yield)`; also gives `n_trials`, `n_plots` |
+| `output/BGLR_oat_effects_all_seeds.csv` | via `VALIDATION_SPECIES$oat$effects_file`, `validation_functions.R:141-144` | `Pr = mean(PrEff)`, `As = mean(AsEff)` grouped by `oatAcc` (mean over MCMC seeds) |
+| `output/BGLR_pea_effects_all_seeds.csv` | same, `peaAcc` | ditto |
+
+Plus, directly, the **previous vintage's** `pools.csv` (`L136`) and `pool_summary.csv` (`L161-165`).
+
+### What it calls in `validation_functions.R`
+
+- `validation_setting()` ×4 — L46-49
+- `validation_inputs()` — L58
+- `validation_vintage()` — L61
+- `build_pools(inp, n, pr_quantile = pr_quantile, tol = pr_tolerance)` — L75, once per species inside `purrr::imap`
+- `pool_diff(prev, pools)` — L137
+- `POOL_INDEX_VERSION` (constant) — L167, L170
+
+### What it writes
+
+Everything into `output/validation/&lt;vintage&gt;/`:
+
+| file | line | columns (verified against `output/validation/2026-10-03/`) |
+|---|---|---|
+| `pools.csv` | L114 | `species, pool, acc, Pr, As, n_partners, n_plots` — set by the `transmute` at `validation_functions.R:319-320` |
+| `pool_summary.csv` | L115 | `species, n_per_pool, n_candidates, pr_threshold, theta, pool_index, dAs, dPr, mean_As_plus, mean_As_minus, mean_Pr_plus, mean_Pr_minus, sigma2_within, PEV, reliability_As` — built L104-112 |
+| `vintage.csv` | L116 | `species, n_trials, n_plots, n_accessions, n_eligible, sigma2_As, reliability_As, PEV_As, response, sigma2_e` — from `validation_vintage()`, `validation_functions.R:635-643` |
+| `pool_diff.csv` | L139 | `species, acc, pool_old, pool_new, status` — **conditional**: only written when a previous vintage exists (`if (length(previous) &gt; 0)`, L134) |
+| `pools_Pr_vs_As.png` | L218-219 | 10×5 in, 150 dpi |
+
+Note the header comment (L20-23) lists only four outputs and **omits `vintage.csv`**.
+
+### In-script assertions — L92-98
+
+```r
+  stopifnot(
+    "pools are not disjoint" =
+      length(intersect(bp$pools$acc[bp$pools$pool == "As+"],
+                       bp$pools$acc[bp$pools$pool == "As-"])) == 0,
+    "a pool member falls below the partner filter" =
+      all(bp$pools$n_partners &gt;= min_partners)
+  )
+```
+
+These are hard failures. The second one hard-codes the partner-count eligibility rule.
+
+### How it finds the previous vintage — L129-132
+
+```r
+previous &lt;- list.dirs(out_root, recursive = FALSE) |&gt;
+  setdiff(out_dir) |&gt;
+  (\(d) d[file.exists(file.path(d, "pools.csv"))])() |&gt;
+  sort()
+```
+
+then `prev_dir &lt;- utils::tail(previous, 1)` (L135). Lexicographic sort of full paths; any directory with a `pools.csv` qualifies, so the hand-made `output/validation/2026-10-02_1` is a legitimate candidate (and sorts *after* `2026-10-02`). On-disk vintages: `2026-09-24, 2026-09-27, 2026-10-02, 2026-10-02_1, 2026-10-03`.
+
+### Rule-version guard — L157-178
+
+Reads `pool_index` out of the previous `pool_summary.csv` and compares to `POOL_INDEX_VERSION` (`"single-v1"`, `validation_functions.R:221`). On mismatch it prints that the churn measures the rule change and that *"The 70% retention guidance does not apply to it."* Otherwise it prints the 70% guidance. Purely advisory — no failure either way.
+
+### Figure — L187-219
+
+`plot_data` left-joins `pools` onto `inp$accessions` per species, `replace_na(pool, "not selected")`; `Pr` vs `As` scatter, faceted by species, manual colour/alpha/size scales keyed on the three pool levels. Subtitle embeds `min_partners` and `round(100*pr_quantile)` — i.e. the figure caption is where the eligibility rule is stated to the reader.
+
+---
+
+## B) `code/validate_design.R` (183 lines)
+
+### Settings — L40-52
+
+```r
+out_root &lt;- here::here("output", "validation")
+vintage  &lt;- format(Sys.Date(), "%Y-%m-%d")
+n_locations        &lt;- validation_setting("n_locations")         # 5L
+plots_per_location &lt;- validation_setting("plots_per_location")  # 80L
+n_anchor_per_cell  &lt;- validation_setting("n_anchor_per_cell")   # 1L
+block_size         &lt;- validation_setting("block_size")          # 10L
+design_seed &lt;- 20260924L                                        # L52 — the one local constant
+```
+
+### Input and hard gate — L58-68
+
+Reads **only** `output/validation/&lt;today&gt;/pools.csv`. Nothing from `output/` proper, no `validation_inputs()` call:
+
+```r
+if (!file.exists(pools_file)) {
+  stop("No pools for vintage ", vintage, ".\n  Run code/validate_pool_selection.R first.",
+       call. = FALSE)
+}
+```
+
+Note this binds to *today's* vintage specifically — there is no `--vintage` flag, so running `validate_design.R` on a day when `validate_pool_selection.R` has not run fails. (Indeed `output/validation/2026-10-03/field_book.csv` does not exist while `2026-10-02/` has one.)
+
+### What it calls
+
+- `validation_setting()` ×4 — L47-50
+- `make_validation_design(oat_pools, pea_pools, n_loc=, p_loc=, n_anchor=, block_size=, seed=)` — L72-77
+- `check_validation_design(design, oat_pools, pea_pools)` — L85
+
+### Outputs
+
+- `field_book.csv` — L79. Columns, from `make_validation_design`'s final `select` (`validation_functions.R:495-496`) and confirmed on disk: `location, block, plot, oat_pool, pea_pool, oat_acc, pea_acc, combination, is_anchor`. `combination = paste(oat_acc, pea_acc, sep = "::")` (L482).
+- `design_check.txt` — L149 (`utils::capture.output` of the block at L87-147)
+- `design_balance.png` — L180-181
+
+### What `design_check.txt` contains
+
+Verified against `output/validation/2026-10-02/design_check.txt`. In order:
+
+1. Header: `VALIDATION TRIAL DESIGN CHECK` + `vintage &lt;date&gt; | &lt;n_locations&gt; locations x &lt;plots_per_location&gt; plots`
+2. `plots per location` — `chk$plots_per_location` as a data frame
+3. `cells per location (all four should be equal)` — `chk$cells_per_location` pivoted wide on `pea_pool`, columns prefixed `pea `
+4. `plots per accession` — median and range of `chk$oat_reps$plots` and `chk$pea_reps$plots`
+5. `distinct partners per oat accession` — median + range of `chk$partners_per_oat$partners` (**oat only**; pea is not reported here)
+6. `PARTNER BALANCE` — the two scalars `chk$max_oat_imbalance`, `chk$max_pea_imbalance`
+7. `replicated combinations (for plot error and SCA)` — `chk$anchor_plots`, `nrow(chk$replicated_combinations)`, and the sorted unique replication counts
+8. `VERDICT` — six `[ok  ]` / `[FAIL]` lines, then one of `design passes every check` / `DESIGN HAS A PROBLEM -- see the FAIL lines above`
+
+### Exactly which assertions are checked — L128-146
+
+```r
+  ok &lt;- TRUE
+  say &lt;- function(pass, msg) {
+    cat("  [", if (pass) "ok  " else "FAIL", "] ", msg, "\n", sep = "")
+    pass
+  }
+  ok &lt;- say(dplyr::n_distinct(chk$plots_per_location$plots) == 1,
+            "every location has the same number of plots") &amp;&amp; ok
+  ok &lt;- say(dplyr::n_distinct(chk$cells_per_location$plots) == 1,
+            "all four cells equally represented at every location") &amp;&amp; ok
+  ok &lt;- say(chk$max_oat_imbalance == 0,
+            "every oat meets both pea pools equally often") &amp;&amp; ok
+  ok &lt;- say(chk$max_pea_imbalance == 0,
+            "every pea meets both oat pools equally often") &amp;&amp; ok
+  ok &lt;- say(chk$anchor_plots == 2 * 4 * n_anchor_per_cell * n_locations,
+            "anchors duplicated within every location") &amp;&amp; ok
+  ok &lt;- say(nrow(chk$replicated_combinations) &gt; 0,
+            "some combinations are replicated, so plot error is estimable") &amp;&amp; ok
+```
+
+**What makes it fail vs just report — important:**
+
+- **Hard failure (non-zero exit)**: only the missing-`pools.csv` `stop()` at L62, and any `stop()` raised *inside* `make_validation_design()` — `validation_functions.R:407-414` (`cell_size &lt; 4L`; `n_anchor &gt; cell_size`) and L439-443 (a pool too small to supply anchors and still rotate).
+- **Report only**: *all six* `VERDICT` assertions. `ok` is accumulated and printed but **never used to set an exit status** — no `stopifnot`, no `quit(status=)`. So a design that fails partner balance writes `field_book.csv` anyway, exits 0, and `validate_refresh.R` records the step as `ok`. The only trace is the `FAIL` line inside `design_check.txt` and, because `run_step()` only tails 6 lines of the log (`validate_refresh.R:169`), the verdict line is roughly at the edge of what gets echoed.
+- Note `n_distinct(chk$cells_per_location$plots) == 1` compares across *all* location×cell rows globally, not within location.
+- The anchor-count expectation `2 * 4 * n_anchor_per_cell * n_locations` hard-codes the 2×2 factorial (the `4`) and the within-location duplication (the `2`).
+
+### Figure — L156-181
+
+Pivots `chk$oat_partner_balance` and `chk$pea_partner_balance` long over the literal column names `` `As+` `` / `` `As-` `` (so the pool labels are hard-coded in three places: `validation_functions.R:446-447`, `:507`, and here at L158/163), then a dodged bar chart of plots-per-partner-pool, faceted by species.
+
+---
+
+## C) `code/validation_report.R` (216 lines)
+
+### CLI and vintage resolution — L36-52
+
+```r
+args &lt;- commandArgs(trailingOnly = TRUE)
+arg_value &lt;- function(flag, default) {
+  i &lt;- match(flag, args)
+  if (is.na(i) || i == length(args)) default else args[i + 1]
+}
+check_only &lt;- "--check" %in% args
+...
+vintages &lt;- sort(basename(list.dirs(out_root, recursive = FALSE)))
+if (length(vintages) == 0) stop("no vintages under ", out_root, call. = FALSE)
+vintage &lt;- arg_value("--vintage", utils::tail(vintages, 1))
+vin_dir &lt;- file.path(out_root, vintage)
+if (!dir.exists(vin_dir)) stop("no such vintage: ", vin_dir, call. = FALSE)
+```
+
+Flags: `--check`, `--vintage &lt;date&gt;`. Doc target is fixed: `doc_file &lt;- here::here("VALIDATION_DESIGN.md")` (L44).
+
+### Vintage files read — L54-65
+
+```r
+read_if &lt;- function(name) {
+  f &lt;- file.path(vin_dir, name)
+  if (file.exists(f)) readr::read_csv(f, show_col_types = FALSE) else NULL
+}
+
+cv    &lt;- read_if("crossval_summary.csv")
+psum  &lt;- read_if("pool_summary.csv")
+grid  &lt;- read_if("power_grid.csv")
+vint  &lt;- read_if("vintage.csv")
+qc    &lt;- if (file.exists(here::here("output", "trial_qc.csv"))) ... else NULL
+```
+
+`output/trial_qc.csv` is the only non-vintage input, and it is read from `output/` (not the vintage dir).
+
+### The exact key list — L169-170
+
+```r
+blocks &lt;- list(vintage = block_vintage(), pools = block_pools(),
+               lambda = block_lambda(), power = block_power())
+```
+
+**Four keys, in this order: `vintage`, `pools`, `lambda`, `power`.** (The file's own header comment at L19-21 lists only `lambda`, `power`, `vintage` — it is stale and omits `pools`.)
+
+Marker pairs currently present in `VALIDATION_DESIGN.md`:
+
+| key | BEGIN | END |
+|---|---|---|
+| `pools` | line 99 | line 106 |
+| `vintage` | line 198 | line 208 |
+| `power` | line 210 | line 222 |
+| `lambda` | line 418 | line 423 |
+
+### Key → source file → table
+
+| key | reads | builder | output |
+|---|---|---|---|
+| `vintage` | `vintage.csv` + `output/trial_qc.csv` | `block_vintage()`, L73-94 | an italic *"Numbers below are from vintage **\&lt;x\&gt;**"* line, then a 6-column table `species / trials / plots / accessions / eligible / reliability of As` from `vint$species, n_trials, n_plots, n_accessions, n_eligible, reliability_As`; then, if `qc` is present, a `Trials kept by the QC screen (n): ...` line from `qc$studyName[qc$keep]` and a `Dropped (n): ...` line |
+| `pools` | `pool_summary.csv` | `block_pools()`, L99-110 | 8-column table `species / n per pool / candidates / θ / ΔAs (g/m²) / ΔPr / mean Pr, As+ / mean Pr, As−` from `psum$species, n_per_pool, n_candidates, theta, dAs, dPr, mean_Pr_plus, mean_Pr_minus`; ΔAs is bolded; trailer `*Selection rule: \`&lt;pool_index&gt;\`.*` (or `unstamped`) |
+| `lambda` | `crossval_summary.csv` | `block_lambda()`, L112-121 | filters `set == "informative folds only"`, falls back to all rows if empty; 5-column table `λ / across-fold spread (interaction_frac) / folds / accession-level r` from `lambda_mean, interaction_frac, n_folds, r_accession_mean` |
+| `power` | `power_grid.csv` | `block_power()`, L123-167 | see below |
+
+`fmt &lt;- function(x, k = 2) formatC(x, format = "f", digits = k)` (L67) is the only number formatter; every block builds markdown by `sprintf()` over vectorised columns, so one row per input row.
+
+### `block_power()` in detail — the most logic of the four
+
+```r
+  n_pool  &lt;- validation_setting("n_per_pool")
+  n_loc   &lt;- validation_setting("n_locations")
+  g &lt;- grid |&gt;
+    dplyr::filter(n == unname(n_pool[species])) |&gt;
+    dplyr::arrange(species, P)
+  if (nrow(g) == 0) { message("  power grid has no rows at the configured pool sizes -- skipped"); return(NULL) }
+```
+
+It filters to the *configured* pool size per species (oat 20, pea 30) — the comment at L125-128 records that getting this wrong "quietly reported pea at oat's pool size." Then a staleness detector:
+
+```r
+  per_sp &lt;- g |&gt;
+    dplyr::group_by(species) |&gt;
+    dplyr::summarise(nl = dplyr::n_distinct(lambda),
+                     ni = dplyr::n_distinct(interaction_frac), .groups = "drop")
+  swept &lt;- any(per_sp$nl &gt; 1) || any(per_sp$ni &gt; 1) ||
+           ("sided" %in% names(g) &amp;&amp; dplyr::n_distinct(g$sided) &gt; 1)
+```
+
+If `swept`, it returns a four-line blockquote telling the reader the grid predates the measured λ, instead of a table. Otherwise:
+
+```r
+  c("One-sided α = 0.05, at the configured pool size, with λ and the",
+    "pool × location interaction as measured (see §6).",
+    "",
+    "| | plots/loc | n per pool | total plots | λ | interaction | power |",
+    "|---|---|---|---|---|---|---|",
+    sprintf("| **%s** | %d | %d | %d | %s | %s | %s |",
+            g$species, as.integer(g$P / n_loc), g$n, g$P,
+            fmt(g$lambda), fmt(g$interaction_frac), fmt(g$power)))
+```
+
+`plots/loc` is *derived* as `P / n_loc`; `α = 0.05` and "One-sided" are hard-coded strings, not read from the grid's `sided` column.
+
+### The splice mechanism — L176-205
+
+```r
+doc &lt;- readLines(doc_file, warn = FALSE)
+
+splice &lt;- function(doc, key, body) {
+  b &lt;- sprintf("&lt;!-- BEGIN GENERATED: %s --&gt;", key)
+  e &lt;- sprintf("&lt;!-- END GENERATED: %s --&gt;", key)
+  i &lt;- which(doc == b); j &lt;- which(doc == e)
+  if (length(i) != 1 || length(j) != 1 || j &lt;= i) {
+    message("  no markers for '", key, "' in ", basename(doc_file), " -- skipped")
+    return(list(doc = doc, changed = FALSE))
+  }
+  old &lt;- doc[(i + 1):(j - 1)]
+  changed &lt;- !identical(trimws(old), trimws(body))
+  list(doc = c(doc[seq_len(i)], body, doc[j:length(doc)]), changed = changed)
+}
+
+changed_any &lt;- FALSE
+for (k in names(blocks)) {
+  if (is.null(blocks[[k]])) {
+    message("  no data for '", k, "' in this vintage -- skipped")
+    next
+  }
+  r &lt;- splice(doc, k, blocks[[k]])
+  doc &lt;- r$doc
+  if (r$changed) { changed_any &lt;- TRUE; message("  '", k, "' block: numbers differ from the document") }
+  else message("  '", k, "' block: unchanged")
+}
+```
+
+Mechanics that matter if you add a key:
+
+- Match is **exact whole-line equality** (`doc == b`). No leading whitespace, no trailing spaces, marker must be alone on its line.
+- Requires **exactly one** BEGIN and one END with `j &gt; i`; anything else is skipped with a message and `changed = FALSE` (so a typo'd marker reports "up to date", not an error).
+- `doc` is reassigned each iteration and indices are recomputed from the updated `doc`, so earlier splices shifting line numbers is handled correctly.
+- A `NULL` block is skipped and does **not** set `changed_any` — a missing vintage CSV makes `--check` report clean.
+- Comparison is `identical(trimws(old), trimws(body))` — per-line whitespace trimmed, but line count and content must match exactly.
+- The content between markers is fully replaced; nothing outside is touched. Final write is `writeLines(doc, doc_file)` (L214) — whole-file rewrite.
+
+### How `--check` works — L207-212
+
+```r
+if (check_only) {
+  message(if (changed_any)
+            "\nDRIFT: VALIDATION_DESIGN.md does not match this vintage. Re-run without --check."
+          else "\nVALIDATION_DESIGN.md is up to date with this vintage.")
+  quit(save = "no", status = if (changed_any) 1L else 0L)
+}
+```
+
+Exit 1 on drift, 0 otherwise. The in-memory `doc` is discarded. This is the only exit-status signal in the whole reporting layer.
+
+### To add a new table (e.g. a power table keyed on a new analysis model)
+
+Four edits, all small:
+
+1. **Read the file** — add a `read_if("&lt;new&gt;.csv")` line next to L59-62.
+2. **Write the builder** — a `block_&lt;key&gt;()` function alongside L73-167, returning a `character` vector of markdown lines or `NULL` when the data is absent. By convention it does its own staleness/consistency checks and returns an explanatory blockquote rather than a wrong table (see `block_power()`'s `swept` path).
+3. **Register the key** — add `&lt;key&gt; = block_&lt;key&gt;()` to the `blocks` list at L169-170. The list's name order is the splice order.
+4. **Add the markers** — insert `&lt;!-- BEGIN GENERATED: &lt;key&gt; --&gt;` / `&lt;!-- END GENERATED: &lt;key&gt; --&gt;` as standalone lines in `VALIDATION_DESIGN.md` at the point the table should appear. Without them the key is skipped with a message, silently.
+
+Nothing else is key-aware: no registry, no schema, no test. (`tests/` does not exercise `validation_report.R` at all — see F.) If the new table's producing script writes a new vintage CSV, also add it to `validate_refresh.R`'s `STEPS` so `--refresh-doc` runs after it, and update the header comment at L19-21 (which is already stale).
+
+---
+
+## D) `code/validate_refresh.R` (221 lines)
+
+### Flag parsing — L31-45
+
+```r
+args &lt;- commandArgs(trailingOnly = TRUE)
+arg_value &lt;- function(flag, default = NULL) {
+  i &lt;- match(flag, args)
+  if (is.na(i) || i == length(args)) default else args[i + 1]
+}
+dry_run &lt;- "--dry-run" %in% args
+from    &lt;- arg_value("--from", NULL)
+only    &lt;- arg_value("--only", NULL)
+...
+refresh_doc &lt;- "--refresh-doc" %in% args || "--refresh_doc" %in% args
+```
+
+Four flags: `--dry-run` (boolean), `--from &lt;stage&gt;`, `--only &lt;stage&gt;`, `--refresh-doc` (both hyphen and underscore spellings accepted). `arg_value` is positional-next-token; a flag in last position silently yields the default.
+
+### The complete `STEPS` tibble — L49-73
+
+11 rows, verbatim:
+
+| # | stage | script | needs_t3 | slow | why |
+|---|---|---|---|---|---|
+| 1 | `discover` | `find_trials_with_B4I_accessions.R` | TRUE | TRUE | "finds the new trials and downloads their observations; without this the new plots do not exist locally" |
+| 2 | `curate` | `curate_oat_accessions.R` | TRUE | FALSE | "new trials may bring accessions that are duplicates of existing lines" |
+| 3 | `curate` | `curate_pea_accessions.R` | TRUE | FALSE | "the same on the pea side" |
+| 4 | `curate` | `curation_report.R` | FALSE | FALSE | "rewrites CURATION.md so the collapses are documented at this vintage" |
+| 5 | `assemble` | `assemble_B4I_phenotypes.R` | FALSE | FALSE | "rebuilds the plot table the models read" |
+| 6 | `qc` | `curate_trials.R` | FALSE | FALSE | "screens each trial for whether its data carry signal at all, and drops the ones that do not; B4I_2025_AL returned a full set of plots from a crop failure" |
+| 7 | `fit` | `BGLR_multi_trait_model.R` | FALSE | TRUE | "the variance components and per-accession effects everything below depends on" |
+| 8 | `validate` | `validate_pool_selection.R` | FALSE | FALSE | "rebuilds the As+/As- pools and diffs them against the previous vintage" |
+| 9 | `validate` | `validate_crossval.R` | FALSE | TRUE | "estimates lambda and the pool x location interaction by leave-one-trial-out; validate_power.R reads both, so this has to run first" |
+| 10 | `validate` | `validate_power.R` | FALSE | TRUE | "recomputes power from the NEW variance components, at the lambda just measured" |
+| 11 | `validate` | `validate_design.R` | FALSE | FALSE | "writes the field book and checks its balance" |
+
+```r
+STAGE_ORDER &lt;- c("discover", "curate", "assemble", "qc", "fit", "validate")   # L79
+```
+
+`validation_report.R` is **not** in `STEPS` — it is invoked separately at the end (L204).
+
+### Stage filtering — L81-97
+
+```r
+steps &lt;- STEPS
+if (!is.null(only)) {
+  if (!only %in% STAGE_ORDER) stop("--only must be one of: ", paste(STAGE_ORDER, collapse = ", "), call. = FALSE)
+  steps &lt;- dplyr::filter(steps, stage == only)
+}
+if (!is.null(from)) {
+  if (!from %in% STAGE_ORDER) stop("--from must be one of: ", paste(STAGE_ORDER, collapse = ", "), call. = FALSE)
+  keep &lt;- STAGE_ORDER[match(from, STAGE_ORDER):length(STAGE_ORDER)]
+  steps &lt;- dplyr::filter(steps, stage %in% keep)
+}
+if (nrow(steps) == 0) stop("nothing to run", call. = FALSE)
+```
+
+`--only` takes exactly one stage (not a list); if both flags are given they compose as an intersection. Execution order is the tribble's row order, which happens to agree with `STAGE_ORDER`.
+
+### Pre-flight
+
+- **Plan print** — L99-117: numbered listing with `T3` / `slow` markers; then a line about `sim_config.R` being untouched; then whether `VALIDATION_DESIGN.md` will be refreshed; then, if the `qc` stage is in the run, how to overrule it (`data/trial_qc_manual.csv` with `studyName,keep[,note]`, then `--from qc`).
+- **`--dry-run`** — L119-125: prints each script with its `why`, then `quit(save = "no")`. Nothing runs, no log dir created.
+- **Credentials** — L129-138: if `any(steps$needs_t3)`, `readRenviron(.Renviron)` then `stop()` unless both `T3_USERNAME` and `T3_PASSWORD` are non-empty. Checked *after* filtering, so `--from assemble` skips the check entirely.
+- **`--refresh-doc` guard** — L142-146:
+  ```r
+  if (refresh_doc &amp;&amp; !any(steps$stage %in% c("validate"))) {
+    message("--refresh-doc given, but no validate step is in this run; the ",
+            "document would be rewritten from an older vintage. Refusing.")
+    refresh_doc &lt;- FALSE
+  }
+  ```
+  A message and a silent downgrade, not an error.
+
+### How it logs — L148-172
+
+```r
+log_dir &lt;- here::here("output", "refresh_logs")
+dir.create(log_dir, showWarnings = FALSE, recursive = TRUE)
+stamp &lt;- format(Sys.time(), "%Y%m%d_%H%M%S")
+
+run_step &lt;- function(script) {
+  path &lt;- here::here("code", script)
+  if (!file.exists(path)) stop("missing script: ", path, call. = FALSE)
+  log &lt;- file.path(log_dir, paste0(stamp, "_", tools::file_path_sans_ext(script), ".log"))
+  ...
+  status &lt;- system2("Rscript", shQuote(path), stdout = log, stderr = log)
+  ...
+}
+```
+
+One log per step at `output/refresh_logs/&lt;YYYYmmdd_HHMMSS&gt;_&lt;script&gt;.log` — the stamp is taken **once** for the whole run, so all logs from one invocation share a prefix. stdout and stderr both go to the same file (nothing is echoed live). Each step is a separate `Rscript` process, so no state leaks between steps.
+
+### How it decides failure — L164-171
+
+```r
+  if (status != 0) {
+    cat(paste0("  ", tail_n(25), collapse = "\n"), "\n")
+    stop(script, " failed after ", round(mins, 1), " min (exit ", status,
+         "). Full log: ", log, call. = FALSE)
+  }
+  cat(paste0("  ", tail_n(6), collapse = "\n"), "\n")
+  cat(sprintf("  ok (%.1f min) -&gt; %s\n", mins, basename(log)))
+  mins
+```
+
+Failure is **the child process's exit status only**. On non-zero: last 25 log lines echoed, then `stop()` — which, because the driver is `timings &lt;- purrr::map_dbl(steps$script, run_step)` (L174), aborts the whole run at the first failure; no later step executes and no summary is printed. On success: last 6 log lines plus a timing line. Consequence worth flagging for your redesign: `validate_design.R` exits 0 even when its VERDICT block reports `FAIL` (see B), so a balance failure is invisible to this driver.
+
+### After the run — L176-215
+
+- Timing summary table `tibble(step = steps$script, minutes = round(timings, 1))` (L178).
+- Vintage listing + a pointer to `pool_diff.csv` and the 70%-retention warning, when ≥2 vintages exist (L184-195).
+- `--refresh-doc` tail (L201-215): `system2("Rscript", shQuote(here::here("code", "validation_report.R")))` with **no flags and no `--vintage`** — so it always reports to stdout and writes the *latest* vintage on disk. Non-zero status produces a `warning()`, not a `stop()`.
+- Closing "Read next:" pointer list (L217-221) naming `VALIDATION_DESIGN.md`, `pool_summary.csv`, `power_grid.csv`, `field_book.csv`.
+
+---
+
+## E) `tests/test_validation.R` (294 lines)
+
+### The harness
+
+**Not testthat.** `tests/helper.R` (68 lines) is the whole framework — four assertions plus two utilities:
+
+| function | helper.R line | semantics |
+|---|---|---|
+| `check(cond, msg)` | 18-26 | `isTRUE(cond)` → `ok &lt;&lt;- ok + 1L`, else `fail &lt;&lt;- fail + 1L` and print `  FAIL: &lt;msg&gt;` |
+| `check_near(actual, expected, tol = 1e-6, msg)` | 33-43 | `max(abs(actual - expected)) &lt;= tol`; prints the discrepancy on failure |
+| `check_error(expr, msg)` | 50-53 | `tryCatch({force(expr); FALSE}, error = function(e) TRUE)` — the expression **must** raise |
+| `load_code(...)` | 56-62 | `source(here::here("code", f))` with messages and stdout suppressed |
+| `finish(label)` | 65-68 | prints `"&lt;label&gt;: N passed, M failed"`, `quit(status = 1)` if `fail &gt; 0` |
+
+Module-level counters `ok &lt;- 0L; fail &lt;- 0L` (L14-15) with `&lt;&lt;-` assignment. No grouping construct at all — there is no `test_that` equivalent; "blocks" are comment banners and the file runs top-to-bottom in one flat scope.
+
+`tests/run_all.R` (61 lines) globs `^test_.*[.]R$`, runs each in **its own `Rscript` process** (L31-46, deliberate — L3-6: "a suite whose outcome depends on file order is worse than no suite"), greps the output for `"passed,|FAIL:|SKIP:|Error"` (L41), times each file, and exits 1 if any child exited non-zero. `slow_files &lt;- c("test_fits.R")` (L21) is excluded unless `--all`.
+
+`test_validation.R` preamble: `load_code("validation_functions.R")` (L17) — the *only* file it loads — and `set.seed(5)` (L19).
+
+### The fixture: a hand-built fake `validation_inputs()` element
+
+L23-39:
+
+```r
+make_inputs &lt;- function(n = 120, cor_pr_as = -0.4, pev = 50, sigma2_e = 500) {
+  z1 &lt;- rnorm(n); z2 &lt;- rnorm(n)
+  z2 &lt;- cor_pr_as * z1 + sqrt(1 - cor_pr_as^2) * residuals(lm(z2 ~ z1))
+  list(
+    species = "test",
+    accessions = tibble::tibble(
+      acc = sprintf("acc%03d", seq_len(n)),
+      Pr = as.vector(scale(z1)) * 10,
+      As = as.vector(scale(z2)) * 8,
+      n_partners = sample(3:10, n, replace = TRUE),
+      n_plots = sample(4:12, n, replace = TRUE),
+      eligible = TRUE),
+    PEV_As = pev, sigma2_e = sigma2_e, sigma2_Pr = 100,
+    rel_As = 0.3, response = "partner yield", n_trials = 6L, n_plots = 2000L
+  )
+}
+inp &lt;- make_inputs()
+```
+
+So: it fakes **one species element**, not the two-element list `validation_inputs()` returns. `Pr` and `As` are standardised then scaled (SD 10 and 8) with `cor_pr_as` imposed by Gram-Schmidt against `z1`. Eligibility is **pre-set to TRUE for everyone**; `min_partners`, `sigma2_As`, `rel_Pr` are absent — i.e. the fixture encodes exactly the contract `build_pools()` currently needs (`species`, `accessions{acc,Pr,As,n_partners,n_plots,eligible}`, `PEV_As`).
+
+A second instance `make_inputs(130)` is built at L244 for the pea side of the design test.
+
+### Every assertion block, in file order
+
+**§1 `build_pools` — L41-87.** A `for (n in c(10, 20, 30))` loop (L49) with 7 `check()`s per iteration (**21 assertions**):
+- L54 `n = %d gives n per pool`
+- L57 `the pools are disjoint at n = %d`
+- L63 `constraining never widens the producer gap at n = %d` — oracle: `abs(bp$dPr) &lt;= abs(.pools_at(cand_n, n, 0)$dPr) + 1e-8`
+- L72 `the scan finds the global best |dPr| at n = %d` — **independent oracle**: a 1001-point sweep `purrr::map_dbl(seq(0, 10, length.out = 1001), \(th) .pools_at(cand_n, n, th)$dPr)` (L70-71), asserting no theta beats the chosen one
+- L74 `the associate contrast is positive at n = %d`
+- L75 `every member clears the Pr threshold at n = %d`
+- L77 `both pools are above the population mean Pr at n = %d`
+
+Then the **negative control** at L83-87: the naive `slice_max(Pr + As)` vs `slice_max(Pr - As)` rule at n=30 *must* overlap — "which is why it is not used".
+
+**§1b the index is the Lagrangian — L89-122.** Builds `cand_m` (eligible, `Pr &gt;= median`), `theta_seq &lt;- seq(0, 5, by = 0.05)`, sweeps `.pools_at(cand_m, 20, th)`. Five assertions:
+- L105 `selecting on As alone leaves the As+ pool short on Pr` (`dPr_by_theta[1] &lt; 0`)
+- L107 `dPr rises with theta in trend` (`cor(theta_seq, dPr_by_theta) &gt; 0.8`)
+- L111 `theta = 0 maximises the contrast: it is the unconstrained solution`
+- L113 `and buying Pr balance costs contrast, monotonically in trend` (`cor &lt; -0.8`)
+- L121 `top-n and bottom-n of one ordering are disjoint at every theta` (checked at *every* theta, not just the chosen one)
+
+**§1c negative control on the retired two-index rule — L124-146.** Reimplements the old scoring (`two_index`, L132-140) and asserts `best_new &gt; best_old` at the same `|dPr| &lt;= 1.0` tolerance (L144). The comment is explicit about why: "Without this check a revert would pass the whole suite."
+
+**§ pool-size / tolerance / guard — L148-173.** Five assertions:
+- L152 `a larger pool gives a smaller contrast` (`d10 &gt; d30`)
+- L158 `an unmeetable producer tolerance raises a warning that says so` — `grepl("Pr constraint could not be met", w)`, i.e. it pins the warning **text** at `validation_functions.R:311`
+- L160 `and a tolerance it can meet raises none`
+- L165 `check_error(build_pools(inp, 100, pr_quantile = 0.5), "a pool bigger than the candidate set is refused")`
+- L169-173 `ineligible accessions are never selected` — sets `inp_partial$accessions$eligible &lt;- n_partners &gt;= 8`, builds at n=8, asserts `all(bp_e$pools$n_partners &gt;= 8)`
+
+**§2 `pool_diff` — L175-191.** Four assertions: `entered` ×1 (L183), `left` ×1 (L184), `retained == nrow(old_p) - 1` (L185), and all-`switched pool` after flipping every label (L190).
+
+**§3 `contrast_power` — L193-236.** Eleven assertions. The local helper is `pw &lt;- function(...) contrast_power(dAs = 15, sigma2_within = 100, n = 20, sigma2_e = 500, P = 400, ...)` (L201-202), but *every other call in the section is fully positional*: `contrast_power(15, 100, 20, 500, 400, ...)`.
+- L204 power is a probability; L205 `SE &gt; SE_floor`; L206 `pct_SE_irreducible` in (0,100]
+- L211 `se_of(300) &gt; se_of(500)` — more plots reduce the SE
+- L212-213 `se_of(1e9)` within ±0.1% of `SE_floor` — "converges on the floor, not on zero"
+- L216 more accessions lower the floor
+- L221 one-sided beats two-sided
+- L226 attenuation (`lambda = 0.6`) costs power
+- L229 interaction (`interaction_frac = 0.5`) costs power
+- L235 `check_near(p0$power, 0.05, tol = 1e-6, "a zero contrast gives power equal to alpha")`
+
+**§4 `make_validation_design` / `check_validation_design` — L238-292.** Twelve assertions on a 5-location, 80-plot, 1-anchor, block-10, `seed = 1L` design:
+- L251 every location gets exactly 80 plots
+- L253 all four cells equally represented
+- L255 `max_oat_imbalance == 0` — "the load-bearing property"
+- L257 `max_pea_imbalance == 0`
+- L259 `chk$anchor_plots == 2 * 4 * 1 * 5`
+- L261 some combinations replicated
+- L263, L265 both pools appear on each side
+- L274 `each anchor combination appears at all five locations` — this is the regression test for the bug `tests/README.md:48-51` records
+- L282 `anchor accessions appear in more plots than the rest, as documented`
+- L287 `anchors are inside the plot budget` (`sum == 5 * 80`)
+- L291 `check_error(make_validation_design(oat_pools, pea_pools, n_loc = 5L, p_loc = 8L), "too small a budget is refused")`
+
+Closes with `finish("validation tests")` (L294). `tests/README.md:22` logs the whole file at ~2 s.
+
+### Impact of your three proposed changes
+
+**(1) `validation_inputs()` gains per-accession reliability columns; eligibility moves from partner count to a reliability threshold.**
+
+`test_validation.R` never calls `validation_inputs()` (README L72-73: "Nothing reads `output/`"), so there is no direct break. The breakage is all through the fixture and the eligibility semantics:
+
+- `make_inputs()` (L23-38) would need the new per-accession column. If `build_pools()` starts reading it, **every assertion in §1, §1b, §1c, §2 and §4 fails at once** (all of them route through `build_pools(inp, ...)`), because the fixture would not supply it. ~50 of the file's ~53 assertions.
+- **L169-173 is the test that encodes the old rule** and is the one to rewrite: `inp_partial$accessions$eligible &lt;- n_partners &gt;= 8` then `all(bp_e$pools$n_partners &gt;= 8)`. If `eligible` stays a precomputed boolean column it passes vacuously but now asserts the wrong thing; if the threshold moves *inside* `build_pools()`, it breaks.
+- `make_inputs(n_partners = sample(3:10, ...))` at L32 exists only to satisfy the partner filter and becomes vestigial.
+- `.pools_at()`/`cand_n`/`cand_m` constructions at L62, L98-99 replicate `build_pools`'s candidate filter by hand (`dplyr::filter(inp$accessions, eligible, Pr &gt;= bp$pr_min)`). Any change to that filter must be mirrored in **three** places in this file or the oracles at L63 and L72 silently compare against the wrong candidate set.
+
+Outside `tests/`, the same change hits: `validate_pool_selection.R:97` (`stopifnot(... all(bp$pools$n_partners &gt;= min_partners))`), `validate_pool_selection.R:78` (the "eligible accessions (&gt;= N partners)" console line), `validation_functions.R:319-320` (`transmute(... n_partners, n_plots)` fixes `pools.csv`'s columns), `validation_functions.R:638` (`n_eligible` in `vintage.csv`), `validation_report.R:78-81` (the `eligible` column in the generated `vintage` table), `validate_crossval.R:207-226` (its own `fake_inp` — see below), and `validate_pool_selection.R:211-213` (the figure subtitle that states the rule to the reader).
+
+**(2) `contrast_se()` / `contrast_power()` gain terms or change df.**
+
+- **Positional-argument fragility is the headline.** `contrast_power(15, 100, 20, 500, 400, ...)` appears at L210, L216-217, L221-222, L226-227, L229-230, L234 — nine calls that rely on the order `dAs, sigma2_within, n, sigma2_e, P`. Inserting any parameter before `P` silently re-binds all of them and the tests will still "pass" while testing nothing. Same for `contrast_se`'s positional call from `contrast_power` at `validation_functions.R:581-582` (`contrast_se(sigma2_within, n, sigma2_e, P, interaction_frac, delta, n_loc)`).
+- **L212-213 breaks if a new term does not vanish as P → ∞**: `se_of(1e9)` is asserted within ±0.1% of `SE_floor`, and `SE_floor` is hard-coded as `sqrt(2 * sigma2_within / n)` at `validation_functions.R:601`. Any added term that is not a function of `P` alone (e.g. another accession-level or location-level variance) must be folded into `SE_floor` or this test fails — and so do L205 (`SE &gt; SE_floor`) and L206/`pct_SE_irreducible` in a subtler way. Note the current `(interaction_frac * delta)^2 / n_loc` term is already excluded from `SE_floor` even though it does not shrink with `P`, so L212 only passes because `interaction_frac` defaults to 0 in that call.
+- **L216-218** asserts `SE_floor` strictly decreases in `n`; a reparameterised floor must keep that.
+- **L234-236 `check_near(p0$power, 0.05, tol = 1e-6)`** survives a pure df change (central t gives exactly α at any df), but breaks if a new term makes the statistic non-central at `delta = 0` or makes `se` depend on `delta` in a way that does not vanish there.
+- **Nothing pins `df`.** There is no assertion anywhere that `df == 2 * n - 2`. It is set at `validation_functions.R:583`, documented at L536 and surfaced as a `df` column in the returned tibble (and in `power_grid.csv`). A Satterthwaite or location-aware df would pass the existing suite silently. Worth adding a test before you change it.
+- Also note `contrast_se` has **no caller other than `contrast_power`** in the whole repo (`validation_functions.R:581`); the `contrast_se` hits in `validate_crossval.R:247,267` are an unrelated *column name* in the rehearsal tibble, not a call.
+- Downstream, `validation_report.R:144-157` detects staleness only by counting distinct `lambda`, `interaction_frac` and `sided`. A new swept term would **not** be detected and a stale power table would be published silently — that detector must be extended in lockstep.
+
+**(3) `build_pools()` returns pool-specific `sigma2_within`.**
+
+- **No test in `test_validation.R` reads `bp$sigma2_within` at all.** The entire change would pass the suite. That is a real gap: the only places `sigma2_within` is pinned are the §3 literals (`sigma2_within = 100`), which bypass `build_pools()` entirely.
+- The breakage is all downstream and would be runtime errors, not test failures:
+  - `validation_functions.R:339` currently returns a scalar `sigma2_within = inp$PEV_As + var_blup_within`, with `var_blup_within = mean(c(var(res$plus$As), var(res$minus$As)))` (L325) — the averaging is exactly what you would be removing.
+  - `contrast_se` (L551-556) and `contrast_power` (L577) take a **scalar**; `2 * sigma2_within / n` would need to become something like `(sigma2_plus + sigma2_minus) / n`.
+  - `power_grid()` L618-625 passes `bp$sigma2_within` into `contrast_power` and then `mutate(sigma2_within = bp$sigma2_within)` — a length-2 value breaks the mutate.
+  - `validate_pool_selection.R:88` (`sqrt(bp$sigma2_within)` printed as one number) and `:110` (`sigma2_within = bp$sigma2_within` as a single `pool_summary.csv` column).
+  - `validate_power.R:385` (`contrast_power(bp$dAs, bp$sigma2_within, ...)`) and `validate_crossval.R:421-429`.
+  - `power_grid.csv` and `pool_summary.csv` both carry a single `sigma2_within` column today (confirmed on disk).
+- §4 of the test file (L242-249) also feeds `build_pools(...)$pools` straight into `make_validation_design`, so if the return shape changes in a way that touches `$pools`, that section breaks too.
+
+### `tests/README.md` — tiers and conventions
+
+**Tiers.** Two: a *fast* tier (~45 s, the default) and a *slow* tier (`test_fits.R` only, real BGLR Multitrait + MegaLMM chains, adds ~10 s per the README / minutes per `run_all.R`'s comment), run with `Rscript tests/run_all.R --all`. Single files can be run directly. Each file runs in its own process, prints `&lt;name&gt;: N passed, M failed`, exits non-zero on failure; `run_all.R` aggregates and reports timings. `test_validation.R` is in the fast tier at 2 s, pinning "pool construction, the field design's balance, the power formula" (README L22).
+
+**The stated philosophy (L26-41)**: "Not the framework — `tests/helper.R` is four assertions. It is the **oracles**." Four oracle kinds are named: an **algebraic identity** (to 1e-12), a **planted answer**, a value that was **requested**, and a **negative control** — with "the naive Pr+As / Pr−As rule must produce overlapping pools" cited as the canonical negative control (that is `test_validation.R:86-87`). "A test that only pins today's output freezes bugs as well as behaviour, so there are as few of those as possible."
+
+**Conventions (L62-73), verbatim:**
+- `check(cond, msg)`, `check_near(actual, expected, tol, msg)`, `check_error(expr, msg)` — from `tests/helper.R`, sourced by every file.
+- "Tolerances say what kind of claim is being made: `1e-12` for an identity, `1e-9` for an empirically rescaled draw, loose bounds for anything Monte Carlo. A tight tolerance on a short MCMC chain is a test that fails for the wrong reason."
+- "Every file seeds its RNG at the top. A suite that fails one run in twenty teaches people to ignore it."
+- "Nothing reads `output/`, so the suite runs in a fresh clone with no credentials and no network."
+
+**Payoffs recorded (L43-53)** — one is yours: "`test_validation.R` found `make_validation_design()` taking its anchor plots from the *rotated* selection window, so the anchor combination differed at every location — the opposite of what anchors are for. Combination × location was not estimable in any design the script would actually have produced." The fix is the `pick()`/`anchor_n` logic at `validation_functions.R:430-444`; the guard is `test_validation.R:270-275`.
+
+---
+
+## F) Complete call-site list across `code/` and `tests/`
+
+Definitions all live in `code/validation_functions.R`. "Def" marks the definition site.
+
+### `validation_setting` — def `validation_functions.R:72`
+- `code/validate_pool_selection.R:46,47,48,49`
+- `code/validate_design.R:47,48,49,50`
+- `code/validate_power.R:48,49,50,92,94`
+- `code/validate_crossval.R:71,72,414,415,416`
+- `code/validation_report.R:129,130`
+- *(none in `tests/`)*
+
+### `VALIDATION_DEFAULTS` — def `validation_functions.R:46`
+- `validation_functions.R:74,77` (inside `validation_setting`)
+- Referenced in comments only: `validate_pool_selection.R:43`, `validate_design.R:43`, `validate_power.R:45`
+- **No direct external reads.** Every consumer goes through `validation_setting()`.
+
+### `validation_inputs` — def `validation_functions.R:112`
+- `code/validate_pool_selection.R:58`
+- `code/validate_power.R:196`
+- `code/validate_crossval.R:413`
+- Registry entry: `code/evaluation.R:65`
+- Doc reference: `validation_functions.R:252` (`@param inp One element of validation_inputs()`)
+- **Not called in `tests/`** — `tests/test_validation.R:23-38` substitutes `make_inputs()`.
+
+Also relevant: `VALIDATION_SPECIES` (def `validation_functions.R:91`, used only at `:124`) holds the per-species column mapping (`id_col`, `pheno_col`, `partner_pheno_col`, `residual_col`, `response`, `effects_file`) that `validation_inputs()` iterates — any new per-accession column sourced from a new file goes here.
+
+### `validation_vintage` — def `validation_functions.R:635`
+- `code/validate_pool_selection.R:61`
+- `code/validate_power.R:199`
+- Registry: `code/evaluation.R:65`
+
+### `build_pools` — def `validation_functions.R:261`
+- `code/validate_pool_selection.R:75`
+- `code/validate_power.R:353, 384`
+- `code/validate_crossval.R:225`
+- `code/validation_functions.R:615` (inside `power_grid()`)
+- `tests/test_validation.R:50, 150, 151, 156, 160, 165, 171, 179, 242, 244` — **10 call sites**
+- Registry: `code/evaluation.R:65`
+- Comment references: `validate_pool_selection.R:13`, `validation_functions.R:192`, `:560`
+
+Its private helpers, both reached directly by tests:
+- `.pools_at` — def `:240`; called at `:303` and **`tests/test_validation.R:63, 71, 101`**
+- `.pool_scan` — def `:230`; called at `:289, :305`; no test calls it directly
+- `POOL_INDEX_VERSION` — def `:221`; used at `:333`, `validate_pool_selection.R:167, 170`
+- Both `.pools_at` and `.pool_scan` are in `evaluation.R:66`'s `validation` group.
+
+### `pool_diff` — def `validation_functions.R:348`
+- `code/validate_pool_selection.R:137`
+- `tests/test_validation.R:182, 190`
+- Registry: `code/evaluation.R:66`
+
+### `make_validation_design` — def `validation_functions.R:399`
+- `code/validate_design.R:72`
+- `code/validate_power.R:125` (inside `simulate_validation()`)
+- `tests/test_validation.R:247, 291`
+- Registry: `code/evaluation.R:68`
+- Comment reference: `validate_power.R:113`, `tests/README.md:48`
+
+### `check_validation_design` — def `validation_functions.R:500`
+- `code/validate_design.R:85`
+- `tests/test_validation.R:249`
+- Registry: `code/evaluation.R:68`
+
+### `contrast_se` — def `validation_functions.R:551`
+- `code/validation_functions.R:581` — **the only real call site**, from inside `contrast_power`
+- Registry: `code/evaluation.R:70`
+- *Not* a call site: `validate_crossval.R:247, 267` are a tibble column named `contrast_se`
+- **No test calls it directly.**
+
+### `contrast_power` — def `validation_functions.R:577`
+- `code/validate_power.R:385`
+- `code/validate_crossval.R:429`
+- `code/validation_functions.R:618` (inside `power_grid()`)
+- `tests/test_validation.R:201, 210, 216, 217, 221, 222, 226, 227, 229, 230, 234` — **11 call sites, nine of them fully positional**
+- Registry: `code/evaluation.R:70`
+- Comment reference: `validate_power.R:429`
+
+### `power_grid` — def `validation_functions.R:611`
+- `code/validate_power.R:281` — **the only call site anywhere**
+- Registry: `code/evaluation.R:70`
+- *Not* call sites: the many `power_grid.csv` string hits (`validate_power.R:26,287`, `validation_report.R:61,151,154`, `validate_refresh.R:220`)
+- **No test exercises `power_grid()`.** A second gap worth knowing: it is the function that rebuilds pools at every `n`, so a `build_pools()` return-shape change hits it with no test coverage.
+
+### Secondary registry that must be updated — `code/evaluation.R`
+
+`evaluation.R` keeps a hand-maintained name registry used by `arm_evaluation()` / `disarm_evaluation()` / `eval_groups()` (L300-358), which `stop()`s on unknown group names and marks un-loadable functions with `*`:
+
+```r
+  validation = c("validation_inputs", "validation_vintage", "build_pools",     # L65-66
+                 ".pools_at", ".pool_scan", "pool_diff"),
+  val_design = c("make_validation_design", "check_validation_design"),         # L68
+  val_power  = c("contrast_se", "contrast_power", "power_grid",                # L70-71
+                 "simulate_validation", "crossval_estimates"),
+```
+
+plus the file registries:
+
+```r
+  validation = c("code/validation_functions.R")                     # L141 (EVAL_SOURCES)
+  validation = c("code/validate_power.R",       # simulate_validation()   # L151-153 (EVAL_DEFS_FILES)
+                 "code/validate_pool_selection.R",
+                 "code/validate_design.R")
+```
+
+Note `crossval_estimates` is listed in `val_power` (L71) but is defined in `code/validate_power.R:219` and `EVAL_DEFS_FILES$validation` does **not** list `code/validate_crossval.R` — so if you add functions to `validate_crossval.R` they will not be reachable by `eval_defs()`. Any renamed or added function in the chain needs a matching edit here, and `validation_setting` / `VALIDATION_DEFAULTS` / `pool_diff`'s sibling constants are not in any group.
+
+### Nothing in `tests/` covers
+
+`validation_report.R`, `validate_refresh.R`, `validate_pool_selection.R`, `validate_design.R`, `validate_power.R`, `validate_crossval.R`, `power_grid()`, `contrast_se()` directly, `validation_inputs()`, `validation_vintage()`, `validation_setting()`, `VALIDATION_DEFAULTS`, or the `&lt;!-- BEGIN GENERATED --&gt;` splice. `tests/test_validation.R:17` loads `validation_functions.R` and nothing else; no other test file touches the validation chain (verified: `load_code` calls across all 11 test files).
+
+### Documentation that names the chain and will go stale
+
+- `DESIGN.md:109-111` (the ASCII dependency diagram), `:152-158` (the script table)
+- `README.md:49` (points at `VALIDATION_DESIGN.md` §7 and `validate_refresh.R` as "one command")
+- `VALIDATION_DESIGN.md:505-515` (the `--refresh-doc` contract and the explicit promise that only marker contents change), `:518-523` (the `--from assemble` / `--only validate` invocations — note `:519` says "just the four validate_* scripts" while `STEPS` has four `validate` rows, so that count is currently right and would need updating if you add one)
+- `tests/README.md:22, 48-51`
+- `validation_report.R:19-21` — already stale, omits the `pools` key
+- `validate_pool_selection.R:20-23` — already stale, omits `vintage.csv`</result>
+<usage><subagent_tokens>115785</subagent_tokens><tool_uses>22</tool_uses><duration_ms>334482</duration_ms></usage>
+</task-notification>
+[2026-10-03 11:55:28] <task-notification>
+<task-id>ab3d938b873efa5fa</task-id>
+<tool-use-id>toolu_01CrRUTPSypju9NUijo14Z8T</tool-use-id>
+<output-file>/private/tmp/claude-1334918876/-Users-jj332-Documents-GitRepo-B4I-Fall2026/cc7612c1-3004-4630-aee6-8449e3e08a76/tasks/ab3d938b873efa5fa.output</output-file>
+<status>completed</status>
+<summary>Agent "Design implementation plan" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>I have what I need. Here is the plan.
+
+---
+
+# Implementation plan: oat–pea validation-trial design chain
+
+## 0. Things in your theory I think are wrong or incomplete
+
+Read these first, because three of them change the plan's content, not just its ordering.
+
+### 0.1 `interaction_frac` stops being self-consistent the moment λ becomes a judgement (change 5 breaks change 4/6)
+
+You wrote "keep the existing `interaction_frac` parameterisation — it is correct and self-consistent. I verified the current code reproduces its published numbers exactly." I reproduced your arithmetic exactly too — `/Users/jj332/Documents/GitRepo/B4I_Fall2026/code/validation_functions.R:551-556` with your Satterthwaite extension gives oat SE² = 8.91 + 20.0 + 6.55 = 35.5, df = 12.3, power 0.700 at λ = 0.7. Your numbers are right.
+
+But `interaction_frac` is defined at `code/validate_crossval.R:342` as `sd(lambda)/abs(mean(lambda))` — a **coefficient of variation of λ**. The SE term is `(interaction_frac · delta)²/n_loc` with `delta = lambda · dAs`. So the interaction SD is `interaction_frac · lambda · dAs`. Substituting a *judgement* λ = 0.7 for the *measured* λ = 0.83 silently rescales the interaction SD down by 0.7/0.83:
+
+| | interaction SD (oat) | v_int | SE | t | df | power |
+|---|---|---|---|---|---|---|
+| ratio form, λ=0.7 (your plan) | 0.73·0.7·19.59 = 10.0 | 20.0 | 5.96 | 2.30 | 12.3 | **0.700** |
+| absolute form (SD as measured) | 0.73·0.83·19.59 = 11.9 | 28.2 | 6.61 | 2.07 | 9.5 | **0.61** |
+
+The across-location spread of the realised contrast is a property of the environments. It is not proportional to whatever λ you decide to design against. Holding the ratio fixed while lowering λ is the optimistic choice, and it costs **nine points of oat power** — enough to move oat from "adequately powered" to "marginal" under `validate_crossval.R:456-461`'s own verdict thresholds.
+
+**Fix:** have `summarise_folds()` emit `lambda_sd` as a first-class column (it already computes it, line 337) and have `contrast_se()` accept **either** `interaction_frac` (ratio, back-compatible default) **or** `interaction_sd` (absolute, in the units of `delta`), with a guard that exactly one is supplied. Report both rows side by side and let the reader see the choice. I would make the absolute form the headline.
+
+### 0.2 Bumping `POOL_INDEX_VERSION` destroys the A4 stability test you most want
+
+Change 2 replaces the partner-count eligibility rule with a reliability threshold. That is a change to the *selection rule*, so `POOL_INDEX_VERSION` (`validation_functions.R:221`) must be bumped to `single-v2`. But `validate_pool_selection.R:167-173` then correctly announces that churn against `2026-10-03` "measures the RULE CHANGE, not the stability of the effect estimates. The 70% retention guidance does not apply to it."
+
+That is exactly the comparison SELF_CRITIQUE §A4 calls the go/no-go, and it would be voided by the same commit that fixes A1.
+
+**Fix — build the pools twice at the new vintage:**
+
+- **Arm D (data):** new 8-trial fit + the **old** rule (`min_partners &gt;= 3`, counted on the *fitted* data), stamped `single-v1`. Diff against `2026-10-03` → pure data churn. **This is the A4 test.**
+- **Arm R (rule):** new 8-trial fit + the new reliability rule, stamped `single-v2`. These are the pools actually proposed. Diff against arm D → pure rule churn.
+
+Cost: one extra `build_pools()` call per species and one extra `pool_diff()`. Without it you get one confounded churn number and the critique's headline question stays unanswered.
+
+### 0.3 A reliability filter alone does not fix the aliasing, which is the actual harm
+
+SELF_CRITIQUE §6 says the cost of finding A "is not mainly power. It is that 12 accessions in the pools have their producer and associate effects perfectly aliased." An accession with one partner has a *structural* pathology: its As BLUP is entirely borrowed from relatives and from the Pr/As covariance, with zero own-plot information separating Pr from As. A well-connected relative set can give such a line a respectable *reliability* while leaving the aliasing intact — reliability measures posterior precision, not identifiability.
+
+**Fix:** keep a hard connectivity floor **alongside** the reliability threshold — `n_partners &gt;= 2` counted on the fitted data, plus `rel_As_i &gt;= rel_min`. Change 2 as stated ("a reliability threshold **instead of** a partner count") would leave the aliased lines eligible if they happen to be well-connected genomically. Make it `and`, not `instead of`.
+
+### 0.4 Estimand 3 is *not* better powered once the location interaction is carried through
+
+Your estimand-3 figure (`t ≈ 2.93`) is explicitly "before any location-interaction term", while estimands 1 and 2 carry it as 57% of the variance. Carrying it through consistently (ratio form, 0.73 × 0.7 = 0.511 slope SD across locations, `v_int = 0.0522`, `v_other = 0.239² = 0.0571`):
+
+SE = 0.331, t = 2.12, df ≈ 15.6, **power ≈ 0.64**.
+
+So estimand 3 is *comparable* to estimand 1, not better. Your verified arithmetic is fine (I reproduced the additivity: 9.28 − (−10.35) = 19.63 ≈ ΔGMA_oat; 35.21 = −10.35 + 19.63 + 25.93). But the headline must become "comparable once treated consistently", not "better powered than feared", or the plan oversells it exactly the way it rightly refuses to oversell estimand 2.
+
+Two further points on estimand 3:
+- Because ΔPr ≈ 0 by construction, ΔGMA ≈ ΔAs. So estimand 3 adds a different **response** (total yield), not a different **predictor**. Its value is in the response. Say that, because it is easy to misread as independent evidence.
+- `GMA = PrEff + AsEff` is the total-yield predictor only under equal physical weighting of oat and pea grain. Pea is worth more per kg. Make the weight an explicit parameter `w_pea` defaulting to 1 (physical total, the co-primary) with an economically weighted index as a pre-registered **secondary** — otherwise a physical-yield claim gets read as an economic one.
+
+### 0.5 Three co-primary directional tests on the same plots is a multiplicity problem, and estimand 2 does not dissolve it
+
+SELF_CRITIQUE §I says making the slope primary "dissolves §8 item 4 (multiplicity across two primary tests): one estimand per species." But change 7 then adds total yield as a **co-primary**, reinstating the problem with three strongly correlated tests on one set of plots.
+
+**Fix:** pre-register a **fixed-sequence (gatekeeping) procedure**: the two per-species slopes at one-sided α = 0.05 first; the total-yield co-primary tested only if at least one species slope passes. A fixed sequence spends no α and settles §8 item 4 in one sentence. Alternative is a single global claim. Either is fine; leaving it unstated is not.
+
+### 0.6 `df_acc = 2n − 2` is wrong once `sigma2_within` is pool-specific
+
+Your Satterthwaite formula uses `v_acc²/(2n−2)`. With `s2w_plus ≠ s2w_minus` the accession term's own df is Welch:
+
+```
+df_acc = (A + B)^2 / ( A^2/(n-1) + B^2/(n-1) ),   A = s2w_plus/n,  B = s2w_minus/n
+```
+
+which collapses to `2n − 2` exactly when `A == B`. Changes 3 and 6 interact here; nest the Welch df inside the outer Satterthwaite rather than hard-coding `2n − 2`. The identity at equal variances is the test oracle (see §5.1 below).
+
+Also: `df_e = P − cells` barely matters (`v_plt²/df_e` is 0.1 of a denominator of 102). Make it an argument with a documented default and say it is insensitive, so nobody spends time on it.
+
+### 0.7 Estimand 2 does not escape the 4-df problem
+
+You correctly say estimand 2 should be adopted for interpretability, not power. One thing to add: under `(0 + x_F | location)` replacing `(1|location:poolF)`, the slope test's denominator is dominated by the slope×location variance on `n_loc − 1 = 4` df, exactly as in estimand 1. Its apparent `2n − 2` df is illusory. Do not let the plan imply the continuous estimand buys df.
+
+And two pre-registration mechanics nobody has stated: **`x_F` must be centred** (or the location random slope confounds with the location intercept), and **`x_F` must be frozen into `field_book.csv` at design time**. If the predictor is re-derived from a later refit, estimand 2 is not pre-registered at all. This is a concrete new requirement on `validate_design.R`.
+
+### 0.8 The exact-posterior pool-mean variance is a different question, not a better one
+
+Tempting thought: with draws in hand, compute `Var_s(mean_{i∈plus} g_i − mean_{i∈minus} g_i)` directly, correlations included, instead of `2·sigma2_within/n`. These answer different questions:
+
+- `2·sigma2_within/n` = **broad inference**: "accessions are a random sample of the class we predicted." This is what §4 and `validation_functions.R:532-537` want, it is correctly justified, and SELF_CRITIQUE §7 defends it. Keep it as the power denominator.
+- `Var_s(...)` = **narrow inference**: "given these exact 40 lines, how uncertain is their mean true effect." Strictly smaller or larger depending on the sign of the mean off-diagonal posterior covariance — and for lines selected on one tail of a genomic index, that covariance is likely **positive**, meaning the broad-inference formula may be anti-conservative about the *estimates* even while conservative about the *sampling*.
+
+**Recommendation:** keep the broad-inference denominator; add the posterior-covariance number as a **diagnostic** (`pool_posterior.csv`), and report the ratio. It is two lines of code once the draws are read and it bounds the exposure. Do not substitute it.
+
+### 0.9 `lmerTest` is not installed; you do not need it
+
+`lme4 2.0.6` and `pbkrtest 0.5.5` are present; **`lmerTest` is absent**. Do not put `lmer` in the 400-rep simulation loop — it is slow, it adds a dependency, and it is unnecessary.
+
+The pre-registered pool test, when the pool×location term dominates, is algebraically a **one-sample t on the n_loc location-level contrasts, n_loc − 1 = 4 df**. That closed form needs no new package, runs in microseconds, and gives an exact bracket:
+
+```
+power(location-contrast t, 4 df)  &lt;=  power(Satterthwaite, 12.3 df)  &lt;=  power(pooled t, 38 df)
+```
+
+That bracketing is itself an excellent oracle (§5.5). Use `lme4` only as a low-rep confirmation that the REML fit sits inside the bracket, and get Satterthwaite-equivalent df from `pbkrtest` if you want it, not `lmerTest`.
+
+### 0.10 `validation_vintage()` cannot assert "fit trials == phenotype-table trials" as written
+
+Change 1 says make it "ASSERT it matches the phenotype table." It cannot: the assembled table has **9** trials (3,575 rows, confirmed), the fit will have **8**. The assertion must be against the **QC-filtered** table, which means `validation_inputs()` must itself call `apply_trial_qc()` — **it currently does not** (`validation_functions.R:121-122` reads the raw RDS). That is a second instance of the same structural hole as finding A, and it is why `n_trials = 9` was reported. Spelled out in §2.1.
+
+### 0.11 `interaction_frac` should be corrected for fold-level estimation noise
+
+SELF_CRITIQUE §6/§"What this rests on" says the split between genuine λ×environment and fold-level noise "cannot be made with five trials". It can be made approximately with eight folds, because `calib()` already records `lambda_se` per fold (`validate_crossval.R:156`). Under a constant true λ, `E[var(λ̂)] = var_true + mean(se²)`, so:
+
+```
+interaction_frac_corrected = sqrt(max(0, var(lambda_hat) - mean(lambda_se^2))) / |mean(lambda_hat)|
+```
+
+This directly attacks the single dominant variance term. It composes with change 4: `lambda_se` must come from the clustered/accession-level fit first, since the plot-level `lambda_se` is anti-conservative (too small), which would make the correction too *small* and the interaction too *large*. Do change 4's SE fix before trusting the correction.
+
+---
+
+## 1. Sequencing
+
+The hard constraints are: **tests before signatures**, **archive before re-run**, **refit before pools**, **crossval before power**, **prose last**. Nine stages.
+
+```
+S0  archive the 2026-10-03 vintage                        (5 min, no code)
+S1  harden the test suite against the coming changes      (no production code touched)
+S2  trial set: single source of truth + fit-set assertion (change 1)
+S3  retain BGLR draws; write per-accession PEV            (change 2a) -- THE REFIT
+S4  reliability eligibility + pool-specific sigma2_within (changes 2b, 3)
+S5  lambda: QC the folds, two scales, by year, noise-corrected (changes 4, 5)
+S6  one pre-registered model; three estimands; new SE/df  (changes 6, 7)
+S7  null simulation with As x location                    (change 6)
+S8  reporting, registry, driver hardening, prose          (changes 8, 9 hooks)
+```
+
+S1 must precede S2–S7 entirely. S2 and S3 are one commit and one refit (both touch `BGLR_multi_trait_model.R`; refitting twice wastes 15 min and creates a half-fixed vintage). S4 cannot start until S3's PEV file exists. S6's power numbers cannot be final until S5 gives λ. S7 depends on S6's SE/df. S8 last, because `--refresh-doc` reads the finished vintage.
+
+**Do not** reorder S1 after S2. The positional-argument hazard and the missing-df pin are the two ways this work can silently produce wrong numbers through a green suite.
+
+---
+
+## 2. Stage by stage
+
+### S0. Archive the baseline
+
+`output/validation/2026-10-03/` holds the 5-trial pools and is the only baseline for the churn comparison. `validate_pool_selection.R:129-135` picks the previous vintage by lexicographic sort of directories containing `pools.csv`, so the archive name must sort **after** `2026-10-03` and **before** `2026-10-04`:
+
+```bash
+mv output/validation/2026-10-03 output/validation/2026-10-03_5trial-whitelist
+```
+
+`_` is 0x5F &gt; `3` is 0x33, and `2026-10-04` &gt; `2026-10-03_...` on the 10th character. Verified. The existing `2026-10-02_1` directory shows this convention is already in use. `output/*` is gitignored, so nothing to commit.
+
+Also drop a one-line `output/validation/2026-10-03_5trial-whitelist/PROVENANCE.txt` saying it is the 5-trial whitelist fit, since nothing in the directory records that — which is finding A in miniature.
+
+### S1. Harden the test suite (before any signature changes)
+
+All in `/Users/jj332/Documents/GitRepo/B4I_Fall2026/tests/test_validation.R`. Nothing in `code/` changes. Suite must be green at the end of S1 and green again after every later stage.
+
+**S1.1 — pin `df` before the df changes.** Nothing anywhere pins `df == 2*n-2`, so a Satterthwaite change would pass silently.
+
+```r
+check(contrast_power(dAs = 15, sigma2_within = 100, n = 20,
+                     sigma2_e = 500, P = 400)$df == 38,
+      "df is 2n-2 when no pool x location term is present")
+check(contrast_power(dAs = 15, sigma2_within = 100, n = 30,
+                     sigma2_e = 500, P = 400)$df == 58,
+      "and tracks n")
+```
+Oracle: requested value, algebraically known. After S6 these become the `interaction_frac = 0` boundary case of the Satterthwaite formula, which they must still satisfy exactly — that is the whole point of adding them now.
+
+**S1.2 — pin `SE_floor`'s *semantics*, not its formula.** `test_validation.R:212-213` asserts `se_of(1e9)` ≈ `SE_floor` and only passes because `interaction_frac` defaults to 0. Add the nonzero-interaction case now, so that S6 is forced to fold the interaction term into the floor rather than break the test:
+
+```r
+se_big &lt;- contrast_power(15, sigma2_within = 100, n = 20, sigma2_e = 500,
+                         P = 1e9, interaction_frac = 0.5)
+check(abs(se_big$SE - se_big$SE_floor) &lt; 1e-6 * se_big$SE,
+      "SE_floor is the P -&gt; infinity limit, interaction included")
+# NEGATIVE: the accession-only floor must be strictly below it
+check(sqrt(2 * 100 / 20) &lt; se_big$SE_floor - 1e-8,
+      "the accession-only floor is NOT the P -&gt; infinity limit when interaction &gt; 0")
+```
+This test **fails today** — it is the test that forces the §4 redefinition. Add it as an expected-fail in S1 and let S6 turn it green, or add it in the same commit as S6 with the redefinition. I prefer the former: an explicitly-recorded red test is the clearest statement of intent.
+
+**S1.3 — pin the candidate-filter oracle in one place.** `test_validation.R:62`, `:98-99` and `:101` re-implement `build_pools()`'s candidate filter by hand in three places. Any filter change (S4) must be mirrored in all three or the oracles at `:63` and `:72` silently compare the wrong candidate set. Replace the three copies with one helper used everywhere:
+
+```r
+.cand_of &lt;- function(inp, bp) dplyr::filter(inp$accessions, eligible, Pr &gt;= bp$pr_min)
+```
+and in S4 extend `build_pools()` to **return** `candidates` (the filtered tibble) so the test can assert `setequal(bp$candidates$acc, .cand_of(inp, bp)$acc)` — turning a duplicated re-implementation into a single algebraic identity. This is the single highest-value structural change to the test file.
+
+**S1.4 — pin the `make_inputs()` fixture against the shape change.** ~50 of ~53 assertions route through `build_pools(inp, ...)`, and S4 adds required per-accession columns (`PEV_As_i`, `rel_As_i`). Add, now, a schema assertion that documents the contract:
+
+```r
+REQUIRED_ACC_COLS &lt;- c("acc", "Pr", "As", "n_partners", "n_plots", "eligible")
+check(all(REQUIRED_ACC_COLS %in% names(inp$accessions)),
+      "the fixture supplies every column build_pools() requires")
+```
+Then in S4, extend `make_inputs()` **and** `REQUIRED_ACC_COLS` together, and give `make_inputs()` a `rel = 0.3` argument generating a plausible per-accession reliability spread. One edit, not fifty.
+
+**S1.5 — the positional-argument negative control.** See §3. Add after the signature change, not before — it must fail before and pass after.
+
+**S1.6 — pin `power_grid()` and `contrast_se()`, which have no coverage at all.**
+
+```r
+# contrast_se: algebraic identity against the three-term formula written out
+check_near(contrast_se(sigma2_within = 100, n = 20, sigma2_e = 500, P = 400,
+                       interaction_frac = 0.4, delta = 10, n_loc = 5),
+           sqrt(2*100/20 + 4*500/400 + (0.4*10)^2/5), tol = 1e-12,
+           "contrast_se is exactly its documented formula")
+# power_grid: shape and that it rebuilds pools per n
+g &lt;- power_grid(inp, n_values = c(10, 20), P_values = c(300, 400),
+                lambda_values = 0.7, interaction_values = 0.5)
+check(nrow(g) == 4, "power_grid returns one row per (n, P, lambda, interaction)")
+check(dplyr::n_distinct(g$dAs_predicted) == 2,
+      "the pools are rebuilt at each n -- the trade-off is not held fixed")
+check_near(g$sigma2_within[g$n == 20][1],
+           suppressWarnings(build_pools(inp, 20))$sigma2_within, tol = 1e-12,
+           "the grid's sigma2_within is the one build_pools computed")
+```
+That last one is the oracle that would catch a length-2 `sigma2_within` silently recycling through `mutate()` at `validation_functions.R:618-625`.
+
+**S1.7 — pin the old eligibility test as a *versioned* test.** `test_validation.R:169-173` encodes the old rule. Do not delete it in S4 — rename it to say it pins the `single-v1` rule, keep it running against an `eligibility = "partners"` arm, and add the new reliability test alongside. Arm D of §0.2 needs the old rule to keep working anyway.
+
+**Runtime:** `test_validation.R` is 2 s today; these additions keep it under 5 s.
+
+### S2 + S3. Trial set and draw retention — one commit, one refit
+
+**S2.1 — remove the whitelist, derive the trial set from QC.**
+
+In `/Users/jj332/Documents/GitRepo/B4I_Fall2026/code/BGLR_multi_trait_model.R`: delete `trials &lt;- c(...)` at `:72-79` and delete `studyName %in% trials` from the filter at `:181`. `apply_trial_qc()` at `:127` already does the work; `output/trial_qc.csv` keeps 8 and drops `B4I_2025_AL` (confirmed). Keep `studyYear %in% study_years` — it is redundant today but harmless and guards against a stray year.
+
+**S2.2 — take the refactor choice: (a), call `fit_producer_associate()`.**
+
+You asked for both options flagged. I recommend **(a)** and would not do (b):
+
+- The defect in finding A *is* the duplicated filter chain. Two copies of the trial logic is what let the whitelist and `apply_trial_qc()` disagree. Fixing the symptom while keeping the duplication invites a third divergence.
+- `VALIDATION_DESIGN.md`'s closing claim ("The fitting itself is shared") becomes true rather than deleted.
+- `save_effects` gets extended once, in one place, and both production and cross-validation inherit it.
+- Finding A2 (λ from 9 trials, ΔAs from 5) cannot recur, because `validate_crossval.R` already calls `fit_producer_associate()` and will now share the data policy too.
+
+Concretely:
+- Extend `fit_producer_associate()` (`code/dge_ige_functions.R:324-502`): change `save_effects = FALSE` to `save_effects = character(0)` — a **vector of term names** (`c("G_oat","G_pea")`, `"G_mix"`, or `TRUE` meaning all genetic terms, for back-compatibility with `test_fits.R:313` and `code/sim_fit.R`). Replace the `G_mix`-only wiring at `:428-431` with a loop over `intersect(save_effects, names(ETA))` setting `saveEffects`/`storageMode`. Relax the guard at `:331-336`: the "needs integer `kron_rank`" requirement is specific to `G_mix`'s bilinear reshape and must not apply to `G_oat`/`G_pea`. The `saveAt`-must-be-explicit guard at `:341-345` stays and now applies to any streamed term.
+- Return the fitted trial set: add `trials = levels(dat$trialF)` and `L` dimensions to the return list.
+- In `BGLR_multi_trait_model.R`, replace the inline block `:265-385` with a per-seed `fit_producer_associate(grainWgt, G_oat_all, G_pea_all, seed = s, nIter = 20000, burnIn = 3000, thin = 10, saveAt = file.path(out_dir, paste0("BGLR_seed_", s, "_")), save_effects = c("G_oat","G_pea"), storage_mode = "single")`. Keep in the script: the monoculture filter, the design diagnostics `:202-244`, the GRM printouts `:280-287`, the 4-seed loop, the rank-stability and figure sections.
+- **Behaviour difference to preserve:** `fit_producer_associate()` is called with the *full* GRMs and subsets internally (`:358-359`); the production script currently **errors** on accessions absent from the GRMs (`:258-263`), while `b4i_plot_table()` *drops* them. Keep the production script's hard error by running the existing `setdiff` check before the call. Do not quietly adopt the dropping behaviour in production.
+- `storage_mode = "single"` halves the files to 13 MiB/seed, 53 MiB total. `output/` is gitignored. Add `output/BGLR_seed_*_ETA_*_beta.bin` to `.gitignore` next to the existing `output/BGLR_seed_*.dat` line anyway, for clarity.
+
+**S2.3 — write the fitted trial set out.**
+
+New file `output/BGLR_fit_trials.csv`, one row per trial:
+```
+studyName, studyYear, n_plots, n_oat, n_pea, n_combinations
+```
+plus a sidecar `output/BGLR_fit_provenance.csv`:
+```
+fit_date, pheno_file, pheno_mtime, qc_file, qc_mtime, n_trials, n_plots,
+n_oat, n_pea, nIter, burnIn, thin, seeds, fit_fn
+```
+`fit_fn = "fit_producer_associate"` is the thing that makes the doc's claim checkable.
+
+**S2.4 — make `validation_inputs()` read the fit's trial set and assert.**
+
+In `code/validation_functions.R:112-174`:
+- Add `apply_trial_qc()` to the pheno read at `:121`. **This is required** — without it, `n_trials` stays 9 and the assertion below can never pass. Source `code/dge_ige_functions.R` or copy the few lines; I'd add the source, and note it for `EVAL_SOURCES` (§7).
+- Add `fit_trials_file = here::here("output", "BGLR_fit_trials.csv")`.
+- Replace `n_trials = dplyr::n_distinct(pheno$studyName)` (`:170`) with `n_trials = length(fit_trials)` and add `n_plots_fit`.
+- Assert:
+```r
+pheno_trials &lt;- sort(unique(as.character(pheno$studyName)))
+if (!setequal(fit_trials, pheno_trials)) {
+  stop("the fit used a different trial set from the QC-filtered phenotype table.\n",
+       "  fit only:   ", paste(setdiff(fit_trials, pheno_trials), collapse = ", "), "\n",
+       "  pheno only: ", paste(setdiff(pheno_trials, fit_trials), collapse = ", "), "\n",
+       "This is SELF_CRITIQUE.md finding A. Re-run code/BGLR_multi_trait_model.R.",
+       call. = FALSE)
+}
+```
+- **Do not** assert plot counts for exact equality — the fit applies a monoculture filter the `validation_inputs()` path does not, so they will differ by a handful. Either route both through one shared filter function, or assert the trial set exactly and report both plot counts side by side in `vintage.csv` (`n_plots_pheno`, `n_plots_fit`) with a warning if they differ by more than, say, 2%. I recommend the shared-filter route: lift the monoculture + NA filter out of `BGLR_multi_trait_model.R:145-184` into a named function in `dge_ige_functions.R` and call it from both. Then exact equality is assertable, and that is the stronger guarantee.
+- Add a **missing-file branch**: if `BGLR_fit_trials.csv` does not exist, `stop()` loudly. This must NOT follow `apply_trial_qc()`'s "a missing file is not a failure" pattern — a missing fit-trial record is exactly the condition that produced finding A, and silently falling back to the phenotype count reinstates the bug. Different situation, different policy; say so in the comment.
+
+**S2.5 — per-accession PEV, computed where `L` and the draws are both in hand.**
+
+Do this in `BGLR_multi_trait_model.R`, **not** in `validation_functions.R`. Reasons: `validation_functions.R` stays free of BGLR; nothing downstream needs the 53 MiB of `.bin` files or `L`; and it is a CSV read for every consumer.
+
+```r
+# per-accession posterior variance of the accession-scale effects.
+# fit$ETA[[term]]$SD.beta is NOT a route: Var(L b) needs the full p x p
+# posterior covariance of b, which BGLR does not accumulate.
+acc_pev &lt;- function(prefix, term, L, roles) {
+  draws &lt;- read_beta_draws(prefix, term = paste0("ETA_", term),
+                           nIter = nIter, burnIn = burnIn, thin = thin,
+                           p = ncol(L), traits = length(DGE_IGE_TRAITS),
+                           storage_mode = "single")
+  # [n_draws, p_acc] per trait, in one matmul -- no loop needed
+  g &lt;- lapply(seq_along(DGE_IGE_TRAITS),
+              function(k) tcrossprod(draws[, , k], L))
+  names(g) &lt;- DGE_IGE_TRAITS
+  Pr &lt;- g[[roles[["Pr"]]]]; As &lt;- g[[roles[["As"]]]]
+  tibble::tibble(
+    acc      = rownames(L),
+    PEV_Pr   = apply(Pr, 2, stats::var),
+    PEV_As   = apply(As, 2, stats::var),
+    cov_PrAs = vapply(seq_len(ncol(Pr)), \(i) stats::cov(Pr[, i], As[, i]), 0),
+    PEV_GMA  = PEV_Pr + PEV_As + 2 * cov_PrAs
+  )
+}
+```
+`read_beta_draws()` at `code/interaction_decomp.R:259-304` is reused unchanged — only `term` and `p` differ, exactly as you established. `p = ncol(L_oat) = 442`, `ncol(L_pea) = 423`. The matmul is 1700 × 442 × 442 ≈ 3×10⁸ FLOPs — instant.
+
+Outputs:
+- `output/BGLR_{oat,pea}_pev.csv` — `seed, acc, PEV_Pr, PEV_As, cov_PrAs, PEV_GMA` across all 4 seeds (the mean over seeds is what `validation_inputs()` uses, consistent with how `Pr`/`As` are already averaged at `validation_functions.R:143-144`).
+- `output/BGLR_{oat,pea}_As_draws_seed12567.rds` — the `[1700, 442]` accession-scale As draw matrix for **seed 1 only** (6 MiB/species), for the §0.8 pool-level posterior diagnostic. Not needed by the eligibility filter.
+
+**Note `PEV_GMA` is free here and is what estimand 3 needs** — the per-accession PEV of the total-yield predictor, including the Pr–As covariance. Compute it now; you will want it in S6.
+
+**Runtime for the refit:** the 5-trial fit took ~45 s/seed (17:37→17:40 for 4 seeds). At 8 trials / ~3,180 plots expect ~2× → **~6–8 min for 4 seeds**, plus ~1 min for the PEV pass. Call it 10 min.
+
+### S4. Reliability eligibility and pool-specific `sigma2_within`
+
+**S4.1 — `validation_inputs()` return shape.** You asked specifically about this. The contract becomes, per species:
+
+```r
+list(
+  species = "oat",
+  accessions = tibble(
+    acc, Pr, As, GMA,            # GMA = Pr + As, new; estimand 3's predictor
+    n_partners, n_plots,         # n_partners now counted on the FITTED data
+    PEV_Pr_i, PEV_As_i, PEV_GMA_i,   # per-accession, from BGLR_*_pev.csv
+    rel_As_i, rel_GMA_i,         # 1 - PEV_i/sigma2_*, clamped elementwise
+    eligible                     # rel_As_i &gt;= rel_min  AND  n_partners &gt;= partner_floor
+  ),
+  eligibility = list(rule = "reliability-v2", rel_min = ..., partner_floor = 2L,
+                     n_eligible = ..., n_total = ...),
+  # scalars, unchanged names and meanings -- every existing consumer keeps working
+  sigma2_Pr, sigma2_As, sigma2_e, response,
+  rel_Pr, rel_As, PEV_As,        # the GLOBAL versions, retained
+  sigma2_GMA, rel_GMA,           # new, for estimand 3
+  # provenance
+  n_trials, n_plots, fit_trials, pool_index = POOL_INDEX_VERSION
+)
+```
+
+**Keep `PEV_As` (the global scalar) and `rel_As`.** `validate_power.R:132` and `validate_pool_selection.R:89,110` read them, and so does `test_validation.R`'s fixture. The per-accession versions are *additions*, suffixed `_i`. Nothing's type changes. The old `min_partners` field stays too (as `eligibility$partner_floor` plus a deprecated top-level alias) so arm D of §0.2 and `validate_pool_selection.R:97,211` keep working.
+
+Add an `eligibility` argument: `eligibility = c("reliability", "partners")`, defaulting to `"reliability"`, with `min_partners` and `rel_min` both accepted. Arm D passes `eligibility = "partners"`.
+
+**S4.2 — choosing `rel_min`.** Do not guess. Calibrate: pick the `rel_min` whose candidate count on the fitted data is closest to what `min_partners &gt;= 3` gives on the fitted data (~248 oat / ~244 pea per SELF_CRITIQUE §A1), then **report the implied absolute reliability** and sweep ±0.05 in `power_grid()`. Guard rails that must hold: oat needs ≥ 2n = 40 candidates after the 0.5 Pr quantile, i.e. ≥ 80 eligible; pea needs ≥ 120 eligible. `build_pools()` already errors informatively at `validation_functions.R:267-271`; make sure `validate_pool_selection.R` catches that error and names `rel_min` as the knob.
+
+Elementwise clamping: reuse the existing `rel()` closure (`validation_functions.R:156`) vectorised — `rel_As_i` can exceed 1 or go negative for individual accessions from short-chain noise, and an unclamped negative PEV flatters every power estimate exactly as the current comment warns.
+
+**S4.3 — pool-specific `sigma2_within` by ADDITION, not mutation.** You listed six downstream breakages from making `sigma2_within` length-2. Avoid all of them:
+
+`build_pools()` returns, **in addition to** the existing scalar `sigma2_within` (unchanged — still the mean of the two pools, which is what `var_blup_within` at `:325` already is):
+
+```r
+sigma2_within_plus  = mean(res$plus$PEV_As_i)  + var(res$plus$As),
+sigma2_within_minus = mean(res$minus$PEV_As_i) + var(res$minus$As),
+PEV_plus = mean(res$plus$PEV_As_i),  PEV_minus = mean(res$minus$PEV_As_i),
+var_blup_plus = var(res$plus$As),    var_blup_minus = var(res$minus$As),
+candidates = cand                     # for S1.3's identity oracle
+```
+and `sigma2_within &lt;- mean(c(sigma2_within_plus, sigma2_within_minus))`.
+
+`contrast_se()` accepts `sigma2_within` of **length 1 or 2**:
+```r
+v_acc &lt;- if (length(sigma2_within) == 2L) sum(sigma2_within)/n else 2*sigma2_within/n
+```
+The two agree exactly when `s[1] == s[2]`, which is the back-compatibility oracle (§5.1). `power_grid()`'s `mutate(sigma2_within = bp$sigma2_within)` at `:618-625` stays length-1 and keeps working; add two more `mutate()` columns. `pool_summary.csv` and `power_grid.csv` gain columns and lose none. `validate_power.R:385` and `validate_crossval.R:429-430` get the length-2 vector passed by name. `validate_pool_selection.R:88,110` keep reading the scalar.
+
+This is the single most important structural decision in the plan: **addition over mutation** turns a six-site breakage into zero.
+
+**S4.4 — the eligibility rule's other call sites.** All must move together:
+- `validate_pool_selection.R:97` — replace `all(bp$pools$n_partners &gt;= min_partners)` with `all(bp$pools$rel_As_i &gt;= rel_min) &amp;&amp; all(bp$pools$n_partners &gt;= partner_floor)`, and make `build_pools()` carry `rel_As_i`/`PEV_As_i` through `transmute()` at `:319-320` (otherwise `pools.csv` drops them and `validate_design.R` cannot write them into the field book).
+- `validate_pool_selection.R:78` — the eligible-count line; `:211-213` — the figure subtitle *states the rule to the reader* and must be regenerated from `inp$eligibility`, not hard-coded.
+- `validation_functions.R:638` (`n_eligible` in `validation_vintage()`) and the `pools.csv` columns at `:319-320`.
+- `validation_report.R:78-81` — the vintage block's `eligible` column header.
+- `validate_crossval.R:207-226` — its own `fake_inp` sets `PEV_As = 0` and `eligible = TRUE`. The rehearsal legitimately does not need reliability (it only needs the pools, as the comment says), so give it `eligibility = "partners"` explicitly and add `PEV_As_i = 0`, `rel_As_i = 1` to the fake accession table. Do **not** make the rehearsal reliability-filtered: computing per-fold per-accession PEV would mean streaming draws from 8 refits.
+
+**S4.5 — the pool-level posterior diagnostic (§0.8).** New output `output/validation/&lt;vintage&gt;/pool_posterior.csv`:
+```
+species, var_pool_mean_plus, var_pool_mean_minus, cov_pools,
+var_contrast_posterior, var_contrast_broad (= 2*sigma2_within/n), ratio
+```
+computed from `BGLR_{oat,pea}_As_draws_seed12567.rds`. Four lines of code. If `ratio` is far from 1, say so in the report; it bounds the narrow-inference exposure without changing the power claim.
+
+**S4.6 — run both arms.** `validate_pool_selection.R` builds arm R (proposed, `single-v2`) and arm D (`single-v1`, old rule on fitted data), writes `pools.csv` (arm R), `pools_armD.csv`, `pool_diff.csv` (arm D vs `2026-10-03_5trial-whitelist` = **the A4 data-churn test**) and `pool_diff_rule.csv` (arm R vs arm D = rule churn). Print the two retention percentages separately and label which one the 70% guidance applies to (arm D's).
+
+### S5. λ: QC the folds, two scales, by year, noise-corrected
+
+All in `/Users/jj332/Documents/GitRepo/B4I_Fall2026/code/validate_crossval.R`.
+
+**S5.1 — apply the QC screen (finding A2).** Insert `apply_trial_qc()` into the pheno read at `:90-98`. The folds go 9 → 8 and AL leaves every training set, so the fit-data policy finally matches production. Consequence to expect and to state: the `sd_floor` exclusion at `:323-324` currently drops AL, so after QC the `all same-line folds` and `informative folds only` sets may **converge**, which partly resolves findings G and I — λ becomes unconditional on a fold-inclusion rule chosen by looking at λ. Report both sets regardless; if they are now identical, say so, because it is a result.
+
+**S5.2 — fix `calib()`'s SE before anything leans on it (finding G).** `calib()` at `:149-161` fits `lm(peaYield ~ oat_As + pea_Pr)` at the **plot** level, so `lambda_p` and `lambda_se` are anti-conservative. `VALIDATION_DESIGN.md` §7b uses `lambda_p` as a trial-exclusion criterion and `validate_crossval.R:425` uses `lambda_sd` for λ's CI. Two options, do **both**:
+- Add an **accession-level** calibration: average the partner-Pr-adjusted response to the focal accession (the `acc_level()` machinery at `:172-187` already does this) and regress on `As`. Report as `lambda_a`, `lambda_a_se`, `lambda_a_p`.
+- Keep the plot-level slope (it is unbiased) but replace its SE with a **cluster-robust** one by focal accession. `sandwich::vcovCL` if available; otherwise a one-line block-bootstrap over accessions, which needs no new dependency.
+
+Use the accession-level or clustered SE wherever a *p*-value or a CI is taken. Label the plot-level `lambda_p` as deprecated in the fold table rather than deleting it, so §7b's worked example stays readable.
+
+**S5.3 — λ two ways (change 4).** Add a second calibration on the within-trial-standardised response. `calib()` already has the held-out trial centred at `:140-143`; add a scaled copy:
+```r
+dat &lt;- dplyr::mutate(dat, peaYield_z = peaYield / stats::sd(peaYield),
+                          oatYield_z = oatYield / stats::sd(oatYield))
+```
+(the trial mean is already removed, so this is a pure scale change). New fold columns `lambda_z`, `lambda_z_se`, `lambda_z_p`, and `scale` as a factor so `summarise_folds()` can group by it.
+
+`summarise_folds()` gains a `scale` grouping and emits, per (species, scale, set):
+```
+lambda_mean, lambda_median, lambda_sd, lambda_se_of_mean,
+interaction_frac,                                   # sd/|mean|, scale-free -&gt; comparable
+interaction_frac_corrected,                         # S0.11, noise-removed
+mean_lambda_se2,                                    # the noise being removed
+interaction_sd_raw                                  # sd(lambda) * dAs, absolute (S0.1)
+```
+**The comparison is on `interaction_frac`, which is scale-free and therefore legitimately comparable across the two scales** — your theory is right here. Expect the standardised version to be *smaller* almost by construction (standardising removes exactly the between-trial scale variation the raw slope absorbs), so the interesting question is how much of it survives, which is what `interaction_frac_corrected` answers.
+
+New output `output/validation/&lt;vintage&gt;/crossval_lambda_scales.csv`.
+
+**S5.4 — λ by year (change 5).** Join `studyYear` from the pheno table (`distinct(studyName, studyYear)`) rather than parsing the trial name — the name convention is not a contract. Emit `crossval_lambda_year.csv`: per (species, scale, studyYear) the mean λ, SD, n_folds. Expect oat 2025 ≈ 1.38 (3 informative folds after AL leaves), 2026 ≈ 0.63.
+
+**S5.5 — λ = 0.7 as the design value.** Add to `VALIDATION_DEFAULTS` (`validation_functions.R:46-69`):
+```r
+# The DESIGN value of lambda: a judgement, not a measurement. The pooled
+# estimate is 0.83 and the 2026 folds average 0.63; 0.7 is chosen as the
+# forward-looking value for a new year (SELF_CRITIQUE.md finding B) and the
+# trial is sized on it. The measured value is reported alongside, always.
+lambda_design = 0.7,
+lambda_design_note = "judgement; see VALIDATION_DESIGN.md section 6",
+```
+`validate_power.R` and `validate_crossval.R` report power at **both** `lambda_design` and the measured λ, in one table with a `lambda_source` column (`"design"` / `"measured"` / `"measured_lo"`). **And at both interaction parameterisations** (§0.1) — four rows per species. That is the table the go/no-go is read off, and it must not hide the 0.70-vs-0.61 difference.
+
+### S6. One pre-registered model, three estimands, new SE and df
+
+**S6.1 — write the model down once, in code.** New section in `validation_functions.R`, exported as data so the report and the field book can both print it:
+
+```r
+# One random-effects structure, three instantiations. y is the response for
+# focal species F against partner Pa.
+PREREG_MODEL &lt;- list(
+  version = "prereg-v1",
+  base = "y ~ location + (1|location:block) + &lt;FIXED&gt; + &lt;AsxE&gt;
+            + (1|accF) + (1|accPa) + (1|combination) + e",
+  estimands = list(
+    pool = list(
+      fixed = "poolF + poolPa + poolF:poolPa",
+      AsxE  = "(1|location:poolF) + (1|location:poolPa)",
+      test  = "poolF coefficient, one-sided",
+      role  = "pre-registered two-point summary of `slope`"),
+    slope = list(
+      fixed = "x_F + x_Pa",                      # centred predicted As BLUP
+      AsxE  = "(0 + x_F | location) + (0 + x_Pa | location)",
+      test  = "slope on x_F &gt; 0, one-sided",
+      role  = "PRIMARY: the slope IS lambda measured in new data, on the same
+               scale as the cross-validation's interaction_frac"),
+    total = list(
+      response = "oat_yield + w_pea * pea_yield",
+      fixed = "x_total",                          # GMA_oat + GMA_pea, centred
+      AsxE  = "(0 + x_total | location)",
+      rand  = "(1|oat_acc) + (1|pea_acc) + (1|combination)",
+      test  = "slope on x_total &gt; 0, one-sided",
+      role  = "co-primary, gatekept behind `slope` (see multiplicity)")
+  ),
+  multiplicity = "fixed sequence: the two per-species `slope` tests at
+                  one-sided alpha 0.05; `total` tested only if at least one
+                  passes. Spends no alpha. Settles section 8 item 4.",
+  secondary = c("poolF:poolPa", "combination variance from the anchors",
+                "realised As regressed on height/flowering/maturity (H2)",
+                "economically weighted total (w_pea != 1)")
+)
+```
+`(1|combination)` drops to secondary per SELF_CRITIQUE §C's recommendation — it is estimable almost entirely from the 4 anchor combinations and will sit near the boundary. Say so in the structure, do not silently omit it.
+
+**S6.2 — the new `contrast_se()` / `contrast_power()` signatures.** See §3 for the positional-trap handling; the semantics:
+
+```r
+contrast_se &lt;- function(sigma2_within, n, sigma2_e, P, ...,
+                        interaction_frac = NULL, interaction_sd = NULL,
+                        delta = 0, n_loc = 5L, df_e_lost = 4L,
+                        .components = FALSE)
+```
+- `sigma2_within` length 1 or 2 (§S4.3).
+- exactly one of `interaction_frac` / `interaction_sd`; both NULL means no interaction (back-compatible with the current `interaction_frac = 0` default — keep `0` working as "none").
+- `.components = TRUE` returns `list(se, v_acc, v_int, v_plt, df_acc, df)` so `contrast_power()` and the tests can read the pieces without recomputing them. This matters: duplicating the variance split in two functions is how the df and the SE drift apart.
+
+```r
+contrast_power &lt;- function(dAs, ..., sigma2_within, n, sigma2_e, P,
+                           lambda = 1, alpha = 0.05, sided = 1L,
+                           interaction_frac = NULL, interaction_sd = NULL,
+                           n_loc = 5L, df_e_lost = 4L, df_mode = "satterthwaite")
+```
+`df_mode = c("satterthwaite", "naive")`. `"naive"` returns `2n − 2` and exists for exactly one reason: to keep S1.1's pin meaningful and to let the report show the old number next to the new one. Default `"satterthwaite"`.
+
+The df:
+```r
+df_acc &lt;- (A + B)^2 / (A^2/(n-1) + B^2/(n-1))        # Welch; == 2n-2 when A == B
+df     &lt;- (v_acc + v_int + v_plt)^2 /
+          (v_acc^2/df_acc + v_int^2/(n_loc - 1) + v_plt^2/(P - df_e_lost))
+```
+
+New returned columns, replacing/augmenting `:593-604`:
+```
+v_acc, v_int, v_plt,                  # the three variance contributions
+pct_var_accessions, pct_var_interaction, pct_var_plots,   # sum to 100
+df_acc, df, df_naive,
+SE_floor,              # REDEFINED: sqrt(v_acc + v_int) -- the P -&gt; inf limit
+SE_accession_only,     # sqrt(v_acc) -- the OLD SE_floor, kept under a new name
+pct_SE_irreducible,    # 100 * SE_floor / SE   (now includes interaction)
+interaction_mode       # "frac" | "sd" | "none" -- so the report can detect a sweep
+```
+
+**S6.3 — `SE_floor` and `pct_SE_irreducible`: yes, redefine, and here is exactly what to do with `test_validation.R:212-213`.**
+
+You asked this directly. `SE_floor`'s *contract* in the document and in `validate_power.R:310-334`/`power_ceiling.csv` is "the standard error with infinitely many plots." With two non-P terms, the P → ∞ limit is `sqrt(v_acc + v_int)`, so:
+
+- **`SE_floor` keeps its name and its contract, and gains the interaction term.** That is the minimal change that keeps `power_ceiling.csv`, the `power_ceiling` column at `:324-327` and the §5 "Why more plots buy so little" argument all meaning what they say.
+- **The old formula survives as `SE_accession_only`.** `test_validation.R:216-218` ("more accessions per pool lowers the floor") should point at `SE_accession_only`, because that is the claim it is actually making — more accessions lower the *accession* term; they do not lower the interaction term at all. Repointing it makes the test say something true rather than something accidentally true.
+- **`pct_SE_irreducible` becomes `100 * SE_floor / SE`.** It rises substantially — for oat at λ = 0.7, P = 400 it goes from ~50% to `100*sqrt(28.9)/5.96 = 90%`. That is the honest number and it strengthens §5's argument rather than weakening it: 90% of the SE is untouchable by plots, and the untouchable part is now *mostly pool × location*, which points at **more locations** as the only lever. Add `n_loc` to `power_grid()`'s sweep so the document can say so with a number. This is arguably the most useful consequence of the whole change set and it is currently invisible.
+
+**`test_validation.R:212-213` becomes three assertions:**
+```r
+# 1. the convergence claim, at zero interaction -- unchanged in meaning
+se0 &lt;- contrast_power(15, sigma2_within = 100, n = 20, sigma2_e = 500, P = 400)
+check(abs(se_of(1e9) - se0$SE_floor) &lt; 1e-3 * se0$SE_floor,
+      "with enough plots the SE converges on the floor, not on zero")
+# 2. the SAME claim with interaction on -- the test that forces the redefinition
+seI &lt;- contrast_power(15, sigma2_within = 100, n = 20, sigma2_e = 500,
+                      P = 1e9, interaction_frac = 0.5)
+check(abs(seI$SE - seI$SE_floor) &lt; 1e-6 * seI$SE,
+      "SE_floor is the P -&gt; infinity limit with the interaction term too")
+# 3. NEGATIVE: the old floor is not the limit
+check(seI$SE_accession_only &lt; seI$SE_floor - 1e-8,
+      "the accession-only floor is strictly below the P -&gt; infinity limit")
+```
+Oracle: algebraic limit plus a negative control. Note that assertion 1's tolerance must loosen from 0.1% to ~0.1%—still fine—because `4*sigma2_e/1e9` is 2e-6 against an `SE_floor` of ~3.2; it was always a limit test, not a value test.
+
+**S6.4 — estimand 2's analytic power.** One new function:
+```r
+slope_power &lt;- function(dAs, var_x_within, sigma2_within, n, sigma2_e, P, ...,
+                        lambda, interaction_frac = NULL, interaction_sd = NULL,
+                        n_loc, alpha = 0.05, sided = 1L)
+```
+with `Var(x)` over the 2n accessions `= (dAs/2)^2 + var_x_within`, which `build_pools()` can return as `var_As_within_pools`. Your worked case: `(19.59/2)² + 3.5 = 95.9 + 3.5 = 99.4`, 3.6% more predictor variance than the two-point summary's 95.9, `t` 3.54 → 3.64. Reproduce that as a **requested-value test** (§5.4) — it is the oracle for the claim that the plan must *not* oversell estimand 2.
+
+**S6.5 — estimand 3's analytic power.** `total_yield_power()`, same three-term/Satterthwaite skeleton, with:
+- predictor `x_total = GMA_oat + w_pea * GMA_pea`, `var(x_total)` computed from the actual 2×2 cell structure of the realised design plus within-cell spread (your 318.9 — reproduce it from `field_book.csv` rather than hard-coding);
+- `sigma2_e_total = var_oat + w_pea^2 * var_pea + 2*w_pea*cov_pea_oat` = 1335.6 + 655.2 − 2(98.3) = **1794.2** (you have 1793.5 — close enough that we should compute it from `BGLR_variance_components.csv` rather than either literal);
+- the accession term from `PEV_GMA_i` (which S2.5 already writes) for **both** species, since both `(1|oat_acc)` and `(1|pea_acc)` are retained;
+- `interaction_sd` / `interaction_frac` carried through exactly as for estimands 1 and 2 — **this is the §0.4 correction** and it must not be skipped.
+
+New output `output/validation/&lt;vintage&gt;/estimand_power.csv`: one row per (estimand, species-or-total, P, n_loc, lambda_source, interaction_mode) with `delta_or_slope, SE, v_acc, v_int, v_plt, df, t, power`. **This one file replaces the scattered power tables as the single pre-registered power statement**, which is what change 6 asks for. `power_grid.csv` and `power_ceiling.csv` stay (for the budget/pool-size sweep) but the document's headline table comes from `estimand_power.csv`.
+
+**S6.6 — `validate_design.R` must freeze the predictors.** Add `x_As` and `x_GMA` columns per focal accession to `field_book.csv`, read from `pools.csv` (which S4.4 extended). Add a VERDICT check that no pool member has a missing predictor. Without this, estimands 2 and 3 are not pre-registered (§0.7).
+
+Also: fix the exit status. `validate_design.R:128-146` builds `ok` and prints it and never calls `quit()`, so a partner-balance failure writes the field book, exits 0, and `validate_refresh.R:166` records "ok". Add `quit(save = "no", status = if (ok) 0L else 1L)` after `:150`, and add a `--vintage` flag (it currently binds to today's date at `:41` with no override, so it cannot be re-run against yesterday's pools).
+
+### S7. The null simulation with As × location
+
+In `/Users/jj332/Documents/GitRepo/B4I_Fall2026/code/validate_power.R`.
+
+**S7.1 — a null that is exactly a null for the pool contrast.** Your spec — "As main effects 0 but As×location nonzero with zero mean across locations" — needs care: if only the *population* mean is zero, individual accessions keep nonzero main effects and it is not a null for the pool test. The exactly-planted construction:
+
+```r
+# As x location with EXACTLY zero pool main effect and exactly zero mean over
+# locations: draw one deviation per location, centre it to sum zero, then add
+# +d to every As+ member and -d to every As- member at that location. The
+# pool x location contrast then has SD 2*tau and mean exactly 0, so the type-I
+# rate measures the thing it is supposed to.
+d &lt;- stats::rnorm(n_loc, 0, tau); d &lt;- d - mean(d)
+```
+`tau` is set from the measured interaction: `tau = interaction_sd/2` where `interaction_sd = interaction_frac * lambda * dAs` (or the absolute form). Exact planting is the oracle style `tests/README.md` demands.
+
+**S7.2 — also give the alternative a location structure.** Under the alternative, add the same `d` on top of the nonzero As main effects, so the simulation's SE finally includes the term the analytic formula's dominant component describes. Today `simulate_validation()` generates only location **main** effects (`:146-147`, `rnorm(n_loc, 0, 40/25)`), which is why the simulation has never tested `interaction_frac` at all.
+
+**S7.3 — the two models to compare, without `lmer` (§0.9).** `test_one()` at `:163-180` becomes `test_pool()` with a `denominator` argument:
+- `"pooled"` — the existing two-stage t on `2n − 2` df. The model **omitting** `location:pool`.
+- `"location"` — compute the pool contrast of accession means **within each location**, then a one-sample t on the `n_loc` location-level contrasts, `n_loc − 1 = 4` df. This is the closed form of the pre-registered model when `location:pool` dominates.
+
+Run **both on the same simulated data with the same seeds** and report the pair. The comparison is the point of change 6, and it must be read as a *paired difference*, not against nominal 0.05 — `simulate_validation()`'s equal-variance t is already known to sit below nominal (0.028/0.025) because of unequal replication (`validate_power.R:438-444`). The expected result: under the As×location null, `"pooled"` rejects well above its own baseline (the inflation that SELF_CRITIQUE §C1 predicts) while `"location"` stays at it. **That comparison is the finding.**
+
+**S7.4 — reps.** Type-I at 400 reps has MC SE 0.011, too coarse to distinguish 0.05 from 0.08. Run the **null arms at 2,000 reps** (MC SE 0.005) and the alternative arms at the existing 400. Both tests are vectorised dplyr, not MCMC; 2,000 reps × 400 plots ≈ 2–4 min per arm.
+
+**S7.5 — optional `lme4` confirmation.** 200 reps at one budget, fitting the actual `lmer` for estimand 1, asserting the realised power sits inside the `[location, pooled]` bracket. `lme4 2.0.6` is present; `lmerTest` is **not** — use `pbkrtest` for df if wanted, or just compare rejection rates at the `lmer` profile/Wald test. Make this arm **opt-in behind a flag** so the default run has no new dependency.
+
+**S7.6 — per-accession PEV in `draw_truth()` (finding D).** At `:132`, `sqrt(inp$PEV_As)` becomes the per-accession vector `sqrt(a$PEV_As_i)`. Better still, and free: **resample a posterior draw index and take the whole vector from `BGLR_oat_As_draws_seed12567.rds`**, which carries the posterior *correlation* automatically and makes the simulated truth literally a posterior draw. Either way, keep the header comment at `:10-18` and `:104-119` saying plainly what the simulation does and does not test — `E[true|BLUP] = lambda*BLUP` by construction remains true and must keep being said.
+
+### S8. Reporting, registry, driver, prose
+
+**S8.1 — `validation_report.R`: four new keys, four edits each.** Markers are matched by exact whole-line equality with exactly one BEGIN and one END (`validation_report.R:178-189`), and a typo reports "up to date" rather than erroring — so add the marker pairs to `VALIDATION_DESIGN.md` and then verify with `--check` that each one is actually found (the `message("  no markers for '", key, "' ...")` line is the thing to watch for).
+
+| key | source file | goes in |
+|---|---|---|
+| `analysis` | `PREREG_MODEL` | §4, replacing the hand-written model block |
+| `estimands` | `estimand_power.csv` | §5, as the headline power table |
+| `lambda_scales` | `crossval_lambda_scales.csv` + `crossval_lambda_year.csv` | §6, after the existing `lambda` block |
+| `eligibility` | `inp$eligibility` via a new `eligibility.csv` | §2, stating the rule and candidate counts |
+
+For each: a `read_if()` line (~`:59-62`), a `block_&lt;key&gt;()` builder (~`:73-167`) returning character lines or `NULL`, registration in the `blocks` list at `:169-170` (name order = splice order), and the marker pair in the `.md`.
+
+**Extend `block_power()`'s staleness detector (`:144-157`) in lockstep.** It counts distinct `lambda`/`interaction_frac`/`sided` within species. It would **not** notice a new swept term and would publish a stale table silently. Add `n_loc`, `interaction_mode`, `df_mode`, `rel_min`, `lambda_source` to the `per_sp` summarise and the `swept` disjunction. Factor the detector into a helper `.is_swept(g, cols)` used by both `block_power()` and `block_estimands()`, so a term added to one cannot be forgotten in the other. This is the specific failure mode worth engineering against.
+
+**S8.2 — `code/evaluation.R` registry.** Exact edits:
+- `:65-67` `validation` group — add `acc_pev`, and the new per-accession helpers.
+- `:69` `val_design` — add nothing new unless `validate_design.R` gains functions.
+- `:70-71` `val_power` — add `slope_power`, `total_yield_power`, `test_pool`, `draw_truth`, `simulate_validation` (already there), `crossval_estimates` (already there).
+- `:141` `EVAL_SOURCES$validation` — **add `"code/interaction_decomp.R"`** if any `read_beta_draws()` caller lands in the validation path, and add `"code/dge_ige_functions.R"` because `validation_inputs()` now calls `apply_trial_qc()`. Easy to miss, and `eval_load("validation")` will fail without them.
+- `:151-153` `EVAL_DEFS_FILES$validation` — **add `"code/validate_crossval.R"`**. It is absent today, so `calib`, `run_fold`, `rehearse` and `summarise_folds` are unreachable by `eval_defs()`, which is why the λ machinery has never been reachable for interactive debugging. Fix it now, while you are changing all four.
+
+**S8.3 — `validate_refresh.R` hardening.** Failure detection is child non-zero exit only (`:158,166`). With S6.6's `quit()` fix, `validate_design.R`'s six VERDICT checks finally gate the chain. Also:
+- Add a step for the new pool-posterior/estimand outputs if they get their own script, or fold them into existing steps (prefer the latter — 11 steps is already a lot).
+- Add a post-run assertion that `output/BGLR_fit_trials.csv` exists and `setequal`s the QC-kept set, so the driver itself catches finding A rather than relying on `validation_inputs()`.
+- The `--refresh-doc` guard at `:142-146` is right; leave it.
+
+**S8.4 — prose that `--refresh-doc` cannot touch and must be hand-rewritten.** `VALIDATION_DESIGN.md` is 714 lines; these need a person:
+
+| lines | section | why |
+|---|---|---|
+| 169-192 | §4 Analysis | replaced wholesale by the `analysis` generated block + new prose on the three estimands, the gatekeeping sequence (§0.5), and why `(1\|combination)` is secondary |
+| ~224-280 | §5 "Why more plots buy so little" | the displayed formula has **two** terms and says "only one of them contains the plot count". Now three terms, two of them free of P, and `pct_SE_irreducible` ≈ 90%. The argument gets *stronger* and points at locations, not plots — rewrite to say so |
+| §5 prose | reliabilities | "oat As 0.31, pea As 0.24" — wrong against its own table (0.35/0.27) and will move again after the refit. Delete the literals; refer to the table |
+| 343-377 | §5 Verification | the simulation now has two denominators and a real As×location null; the verification narrative is obsolete |
+| 385-412 | §6 rehearsal | the table lists five 2025 trials; eight folds exist, and after S5.1 the fold set changes again |
+| 425-443 | §6 "Two things follow" | "λ comes from four usable folds" → eight; "λ &gt; 1 for oat means the realised contrast exceeds the predicted one" is a leftover from the 2025-only era and is now the actively misleading reading (finding B); the power table is superseded |
+| 444-457 | §6 "What this rests on" | bullet 3 (absolute vs proportional scale, "worth reconciling") is now **answered** by change 4 — replace with the result |
+| 458-478 | §7 | "Nothing in the scripts is hard-coded" is the exact opposite of finding A; "the 2026 trials moved the BLUPs" is false (finding A3 — reliability rose because AL was removed) |
+| 550-653 | §7b | the trial-exclusion rule leans on `lambda_p`, which S5.2 replaces. Keep the argument (it is the best-reasoned section in the repo), swap the criterion, and add the sentence that λ is conditional on a rule chosen partly by looking at λ (finding G) |
+| 685-695 | §8 Open decisions | item 3 (proceed if λ &lt; 0.5) is now answerable against λ_design = 0.7; item 4 (multiplicity) is settled by the fixed sequence; item 5 gains the H1 note that **total yield needs no extra plots** |
+| 705-714 | Reproducing this | "The fitting itself is shared" becomes **true** under refactor (a) — keep it and add `BGLR_fit_trials.csv` to the output list |
+
+**S8.5 — change 9, the hooks only.** Height, flowering and maturity on every plot. Plan the hooks, do not design the analysis:
+- `field_book.csv` gains empty `plant_height_cm`, `days_to_flower`, `days_to_maturity` columns with a header comment naming the T3 trait ontology terms, so the field book is the data-entry template.
+- `PREREG_MODEL$secondary` already names "realised As regressed on height/flowering/maturity (H2)" — that is the pre-registration hook and it costs nothing now.
+- Add a `# TODO(H2)` stub in `validate_design.R`'s design-check report listing which traits are expected, so a missing column is noticed at upload time rather than at analysis time.
+- Do **not** build the third pool (change 8 — pools stay As+/As−). Record in §8 that the phenotypic-proxy third pool was considered and declined, with the ~25% plot cost, so the decision is visible rather than absent.
+
+---
+
+## 3. The positional-argument trap: my recommendation
+
+You lean toward named-only new arguments plus a `match.call()`/arity guard and converting the 9 positional test calls. **I would go further, and the extra step is what actually closes the hole.**
+
+Named-only *new* arguments do not help, because the hazard is the *existing* five positional arguments. `contrast_power(15, 100, 20, 500, 400)` will keep binding `dAs, sigma2_within, n, sigma2_e, P` forever, and the next person to insert an argument before `P` reopens the bug. A `match.call()` guard catches only what you thought to check.
+
+**Do this instead: make everything but the first argument named-only, enforced by the language.**
+
+```r
+contrast_power &lt;- function(dAs, ..., sigma2_within, n, sigma2_e, P, lambda = 1,
+                           alpha = 0.05, sided = 1L, interaction_frac = NULL,
+                           interaction_sd = NULL, n_loc = 5L, df_e_lost = 4L,
+                           df_mode = "satterthwaite") {
+  # Everything after `...` must be supplied by FULL name -- R will not match it
+  # positionally or partially. That is why `...` sits here and not at the end:
+  # it is a barrier, not a bag. test_validation.R had nine positional call sites
+  # relying on the order (dAs, sigma2_within, n, sigma2_e, P), so inserting any
+  # argument before P would have silently rebound all nine while the suite kept
+  # reporting PASS. Named-only arguments make that class of change impossible.
+  if (...length() &gt; 0L) {
+    stop("contrast_power() takes only `dAs` positionally; ", ...length(),
+         " extra positional argument(s) given. Name every argument: ",
+         "contrast_power(dAs = , sigma2_within = , n = , sigma2_e = , P = , ...)",
+         call. = FALSE)
+  }
+  ...
+}
+```
+
+Why this is better than the alternatives:
+
+- **The language enforces it.** Arguments after `...` cannot be matched positionally or partially — no hand-rolled check, no gaps.
+- **The arity guard catches the residue.** `...length() &gt; 0` fires on a stray positional *and* on a misspelled name (which would otherwise land in `...` and be ignored — the quietest failure of all). It is cheap, exact, and the error message names the fix.
+- **It forces the conversion rather than relying on memory.** All ~13 call sites fail immediately and loudly: `test_validation.R` lines 210, 216, 217, 221, 222, 226, 227, 229, 230, 234; `validate_power.R:385`; `validate_crossval.R:429-430`; and `validation_functions.R:581-582` (the internal `contrast_se()` call, which is positional for all seven arguments). You cannot ship a half-converted change set.
+- **It makes the discipline testable.** Add the negative control:
+```r
+check_error(contrast_power(15, 100, 20, 500, 400),
+            "positional arguments past dAs are refused")
+check_error(contrast_power(dAs = 15, sigma2_withn = 100, n = 20,
+                           sigma2_e = 500, P = 400),
+            "a misspelled argument name is refused, not silently ignored")
+```
+Without that second one, the guard can rot. With it, a future refactor that removes the barrier fails the suite.
+
+Same treatment for `contrast_se()`, `slope_power()`, `total_yield_power()`.
+
+**Convert the test calls mechanically, not by hand.** `se_of &lt;- function(P) contrast_power(15, 100, 20, 500, P)$SE` becomes a single named helper reused at every site:
+```r
+PW &lt;- function(...) contrast_power(dAs = 15, sigma2_within = 100, n = 20,
+                                   sigma2_e = 500, P = 400, ...)
+```
+which already exists at `:201-202` as `pw()`. Promote it, and have **every** one of the ten sites go through it with only the varying argument named. That reduces ten call sites to one, which is the real fix — the trap was duplication, not syntax.
+
+---
+
+## 4. New tests, with oracles
+
+In `tests/README.md`'s four styles: algebraic identity, planted answer, requested value, negative control.
+
+### 4.1 The `sigma2_within` length identity — algebraic
+```r
+check_near(
+  contrast_se(sigma2_within = c(100, 100), n = 20, sigma2_e = 500, P = 400),
+  contrast_se(sigma2_within = 100,         n = 20, sigma2_e = 500, P = 400),
+  tol = 1e-12,
+  "pool-specific sigma2_within reduces to the scalar form at equal variances")
+check(contrast_se(sigma2_within = c(80, 120), n = 20, sigma2_e = 500, P = 400) ==
+      contrast_se(sigma2_within = 100,        n = 20, sigma2_e = 500, P = 400),
+      "and (A+B)/n equals 2*mean/n -- the mean is sufficient for the SE")
+```
+The second is a true identity `(A+B)/n == 2*((A+B)/2)/n`, and asserting it documents that the *SE* is unaffected by pool asymmetry while the *df* is (via Welch) — which is the non-obvious consequence of change 3 and the thing a reader will get wrong.
+
+### 4.2 The df test — ADDED IN S1, BEFORE THE CHANGE (requested value + boundary identity)
+S1.1's `df == 38` / `df == 58` pins. After S6 they must still hold exactly as the `interaction_frac = 0` boundary case, plus:
+```r
+# Satterthwaite is bounded by its own components' df
+p &lt;- contrast_power(dAs = 15, sigma2_within = 100, n = 20, sigma2_e = 500,
+                    P = 400, interaction_frac = 0.5, lambda = 1, n_loc = 5)
+check(p$df &gt; 5 - 1 &amp;&amp; p$df &lt; 2*20 - 2,
+      "Satterthwaite df lies between the interaction df and the naive df")
+# and it is monotone in the interaction's share
+p2 &lt;- contrast_power(dAs = 15, sigma2_within = 100, n = 20, sigma2_e = 500,
+                     P = 400, interaction_frac = 1.0, lambda = 1, n_loc = 5)
+check(p2$df &lt; p$df, "a larger interaction share lowers the effective df")
+# NEGATIVE: naive mode must disagree, or the correction is not being applied
+check(contrast_power(dAs = 15, sigma2_within = 100, n = 20, sigma2_e = 500,
+                     P = 400, interaction_frac = 0.5,
+                     df_mode = "naive")$df == 38,
+      "df_mode = 'naive' recovers 2n-2 -- so the correction is detectably on")
+# Welch reduction
+check_near(contrast_power(dAs = 15, sigma2_within = c(100, 100), n = 20,
+                          sigma2_e = 500, P = 400)$df_acc, 38, tol = 1e-10,
+           "the Welch accession df is exactly 2n-2 at equal pool variances")
+```
+
+### 4.3 Per-accession PEV via the `colMeans(draws) == beta` identity — algebraic
+Goes in `tests/test_fits.R` (the slow tier, where a real chain already runs), copying the oracle at `:321-333`:
+```r
+# Same trap as the interaction draws: thin is honoured, burnIn is NOT.
+fd &lt;- fit_producer_associate(dat, Go, Gp, seed = 11L, nIter = 400L,
+                             burnIn = 100L, thin = 10L,
+                             save_effects = c("G_oat", "G_pea"),
+                             saveAt = prefix)
+dr &lt;- read_beta_draws(prefix, term = "ETA_G_oat", nIter = 400L, burnIn = 100L,
+                      thin = 10L, p = ncol(fd$L_oat), traits = 2L)
+check(dim(dr)[1] == 400L %/% 10L - 100L %/% 10L,
+      "read_beta_draws keeps exactly the post-burn-in G_oat draws")
+for (k in 1:2)
+  check_near(colMeans(dr[, , k]), fd$fit$ETA$G_oat$beta[, k], tol = 1e-10,
+             sprintf("G_oat draw mean equals BGLR's posterior mean, trait %d", k))
+# the accession-scale identity: mean of L %*% draw equals L %*% mean(draw)
+acc_bar &lt;- colMeans(tcrossprod(dr[, , 2], fd$L_oat))
+check_near(acc_bar, as.vector(fd$L_oat %*% fd$fit$ETA$G_oat$beta[, 2]),
+           tol = 1e-10,
+           "the per-draw accession effects average to accession_effects()")
+# NEGATIVE: keeping burn-in must be detectably different
+raw &lt;- BGLR::readBinMatMultitrait(paste0(prefix, "ETA_G_oat_beta.bin"))
+check(max(abs(colMeans(raw[, , 1]) - fd$fit$ETA$G_oat$beta[, 1])) &gt; 1e-6,
+      "keeping burn-in gives a detectably different mean")
+# PEV must be positive and must NOT equal the SD.beta route
+pev &lt;- apply(tcrossprod(dr[, , 2], fd$L_oat), 2, stats::var)
+check(all(pev &gt; 0), "every per-accession PEV is positive")
+check(max(abs(sqrt(pev) - as.vector(fd$L_oat %*% fd$fit$ETA$G_oat$SD.beta[, 2]))) &gt; 1e-6,
+      "PEV is NOT L %*% SD.beta -- that route ignores the posterior covariance")
+```
+That last negative control is the one that matters most: it pins *why* streaming draws is necessary, so a future "optimisation" to the cheap-looking `SD.beta` route fails loudly.
+
+### 4.4 Estimand 2's near-equivalence — requested value
+```r
+# SELF_CRITIQUE / design note: selection removes the within-pool spread in x,
+# so the continuous slope buys only ~3.6% more predictor variance.
+# Var(x) over 2n = (dAs/2)^2 + var_within = 95.9 + 3.5
+s1 &lt;- contrast_power(dAs = 19.59, sigma2_within = 100, n = 20, sigma2_e = 655.2,
+                     P = 400, lambda = 0.7, interaction_frac = 0.73, n_loc = 5)
+s2 &lt;- slope_power(dAs = 19.59, var_x_within = 3.5, sigma2_within = 100, n = 20,
+                  sigma2_e = 655.2, P = 400, lambda = 0.7,
+                  interaction_frac = 0.73, n_loc = 5)
+check(s2$t &gt; s1$t, "the continuous slope is slightly more powerful")
+check(s2$t / s1$t &lt; 1.05,
+      "but only slightly -- adopted for interpretability, not power")
+check_near(s2$var_x / ((19.59/2)^2), 1 + 3.5/((19.59/2)^2), tol = 1e-10,
+           "Var(x) is exactly (dAs/2)^2 + var_within")
+```
+The `&lt; 1.05` bound is the test that stops the plan overselling estimand 2 — exactly what you asked for.
+
+### 4.5 The interaction parameterisation divergence — requested value (§0.1)
+```r
+# interaction_frac is a CV of lambda, so substituting a judgement lambda
+# rescales the interaction SD. The absolute form does not. This test exists so
+# the choice cannot be made silently.
+f &lt;- contrast_power(dAs = 19.59, sigma2_within = 100, n = 20, sigma2_e = 655.2,
+                    P = 400, lambda = 0.7, interaction_frac = 0.73, n_loc = 5)
+a &lt;- contrast_power(dAs = 19.59, sigma2_within = 100, n = 20, sigma2_e = 655.2,
+                    P = 400, lambda = 0.7,
+                    interaction_sd = 0.73 * 0.83 * 19.59, n_loc = 5)
+check(a$power &lt; f$power - 0.05,
+      "the absolute interaction form is materially more conservative at
+       lambda_design &lt; lambda_measured -- the choice is visible, not implicit")
+check_error(contrast_power(dAs = 15, sigma2_within = 100, n = 20,
+                           sigma2_e = 500, P = 400,
+                           interaction_frac = 0.5, interaction_sd = 5),
+            "supplying both interaction parameterisations is refused")
+check_near(contrast_power(dAs = 19.59, sigma2_within = 100, n = 20,
+                          sigma2_e = 655.2, P = 400, lambda = 0.83,
+                          interaction_frac = 0.73, n_loc = 5)$SE,
+           contrast_power(dAs = 19.59, sigma2_within = 100, n = 20,
+                          sigma2_e = 655.2, P = 400, lambda = 0.83,
+                          interaction_sd = 0.73*0.83*19.59, n_loc = 5)$SE,
+           tol = 1e-10,
+           "the two forms agree exactly at the measured lambda, which is why
+            the inconsistency only appears when lambda becomes a judgement")
+```
+
+### 4.6 Fit-trial-set vs phenotype-table assertion — planted answer + negative control
+New file `tests/test_fit_provenance.R` (fast tier; must not read `output/`, per the convention at `tests/README.md`):
+```r
+# PLANTED: a fit-trial file that agrees, and one that does not.
+tmp &lt;- tempfile(); dir.create(tmp)
+pheno &lt;- tibble(studyName = rep(c("T_A","T_B"), each = 10), studyYear = 2026L,
+                germplasmName = ..., intercropGermplasmName = ...,
+                oat_yield = rnorm(20, 200), pea_yield = rnorm(20, 90))
+saveRDS(pheno, file.path(tmp, "pheno.rds"))
+readr::write_csv(tibble(studyName = c("T_A","T_B")), file.path(tmp, "fit_trials.csv"))
+check(!is.null(validation_inputs(out_dir = tmp, pheno_file = ...,
+                                 fit_trials_file = ...)),
+      "a fit whose trial set matches the QC-filtered table is accepted")
+# NEGATIVE: the exact shape of finding A -- the fit saw fewer trials
+readr::write_csv(tibble(studyName = "T_A"), file.path(tmp, "fit_trials.csv"))
+check_error(validation_inputs(out_dir = tmp, ...),
+            "a fit that saw fewer trials than the phenotype table is REFUSED
+             (SELF_CRITIQUE finding A)")
+# NEGATIVE: and the missing-file case must stop, not fall back
+file.remove(file.path(tmp, "fit_trials.csv"))
+check_error(validation_inputs(out_dir = tmp, ...),
+            "a missing fit-trial record stops rather than falling back to the
+             phenotype count -- that fallback IS finding A")
+check_near(validation_inputs(out_dir = tmp2, ...)$oat$n_trials, 2,
+           tol = 0, "n_trials comes from the FIT, not the phenotype table")
+```
+That third assertion is the one that distinguishes this from `apply_trial_qc()`'s deliberately-lenient missing-file policy, and the comment should say why the policies differ.
+
+### 4.7 Null-with-interaction type-I — planted answer + paired negative control
+```r
+# PLANTED: As main effects exactly 0; As x location with EXACTLY zero mean over
+# locations and a known SD. The pooled test must inflate; the location-contrast
+# test must not. Same seeds for both -- this is a paired comparison, not a
+# comparison against nominal (the equal-variance t already sits below nominal
+# because replication is unequal across accessions).
+set.seed(20260924L)
+res &lt;- simulate_null_interaction(inputs, oat_pools, pea_pools, p_loc = 80L,
+                                 n_loc = 5L, tau = 7.0, reps = 2000L)
+base &lt;- simulate_null_interaction(..., tau = 0, reps = 2000L)   # no interaction
+check(res$rate_pooled &gt; base$rate_pooled + 0.03,
+      "omitting location:pool inflates the type-I rate under an As x location
+       null -- SELF_CRITIQUE finding C1, now measured")
+check(abs(res$rate_location - base$rate_location) &lt; 0.02,
+      "the pre-registered denominator does NOT inflate")
+check(abs(res$mean_contrast) &lt; 3 * res$se_contrast,
+      "the planted null really is a null: mean contrast is zero")
+# the bracket, which is the oracle for the whole df change
+check(res$power_location &lt;= res$power_satterthwaite + 1e-9 &amp;&amp;
+      res$power_satterthwaite &lt;= res$power_pooled + 1e-9,
+      "location-contrast &lt;= Satterthwaite &lt;= pooled: the analytic df sits
+       inside the bracket the two closed forms define")
+```
+The bracket assertion is the strongest single oracle in the set: it ties the analytic Satterthwaite formula to two exactly-known closed forms with no MCMC and no tuning.
+
+### 4.8 Also needed
+- **Refactor-equivalence (S2.2):** assert the ETA built by `fit_producer_associate()` equals the one the old inline block built, up to column permutation — an exact, deterministic, MCMC-free oracle. `check(setequal(colnames(a$trial), colnames(b$trial)))` and `check_near(a$G_oat[, order], b$G_oat[, order], tol = 1e-12)`.
+- **Eligibility, both rules:** the renamed `single-v1` partner test (S1.7) plus a reliability test with a *planted* reliability spread, asserting that a low-reliability accession with many partners is now excluded and a high-reliability one with two partners is included — and a negative control that an accession with **one** partner is excluded by the `partner_floor` even at high reliability (§0.3).
+- **`validate_design.R` exit status:** a test that a deliberately-imbalanced design produces a non-zero exit. Currently untestable because the script never exits non-zero.
+
+---
+
+## 5. Runtime, cost, and the exact commands
+
+| stage | what runs | wall time |
+|---|---|---|
+| S0 | `mv` | seconds |
+| S1 | `tests/run_all.R` | ~45 s (fast tier) |
+| S2+S3 | 4-seed refit on 8 trials + PEV pass | **~10 min** |
+| S4 | pool build, both arms | &lt;1 min |
+| S5 | 8 crossval folds, 2 scales | **~8–12 min** (6,000-iter chains; 2 scales add no fits, only `lm` calls) |
+| S6 | analytic only | seconds |
+| S7 | 3 budgets × 400 reps + 2 null arms × 2,000 reps | **~10–20 min** |
+| S7.5 | optional `lme4` arm, 200 reps | +5–10 min |
+| S8 | report + prose | human time |
+| | **machine total** | **~35–45 min** |
+| | `tests/run_all.R --all` | +~15 s (the new draw test adds a 400-iter chain) |
+
+Disk: 53 MiB of `.bin` draws (4 seeds × 2 terms at `single`), 12 MiB of accession-scale draw RDS (seed 1, both species). `output/` is gitignored.
+
+**Commands, in order:**
+
+```bash
+cd /Users/jj332/Documents/GitRepo/B4I_Fall2026
+
+# S0 -- archive the baseline FIRST, before anything writes today's vintage
+mv output/validation/2026-10-03 output/validation/2026-10-03_5trial-whitelist
+echo "5-trial whitelist fit (BGLR_multi_trait_model.R:72-79); see SELF_CRITIQUE.md finding A" \
+  &gt; output/validation/2026-10-03_5trial-whitelist/PROVENANCE.txt
+
+# S1 -- harden the suite; must be green before touching code/
+Rscript tests/run_all.R
+
+# S2+S3 -- the refit (and verify the trial set landed)
+Rscript code/BGLR_multi_trait_model.R
+Rscript -e 'print(readr::read_csv("output/BGLR_fit_trials.csv", show_col_types=FALSE))'
+Rscript -e 'q &lt;- readr::read_csv("output/trial_qc.csv", show_col_types=FALSE);
+            f &lt;- readr::read_csv("output/BGLR_fit_trials.csv", show_col_types=FALSE);
+            stopifnot(setequal(f$studyName, q$studyName[q$keep])); cat("trial set OK\n")'
+
+# S4 -- pools, BOTH arms. READ pool_diff.csv BEFORE GOING FURTHER.
+Rscript code/validate_pool_selection.R
+open output/validation/$(date +%F)/pool_diff.csv          # arm D vs 2026-10-03: the A4 test
+open output/validation/$(date +%F)/pool_diff_rule.csv     # arm R vs arm D: rule churn
+
+# S5 -- lambda: QC'd folds, two scales, by year
+Rscript code/validate_crossval.R
+
+# S6+S7 -- power and the null simulation
+Rscript code/validate_power.R
+
+# design, field book, frozen predictors -- now exits non-zero on a FAIL
+Rscript code/validate_design.R; echo "exit=$?"
+
+# S8 -- regenerate the document's numbers, then hand-edit the prose
+Rscript code/validation_report.R --check    # expect exit 1: drift
+Rscript code/validation_report.R
+git diff VALIDATION_DESIGN.md
+
+# full suite, including the slow tier with the new draw test
+Rscript tests/run_all.R --all
+```
+
+Once the scripts are in shape, the whole thing is `Rscript code/validate_refresh.R --from fit --refresh-doc`, but **do not use that for this change set** — S4's `pool_diff.csv` must be read before S5–S7 run, and the driver will not stop for you.
+
+---
+
+## 6. Risks
+
+**Highest, in order:**
+
+1. **Arm D's churn comes back below 70%.** SELF_CRITIQUE §A4 expects it to ("My expectation is that they will breach it"). §7's own standard then says the effects are not stable enough to validate, and the honest conclusion is the alternative design the critique names in §5 — replicated oat × pea combinations to *estimate* σ²_comb. **That outcome is a result, not a failure, and the plan must not be written so that it cannot be reported.** Read `pool_diff.csv` before investing in S5–S7; if arm D breaks badly, S6/S7 are still worth doing (the model and the power machinery are needed either way) but the *conclusion* changes.
+
+2. **The refactor to `fit_producer_associate()` changes the numbers.** Different column ordering, the drop-vs-error behaviour on GRM-absent accessions, and `dummy_matrix()` vs `model.matrix()` are all benign in principle; `grm_factor()`'s eigen sign convention is deterministic but BLAS-dependent. Mitigate with the ETA-equality test (§4.8) *before* the refit, and keep the old inline code in the commit history so a disagreement can be bisected.
+
+3. **`rel_min` starves a pool.** Pea needs ≥120 eligible accessions for n=30 after the 0.5 Pr quantile. Calibrate against the partner-count candidate counts rather than picking a round number, sweep ±0.05, and have `validate_pool_selection.R` name `rel_min` in the error message when `build_pools()` refuses.
+
+4. **The interaction term now dominates and has 4 df, so power is very sensitive to `n_loc`.** At 4 locations SELF_CRITIQUE §C2 already puts oat at 0.64. With the absolute interaction form (§0.1) and 4 locations it will be worse. **Add `n_loc` to the sweep and report the lost-location case explicitly** — it is the single largest operational risk to the trial and it is currently invisible in the document.
+
+5. **A mistyped generated marker publishes a stale table and reports "up to date."** `validation_report.R:182-185` messages and skips. After adding four marker pairs, run `--check` and grep the output for `no markers for` — do not trust the exit code alone.
+
+6. **The staleness detector will not notice the new swept terms** (`n_loc`, `interaction_mode`, `df_mode`, `lambda_source`) and would silently publish a stale `estimand_power` table. S8.1's shared `.is_swept()` helper is the mitigation; without it this *will* happen.
+
+7. **Two conventions diverging again.** `validation_inputs()` counting partners on one filter chain while the fit uses another is finding A in a new place. Route both through one named filter function (S2.4) rather than keeping two copies in sync by discipline.
+
+8. **The `lme4` arm (S7.5) is the one place a dependency could creep in.** `lmerTest` is absent on this machine. Keep that arm opt-in; the closed-form bracket (§0.9) is the load-bearing route and needs nothing new.
+
+**Lower:**
+
+- The `thin`-honoured/`burnIn`-ignored trap. `read_beta_draws()` already handles it and `test_fits.R:321-333` already has the negative control. Reuse both verbatim; do not write a second reader.
+- `single` storage costs nothing for a variance but is lossier for the `colMeans == beta` identity. At 1e-10 tolerance a `single` file will **fail** that check. Use `storage_mode = "double"` in the *test* (400 iterations, tiny file) and `"single"` in production, and say so in the test comment — otherwise someone will "fix" production to double and pay 53 extra MiB for nothing.
+- `interaction_frac_corrected` can go to zero if `mean(lambda_se²)` exceeds `var(λ̂)`. The `max(0, ...)` is right but the result must be reported as "not distinguishable from zero", not as "zero interaction" — the difference matters a lot to the power claim, and it would be the best news in the whole exercise.
+
+---
+
+### Critical files for implementation
+
+- `/Users/jj332/Documents/GitRepo/B4I_Fall2026/code/validation_functions.R` — `validation_inputs()` return shape, `build_pools()`, `contrast_se()`/`contrast_power()` signatures and df, `SE_floor` redefinition, `VALIDATION_DEFAULTS`, `PREREG_MODEL`, `POOL_INDEX_VERSION`
+- `/Users/jj332/Documents/GitRepo/B4I_Fall2026/tests/test_validation.R` — must be hardened first (df pin, `SE_floor` semantics, the single candidate-filter oracle, the fixture schema, the positional negative control)
+- `/Users/jj332/Documents/GitRepo/B4I_Fall2026/code/BGLR_multi_trait_model.R` — whitelist removal, refactor onto `fit_producer_associate()`, `BGLR_fit_trials.csv`, per-accession PEV
+- `/Users/jj332/Documents/GitRepo/B4I_Fall2026/code/dge_ige_functions.R` — `save_effects` as a term vector, the shared monoculture/NA filter, `apply_trial_qc()` reuse
+- `/Users/jj332/Documents/GitRepo/B4I_Fall2026/code/validate_power.R` — three estimands, the As×location null, the two denominators, per-accession PEV in `draw_truth()`
+- `/Users/jj332/Documents/GitRepo/B4I_Fall2026/code/validate_crossval.R` — trial QC, clustered `lambda_se`, λ on two scales, λ by year, noise-corrected `interaction_frac`</result>
+<usage><subagent_tokens>194579</subagent_tokens><tool_uses>25</tool_uses><duration_ms>743991</duration_ms></usage>
+</task-notification>
+[2026-10-03 13:11:18] <task-notification>
+<task-id>bydkqke5p</task-id>
+<tool-use-id>toolu_01GQ83Q7TEXVJSzZuecem9pb</tool-use-id>
+<output-file>/private/tmp/claude-1334918876/-Users-jj332-Documents-GitRepo-B4I-Fall2026/cc7612c1-3004-4630-aee6-8449e3e08a76/tasks/bydkqke5p.output</output-file>
+<status>completed</status>
+<summary>Background command "Run the 8-trial refit" completed (exit code 0)</summary>
+</task-notification>
+[2026-10-03 13:21:35] <task-notification>
+<task-id>bih0zi2z0</task-id>
+<tool-use-id>toolu_012AuMCwzBRA2vVR6n7dRGse</tool-use-id>
+<output-file>/private/tmp/claude-1334918876/-Users-jj332-Documents-GitRepo-B4I-Fall2026/cc7612c1-3004-4630-aee6-8449e3e08a76/tasks/bih0zi2z0.output</output-file>
+<status>completed</status>
+<summary>Background command "Fix rehearsal input and run cross-validation" completed (exit code 0)</summary>
+</task-notification>
+[2026-10-03 13:25:14] <task-notification>
+<task-id>bqce1tv9c</task-id>
+<tool-use-id>toolu_01R57keAbVsqfxRXig1iuMHN</tool-use-id>
+<output-file>/private/tmp/claude-1334918876/-Users-jj332-Documents-GitRepo-B4I-Fall2026/cc7612c1-3004-4630-aee6-8449e3e08a76/tasks/bqce1tv9c.output</output-file>
+<status>completed</status>
+<summary>Background command "Fix clustered SE and rerun cross-validation" completed (exit code 0)</summary>
+</task-notification>
+[2026-10-03 13:29:05] <task-notification>
+<task-id>ba7upxzpu</task-id>
+<tool-use-id>toolu_01QBy4mSjWGJ9Q7KrcQuPKEY</tool-use-id>
+<output-file>/private/tmp/claude-1334918876/-Users-jj332-Documents-GitRepo-B4I-Fall2026/cc7612c1-3004-4630-aee6-8449e3e08a76/tasks/ba7upxzpu.output</output-file>
+<status>completed</status>
+<summary>Background command "Fix ceiling grouping and rerun" completed (exit code 0)</summary>
+</task-notification>
+[2026-10-03 13:34:08] <task-notification>
+<task-id>bweselu7o</task-id>
+<tool-use-id>toolu_01BnL9XLqtNgHsPJjxunWdep</tool-use-id>
+<output-file>/private/tmp/claude-1334918876/-Users-jj332-Documents-GitRepo-B4I-Fall2026/cc7612c1-3004-4630-aee6-8449e3e08a76/tasks/bweselu7o.output</output-file>
+<status>completed</status>
+<summary>Background command "Rerun power with the corrected null" completed (exit code 0)</summary>
+</task-notification>
+[2026-10-03 16:31:02] Your claude.ai usage limit has reset. Continue the task you were working on when the limit was reached; do not repeat work that is already complete.
+[2026-10-03 16:34:35] <task-notification>
+<task-id>btd2mt18q</task-id>
+<tool-use-id>toolu_014EHFf6DVWADFXEZr26nf1b</tool-use-id>
+<output-file>/private/tmp/claude-1334918876/-Users-jj332-Documents-GitRepo-B4I-Fall2026/cc7612c1-3004-4630-aee6-8449e3e08a76/tasks/btd2mt18q.output</output-file>
+<status>completed</status>
+<summary>Background command "Test the known-variance denominator's size" completed (exit code 0)</summary>
+</task-notification>
+[2026-10-03 16:40:04] <task-notification>
+<task-id>bcvlu2gy3</task-id>
+<tool-use-id>toolu_01Xerh7KDLyirMVELEH7G4SL</tool-use-id>
+<output-file>/private/tmp/claude-1334918876/-Users-jj332-Documents-GitRepo-B4I-Fall2026/cc7612c1-3004-4630-aee6-8449e3e08a76/tasks/bcvlu2gy3.output</output-file>
+<status>completed</status>
+<summary>Background command "Add the known-variance denominator and rerun" completed (exit code 0)</summary>
+</task-notification>
+[2026-10-03 17:48:42] Split the commits.  Commit and push.

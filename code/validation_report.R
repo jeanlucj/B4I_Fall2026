@@ -45,7 +45,16 @@ doc_file <- here::here("VALIDATION_DESIGN.md")
 
 vintages <- sort(basename(list.dirs(out_root, recursive = FALSE)))
 if (length(vintages) == 0) stop("no vintages under ", out_root, call. = FALSE)
-vintage <- arg_value("--vintage", utils::tail(vintages, 1))
+
+# PREFER A PLAIN DATE. Archived vintages carry a suffix -- e.g.
+# `2026-10-03_5trial-whitelist` -- and a suffix sorts AFTER the bare date, so
+# taking the lexicographic last silently reported from the archive: every new
+# table came back "no data for ... in this vintage -- skipped" while the old
+# ones read "unchanged", which looks like a clean document rather than the
+# wrong one. Fall back to the full list only if no bare date exists.
+dated <- grep("^\\d{4}-\\d{2}-\\d{2}$", vintages, value = TRUE)
+default_vintage <- utils::tail(if (length(dated)) dated else vintages, 1)
+vintage <- arg_value("--vintage", default_vintage)
 vin_dir <- file.path(out_root, vintage)
 if (!dir.exists(vin_dir)) stop("no such vintage: ", vin_dir, call. = FALSE)
 
@@ -60,11 +69,35 @@ cv    <- read_if("crossval_summary.csv")
 psum  <- read_if("pool_summary.csv")
 grid  <- read_if("power_grid.csv")
 vint  <- read_if("vintage.csv")
+scal  <- read_if("crossval_lambda_scales.csv")
+byyr  <- read_if("crossval_lambda_year.csv")
+estp  <- read_if("estimand_power.csv")
+t1    <- read_if("power_type1.csv")
 qc    <- if (file.exists(here::here("output", "trial_qc.csv")))
            readr::read_csv(here::here("output", "trial_qc.csv"),
                            show_col_types = FALSE) else NULL
 
 fmt <- function(x, k = 2) formatC(x, format = "f", digits = k)
+
+#' Is a table still sweeping something that is now measured?
+#'
+#' Counted WITHIN species, because lambda and interaction_frac are per-species
+#' measurements and two species legitimately give two values -- a naive
+#' across-the-board count calls a correct table "swept".
+#'
+#' Shared by both power blocks on purpose. The detector used to live inside
+#' block_power() and checked three named columns; a table that gained a fourth
+#' swept column would have been published stale without complaint. One helper
+#' means a column added to one block cannot be forgotten in the other.
+.is_swept <- function(g, cols, by = "species") {
+  cols <- intersect(cols, names(g))
+  if (length(cols) == 0) return(FALSE)
+  per <- g |>
+    dplyr::group_by(dplyr::across(dplyr::all_of(intersect(by, names(g))))) |>
+    dplyr::summarise(dplyr::across(dplyr::all_of(cols), dplyr::n_distinct),
+                     .groups = "drop")
+  any(vapply(per[cols], \(x) any(x > 1), logical(1)))
+}
 
 # ------------------------------------------------------------
 # The blocks
@@ -131,6 +164,11 @@ block_power <- function() {
   g <- grid |>
     dplyr::filter(n == unname(n_pool[species])) |>
     dplyr::arrange(species, P)
+  # n_locations is swept deliberately, so the headline table pins it at the
+  # configured value and the sweep is reported by the `estimands` block.
+  if ("n_locations" %in% names(g)) {
+    g <- dplyr::filter(g, n_locations == n_loc)
+  }
   if (nrow(g) == 0) {
     message("  power grid has no rows at the configured pool sizes -- skipped")
     return(NULL)
@@ -141,12 +179,8 @@ block_power <- function() {
   # Count distinct values WITHIN a species: lambda and interaction_frac are
   # per-species measurements, so two species legitimately give two values and
   # the naive across-the-board count calls a correct grid "swept".
-  per_sp <- g |>
-    dplyr::group_by(species) |>
-    dplyr::summarise(nl = dplyr::n_distinct(lambda),
-                     ni = dplyr::n_distinct(interaction_frac), .groups = "drop")
-  swept <- any(per_sp$nl > 1) || any(per_sp$ni > 1) ||
-           ("sided" %in% names(g) && dplyr::n_distinct(g$sided) > 1)
+  swept <- .is_swept(g, c("lambda", "interaction_frac", "sided",
+                          "interaction_mode", "df_mode"))
   if (swept) {
     message("  power_grid.csv still sweeps lambda/interaction/sided -- it ",
             "predates the measured values. Re-run code/validate_power.R.")
@@ -166,8 +200,123 @@ block_power <- function() {
             fmt(g$lambda), fmt(g$interaction_frac), fmt(g$power)))
 }
 
-blocks <- list(vintage = block_vintage(), pools = block_pools(),
-               lambda = block_lambda(), power = block_power())
+#' The pre-registered analysis, printed from PREREG_MODEL.
+#'
+#' Generated rather than hand-written so section 4 cannot drift from the object
+#' every power number is computed through -- which is exactly what happened
+#' when section 4 specified a mixed model while both power routes used a
+#' two-stage t-test.
+block_analysis <- function() {
+  m <- PREREG_MODEL
+  out <- c(
+    sprintf("*Analysis `%s`, fixed %s. Generated from `PREREG_MODEL` in",
+            m$version, m$dated),
+    "`code/validation_functions.R`, which is what every power number is",
+    "computed through.*", "",
+    "One random-effects structure, three instantiations:", "", "```",
+    m$base, "```", "",
+    "| estimand | role | response | `<FIXED>` | `<AsxE>` |",
+    "|---|---|---|---|---|")
+  for (nm in names(m$estimands)) {
+    e <- m$estimands[[nm]]
+    out <- c(out, sprintf("| `%s` | %s | %s | `%s` | `%s` |",
+                          nm, e$role, e$response, e$fixed, e$AsxE))
+  }
+  c(out, "", paste0("**Multiplicity.** ", m$multiplicity), "",
+    "**Secondary:**",
+    paste0("- ", m$secondary), "",
+    "**Considered and not done:**",
+    paste0("- ", m$not_done))
+}
+
+#' Power for the three estimands -- the headline table.
+block_estimands <- function() {
+  if (is.null(estp)) return(NULL)
+  if (.is_swept(estp, c("prereg", "plots_per_loc"), by = character(0))) {
+    return(c("> **Stale.** `estimand_power.csv` mixes analysis versions or plot",
+             "> budgets. Re-run `Rscript code/validate_power.R`."))
+  }
+  g <- estp |>
+    dplyr::filter(lambda_source == "global") |>
+    dplyr::arrange(estimand, target, n_loc)
+  if (nrow(g) == 0) return(NULL)
+
+  lo <- estp |>
+    dplyr::filter(lambda_source == "lower95") |>
+    dplyr::select(estimand, target, n_loc, power_lo = power)
+
+  g <- dplyr::left_join(g, lo, by = c("estimand", "target", "n_loc"))
+
+  c(sprintf("At **%d plots per location**, one-sided α = 0.05, λ as measured.",
+            g$plots_per_loc[1]),
+    "Locations are swept because the pool × location term is the largest of the",
+    "three variance components and carries only `n_loc − 1` degrees of freedom.",
+    "",
+    "| estimand | role | target | locations | effect | SE | df | power | power at λ's lower 95% |",
+    "|---|---|---|---|---|---|---|---|---|",
+    sprintf("| `%s` | %s | %s | %d | %s | %s | %s | **%s** | %s |",
+            g$estimand, g$role, g$target, g$n_loc, fmt(g$effect),
+            fmt(g$SE, 3), fmt(g$df, 1), fmt(g$power), fmt(g$power_lo)),
+    "",
+    sprintf("The pool × location term is %s%% of the variance.",
+            fmt(mean(g$pct_var_interaction), 0)))
+}
+
+#' Lambda on the two scales, and by year.
+block_lambda_scales <- function() {
+  if (is.null(scal)) return(NULL)
+  out <- c(
+    "λ is estimated twice: in absolute g/m², which is what the trial is sized",
+    "in, and with the held-out trial's response divided by its own SD.",
+    "`interaction_frac` is `sd(λ)/|mean(λ)|`, so it is scale-free and the two",
+    "rows per species are directly comparable — which is what settles whether",
+    "the across-fold spread is interaction or just the trials differing in",
+    "spread. `interaction_frac_corrected` additionally removes fold-level",
+    "estimation noise, using the accession-clustered standard errors.",
+    "",
+    "| species | scale | folds | λ | λ in g/m² | SE of λ | interaction_frac | corrected |",
+    "|---|---|---|---|---|---|---|---|",
+    sprintf("| %s | %s | %d | %s | %s | %s | %s | %s |",
+            scal$species, scal$scale, scal$n_folds, fmt(scal$lambda_mean, 3),
+            fmt(scal$lambda_gm2_mean, 2), fmt(scal$lambda_se_of_mean, 3),
+            fmt(scal$interaction_frac, 3),
+            fmt(scal$interaction_frac_corrected, 3)))
+
+  if (!is.null(byyr)) {
+    b <- dplyr::filter(byyr, scale == "raw")
+    out <- c(out, "",
+      "By year, as a **diagnostic** — the global estimate over all folds is what",
+      "the power table uses, and nothing in the chain re-sizes on a subset of folds.",
+      "",
+      "| species | year | folds | λ | SD |",
+      "|---|---|---|---|---|",
+      sprintf("| %s | %d | %d | %s | %s |", b$species, b$year, b$n_folds,
+              fmt(b$lambda_mean, 3), fmt(b$lambda_sd, 3)))
+  }
+  out
+}
+
+#' The eligibility rule, stated once.
+block_eligibility <- function() {
+  if (is.null(vint) || !"eligibility_rule" %in% names(vint)) return(NULL)
+  c("| species | rule | reliability threshold | eligible | of |",
+    "|---|---|---|---|---|",
+    sprintf("| %s | %s | %s | %d | %d |",
+            vint$species, vint$eligibility_rule, fmt(vint$rel_min, 3),
+            vint$n_eligible, vint$n_accessions),
+    "",
+    paste("Candidates must clear that reliability **and** have met at least two",
+          "distinct partners in the data the model was fitted to. The partner",
+          "floor is not redundant: reliability measures posterior precision,",
+          "not identifiability, and an accession grown with a single partner",
+          "has its producer and associate effects perfectly aliased while still",
+          "scoring well by borrowing from genotyped relatives."))
+}
+
+blocks <- list(vintage = block_vintage(), eligibility = block_eligibility(),
+               pools = block_pools(), analysis = block_analysis(),
+               estimands = block_estimands(), lambda = block_lambda(),
+               lambda_scales = block_lambda_scales(), power = block_power())
 
 # ------------------------------------------------------------
 # Splice

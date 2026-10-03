@@ -52,6 +52,7 @@ matches the question you have.
 
 | document | what it is for |
 |---|---|
+| [SELF_CRITIQUE.md](SELF_CRITIQUE.md) | a step back from the code: does the logic of the pathway from data to validation design hold, and is each method on it the right one. Severity-ordered, with what was found, what was fixed, and what I would defend. **Finding A is why the fit's trial set is now recorded and asserted** |
 | [tests/README.md](tests/README.md) | the unit-test suite: what each file pins, the oracles it uses, and the bugs it has caught |
 | [EVALUATION.md](EVALUATION.md) | stepping through the *analysis* by hand, module by module, with what each one should produce — plus its [checklist](EVALUATION_CHECKLIST.md) |
 | [EVALUATION_SIMULATION.md](EVALUATION_SIMULATION.md) | the same for the *simulation*, where every number can be checked against a simulated truth — plus its [checklist](EVALUATION_SIMULATION_CHECKLIST.md) |
@@ -197,8 +198,8 @@ pick up a settings change except the specific cache a setting feeds.
 | `find_trials_with_B4I_accessions.R` | 34 selected trials, `B4I_trait_availability.csv` (34×38), 139,604 observations |
 | `curate_*_accessions.R` | `*_analysis_names.csv` — which accessions are really one genotype |
 | `curation_report.R` | `CURATION.md` — thresholds used and every accession collapsed |
-| `assemble_B4I_phenotypes.R` | `B4I_intercrop_pheno.rds` — 2,371 plots, both yields |
-| `BGLR_multi_trait_model.R` | `BGLR_variance_components.csv`, per-accession producer/associate effects |
+| `assemble_B4I_phenotypes.R` | `B4I_intercrop_pheno.rds` — 3,575 plots, both yields (3,181 after the trial QC screen) |
+| `BGLR_multi_trait_model.R` | `BGLR_variance_components.csv`, per-accession producer/associate effects, `BGLR_{oat,pea}_pev.csv` (per-accession PEV from the streamed draws), and `BGLR_fit_trials.csv` / `BGLR_fit_provenance.csv` recording which trials the fit actually used |
 | `megalmm_build_inputs.R` | `megalmm_inputs_{raw,centered,standardized}.rds` |
 | `megalmm_oat_pea.R` | `megalmm_cv_results.csv`, `megalmm_fit_centered.rds` |
 | `sim_run.R` | `simulation_results.csv`, `simulation_design.csv`, `simulation_design_effects.csv`, `simulation_summary.png` |
@@ -219,7 +220,14 @@ Each script has a settings block at the top. The ones that change conclusions:
   selection stages. Set `selection_trait` to `NA` for the count-only rule.
 
 **`BGLR_multi_trait_model.R`**
-- `trials`, `study_years` — which trials enter the fit.
+- **Which trials enter the fit is not set here.** It comes from
+  `output/trial_qc.csv` via `apply_trial_qc()`. To include or exclude a trial,
+  edit `data/trial_qc_manual.csv` and re-run `code/curate_trials.R`. There used
+  to be a hard-coded `trials` whitelist, and because it was never updated when
+  the 2026 trials landed it held the fit to five trials while every reported
+  table described nine — see `SELF_CRITIQUE.md` finding A.
+- `draw_storage_mode` (`"single"`) — precision of the streamed per-draw
+  coefficients the per-accession PEV is computed from.
 - `fit_mix_term` (FALSE) — the specific-combination term. Off because 91% of
   oat–pea combinations occur in a single plot; the script reports the
   replication either way.
