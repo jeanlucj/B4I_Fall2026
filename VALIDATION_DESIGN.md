@@ -315,10 +315,15 @@ not absurd — just wrong for the range we are in.)
 Both make large pools *more* favourable, not less.
 
 **Candidates must have Pr above the median.** This halves the candidate set —
-430 eligible oat become 221, 407 pea become 212. Any given *n* is therefore
-twice as deep into the candidate distribution as the raw accession count
-suggests, which moves us toward the weaker-selection end where the SE term
-dominates even more clearly.
+430 eligible oat become 221, 407 pea become 212 — so any given *n* is twice as
+deep into the candidate distribution as the raw accession count suggests:
+n = 20 is the top 9% of candidates, not the top 4.7% of all eligible.
+
+That works mildly *against* large pools, not for them. A larger *p* sits closer
+to the p ≈ 0.37 break-even, so halving the pool buys a little more there than it
+would in the unfiltered set — ×1.168 at p = 0.09 against ×1.130 at p = 0.047.
+Both are far below the √2 the SE costs, so the conclusion is unchanged, but the
+direction is worth stating correctly.
 
 **The two pools must have nearly equal mean Pr** (within 1.0 g/m²), and Pr and
 As are **negatively correlated** — −0.51 across all accessions, −0.27 for oat
@@ -345,18 +350,47 @@ Pea is noisier still (its achieved contrast is 44–65% of theory and not monoto
 in n), because the pool builder is a greedy constrained search rather than an
 optimum. Read pea's curve as a trend, not cell by cell.
 
-#### The real trade-off, which is not statistical
+#### What the design-geometry rule actually protects — and what it does not
 
-At a fixed plot budget, each accession appears `plots-per-location ÷ 2n` times
-per location. At P = 400 — 80 plots per location — n = 20 gives **two**
-appearances and n = 40 gives **one**. That is what the design-geometry rule was
-protecting, and it is a genuine cost: within-location replication is what
-separates the pool contrast from field variation.
+At a fixed plot budget each accession appears `plots-per-location ÷ 2n` times
+per location: at P = 400, n = 20 gives **two** appearances and n = 40 gives
+**one**. The geometry rule exists to keep that at two.
 
-So the choice is larger pools and more power against fewer appearances per
-accession, and it is a design judgement rather than something the power curve
-settles on its own. What is no longer defensible is the claim that power does
-not care.
+**It is not a power argument.** The contrast's standard error is
+
+```
+SE² = 2·σ²_within / n  +  4·σ²_e / P  +  (interaction_frac · δ)² / n_loc
+```
+
+(`contrast_se()`, `code/validation_functions.R:485`). Appearances per accession
+appear nowhere in it. The plot-error term depends on the **total** plot count
+`P` and not on how those plots are distributed over accessions, and
+`σ²_within` is `PEV + within-pool BLUP variance` — a property of the existing
+fit, not of the validation layout. So trading appearances for pool size costs
+nothing in the power of the pool contrast. An earlier version of this section
+said within-location replication is "what separates the pool contrast from field
+variation"; that is not what the formula says and it was wrong.
+
+What two appearances per location does buy sits outside this calculation:
+
+- **Spatial control within a location** — two plots in different blocks, so a
+  field gradient is differenced out of that accession rather than averaged over.
+- **An in-trial estimate of the pool × location interaction.** Right now
+  `interaction_frac` is imported from cross-validation on the *previous* trials
+  (§6). Replication within a location lets the validation trial estimate it
+  itself, which matters because it is the term that does not shrink with the
+  plot budget.
+- **Per-accession results of useful precision.** Each accession appears
+  `n_loc` times across the trial either way — 5 plots at k = 1, 10 at k = 2 —
+  so accession-level estimates exist in both designs; k = 2 simply halves their
+  error.
+- **Tolerance of plot loss**, which at k = 1 removes an accession from a
+  location entirely.
+
+So the trade is larger pools and materially more power against spatial control
+and an in-trial interaction estimate. That is a real design judgement — but it
+is not the one the old text described, and power is on the side of larger
+pools.
 
 ### Verification
 

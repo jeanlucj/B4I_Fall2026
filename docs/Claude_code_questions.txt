@@ -29,3 +29,14 @@ Rscript code/validate_design.R           # field book + design checks
 </pasted_content id="9b66">
 [2026-10-02 22:34:29] I'm looking at the power_grid now. I have retained lambda = 0.8 and interaction_frac = 0.5.  Those values seems somewhat close to the truth.  Then, power does seem to increase with the pool size.  It maxes out at n=50 (that is the pool size for each pool, right? So with n=40, we would actually be working with 80 accessions of each species).  Having a larger number of accessions is a little more challenging logistically, but I'm willing to have that for the sake of higher power.  This power_grid result runs against the statement in VALIDATION_DESIGN that "Power is nearly flat in n: the contrast shrinks as pools grow at almost
 exactly the rate the standard error falls".  Why is that?  Also, what is power_simulation.csv relative to power_grid.csv?
+[2026-10-03 07:09:39] I don't understand your design geometry tradeoff explanation: 
+
+<pasted_content id="9b66">
+Candidates must have Pr above the median. This halves the candidate set —
+430 eligible oat become 221, 407 pea become 212. Any given n is therefore
+twice as deep into the candidate distribution as the raw accession count
+suggests, which moves us toward the weaker-selection end where the SE term
+dominates even more clearly.
+</pasted_content id="9b66">
+
+  Do you mean that if each accession only appears once per location, we don't get a clean estimate of error variance?
