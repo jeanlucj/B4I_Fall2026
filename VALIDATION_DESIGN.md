@@ -258,14 +258,105 @@ What actually moves the needle, in order:
 4. **A one-sided test** — 7–11 points, free.
 5. **More plots** — 5–10 points across the whole 300 → 500 range.
 
-### Why pool size is not the hard question
+### Pool size is a real lever, and larger is better
 
-Power is nearly flat in *n*: the contrast shrinks as pools grow at almost
-exactly the rate the standard error falls. Oat sits at 0.85–0.88 from n = 15
-to n = 50. So pool size is set by the **design geometry** — n = plots-per-
-location ÷ 4 makes every accession appear exactly twice at every location —
-rather than by the power curve. Pea is given larger pools only because its
-accession term is the one that dominates.
+An earlier version of this section said power was nearly flat in *n*, so pool
+size could be set by the design geometry rather than by the power curve. **That
+was true of the six-trial data and is not true now.** At P = 400 plots:
+
+| n per pool | oat power | pea power |
+|---|---|---|
+| 10 | 0.654 | 0.414 |
+| 20 | 0.691 | 0.507 |
+| 30 | 0.699 | 0.656 |
+| 40 | 0.723 | 0.632 |
+| 50 | 0.724 | 0.695 |
+
+Oat gains about 7 points from n = 10 to n = 50; **pea gains 28**. Pool size is
+not a free choice, and pea is where it pays.
+
+#### Why larger pools win: the two forces, and which one is bigger
+
+Halving the pool size does two opposite things.
+
+**It sharpens selection.** Pools are the extremes of the associate-effect
+distribution, so a smaller pool reaches further into the tail and has a more
+extreme mean. For a normal, the mean of the top *p* fraction is
+`φ(z_p)/p`, and after the Pr filter below there are 221 oat and 212 pea
+candidates, so n = 40 is the top 18% and n = 20 the top 9%:
+
+| top | mean of selected tail |
+|---|---|
+| 20% | 1.40 SD |
+| 10% | 1.76 SD |
+| 5% | 2.06 SD |
+
+Halving n from 40 to 20 therefore buys a contrast about **1.24×** larger.
+
+**It costs precision.** The standard error of a pool mean goes as 1/√n, so
+halving n multiplies the SE by **√2 = 1.41**.
+
+**The SE loss is bigger than the selection gain**, and the net effect on the
+*t* statistic is
+
+```
+t ratio = 1.24 / 1.41 = 0.88     →  t falls 12% when n goes 40 → 20
+```
+
+so power rises with n. For the two to cancel — the flatness the old text claimed
+— the tail mean would have to grow by √2 when *p* halves, and it does that only
+at much weaker selection: the break-even is near **p ≈ 0.37**, about n = 80 per
+pool. Everywhere in the practical range, bigger pools win. (Above that
+break-even the sign flips and smaller pools would win, which is why the claim is
+not absurd — just wrong for the range we are in.)
+
+#### What the two Pr constraints do
+
+Both make large pools *more* favourable, not less.
+
+**Candidates must have Pr above the median.** This halves the candidate set —
+430 eligible oat become 221, 407 pea become 212. Any given *n* is therefore
+twice as deep into the candidate distribution as the raw accession count
+suggests, which moves us toward the weaker-selection end where the SE term
+dominates even more clearly.
+
+**The two pools must have nearly equal mean Pr** (within 1.0 g/m²), and Pr and
+As are **negatively correlated** — −0.51 across all accessions, −0.27 for oat
+and −0.40 for pea among the candidates. So the extreme-As⁺ accessions are
+systematically low-Pr and the extreme-As⁻ ones systematically high-Pr, and
+balancing Pr means giving up As extremity. The penalty is worst exactly where
+the extremes are most lopsided, which is in the **small** pools.
+
+That shows up directly. Against the unconstrained normal-theory contrast:
+
+| n | oat ΔAs theory | achieved | % of theory |
+|---|---|---|---|
+| 10 | 27.8 | 18.3 | 66% |
+| 20 | 23.8 | 15.2 | 64% |
+| 40 | 19.2 | 13.6 | 71% |
+| 50 | 17.6 | 13.0 | 74% |
+
+The constraints cost a quarter to a third of the achievable contrast
+throughout — and they cost *more* at small n, so the achieved contrast falls by
+only 29% from n = 10 to n = 50 where theory says 37%. **The selection-intensity
+advantage that small pools should enjoy is largely eaten by the Pr balance.**
+
+Pea is noisier still (its achieved contrast is 44–65% of theory and not monotone
+in n), because the pool builder is a greedy constrained search rather than an
+optimum. Read pea's curve as a trend, not cell by cell.
+
+#### The real trade-off, which is not statistical
+
+At a fixed plot budget, each accession appears `plots-per-location ÷ 2n` times
+per location. At P = 400 — 80 plots per location — n = 20 gives **two**
+appearances and n = 40 gives **one**. That is what the design-geometry rule was
+protecting, and it is a genuine cost: within-location replication is what
+separates the pool contrast from field variation.
+
+So the choice is larger pools and more power against fewer appearances per
+accession, and it is a design judgement rather than something the power curve
+settles on its own. What is no longer defensible is the claim that power does
+not care.
 
 ### Verification
 
