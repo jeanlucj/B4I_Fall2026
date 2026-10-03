@@ -261,6 +261,80 @@ apply_trial_qc <- function(dat,
   out
 }
 
+#' The plot table the production fit and its consumers must agree about.
+#'
+#' One filter chain, called from both `code/BGLR_multi_trait_model.R` and
+#' `validation_inputs()`. Before this existed each maintained its own: the fit
+#' carried a hard-coded trial whitelist while the validation chain read the raw
+#' phenotype file with no QC at all, so the fit ran on five trials while every
+#' reported table described nine. See SELF_CRITIQUE.md finding A. With one
+#' chain the two plot sets are identical by construction and can be asserted
+#' equal rather than hoped equal.
+#'
+#' The trial set is NOT an argument. It comes from output/trial_qc.csv via
+#' apply_trial_qc(), which is the single place a trial is included or excluded.
+#'
+#' @param study_years Kept as a guard against a stray year appearing in T3;
+#'   it is not the trial-selection mechanism.
+#' @return A tibble carrying BOTH the source column names (`germplasmName`,
+#'   `intercropGermplasmName`) and the tidy modelling names (`oatAcc`, `peaAcc`,
+#'   `oatYield`, `peaYield`, `mixID`, `trialF`, `blockNumberF`), so neither
+#'   caller has to rename anything.
+b4i_fit_frame <- function(pheno_file = here::here("output",
+                                                  "B4I_intercrop_pheno.rds"),
+                          qc_file = here::here("output", "trial_qc.csv"),
+                          study_years = c(2025L, 2026L),
+                          monoculture_labels = c("NO_OATS_PLANTED",
+                                                 "NO_PEAS_PLANTED"),
+                          quiet = FALSE) {
+  if (!file.exists(pheno_file)) {
+    stop("Phenotype file not found:\n  ", pheno_file,
+         "\nRun code/assemble_B4I_phenotypes.R first.", call. = FALSE)
+  }
+
+  pheno <- if (grepl("\\.rds$", pheno_file, ignore.case = TRUE)) {
+    readRDS(pheno_file)
+  } else {
+    readr::read_csv(pheno_file, show_col_types = FALSE)
+  }
+
+  needed <- c("studyYear", "studyName", "blockNumber", "germplasmName",
+              "intercropGermplasmName", "oat_yield", "pea_yield")
+  if (!all(needed %in% names(pheno))) {
+    stop("Phenotype file is missing column(s): ",
+         paste(setdiff(needed, names(pheno)), collapse = ", "), call. = FALSE)
+  }
+
+  pheno <- apply_trial_qc(pheno, qc_file = qc_file, quiet = quiet)
+
+  mono <- pheno$germplasmName %in% monoculture_labels |
+          pheno$intercropGermplasmName %in% monoculture_labels
+  if (!quiet && any(mono)) {
+    message("dropping ", sum(mono), " monoculture plot(s)")
+  }
+
+  pheno |>
+    dplyr::filter(!mono) |>
+    dplyr::mutate(
+      oatYield     = oat_yield,
+      peaYield     = pea_yield,
+      oatAcc       = as.character(germplasmName),
+      peaAcc       = as.character(intercropGermplasmName),
+      mixID        = paste(oatAcc, peaAcc, sep = "::"),
+      trialF       = factor(studyName),
+      blockNumberF = factor(paste(studyYear, studyName, blockNumber))
+    ) |>
+    dplyr::filter(
+      studyYear %in% study_years,
+      !is.na(oatYield), !is.na(peaYield),
+      !is.na(oatAcc), !is.na(peaAcc)
+    ) |>
+    dplyr::mutate(
+      trialF       = droplevels(trialF),
+      blockNumberF = droplevels(blockNumberF)
+    )
+}
+
 b4i_plot_table <- function(pheno_file = here::here("output",
                                                    "B4I_intercrop_pheno.rds"),
                            grms,
@@ -328,11 +402,32 @@ fit_producer_associate <- function(dat, G_oat, G_pea, seed = 12567,
                                    save_effects = FALSE,
                                    storage_mode = "double") {
 
-  if (save_effects) {
-    if (!fit_mix_term || is.na(kron_rank)) {
-      stop("save_effects needs the mix term fitted at an integer kron_rank: ",
-           "the exact kernel's coefficients do not reshape to a bilinear ",
-           "form, so there is nothing to decompose", call. = FALSE)
+  # WHICH TERMS STREAM THEIR DRAWS.
+  #   FALSE            nothing
+  #   TRUE             the mix term, which is what every caller predating the
+  #                    per-accession work meant by TRUE -- kept so sim_fit.R,
+  #                    sim_decomp_run.R and tests/test_fits.R are unchanged
+  #   character vector those terms, e.g. c("G_oat", "G_pea")
+  # BGLR::Multitrait supports saveEffects on BRR, FIXED and SpikeSlab terms but
+  # NOT on RKHS, which is one more reason this model fits a BRR on Z L.
+  save_terms <- if (isTRUE(save_effects)) "G_mix"
+                else if (isFALSE(save_effects) || is.null(save_effects)) character(0)
+                else as.character(save_effects)
+
+  if (length(save_terms) > 0) {
+    unknown <- setdiff(save_terms, c("G_oat", "G_pea", "G_mix", "block", "trial"))
+    if (length(unknown)) {
+      stop("save_effects names term(s) this model does not have: ",
+           paste(unknown, collapse = ", "), call. = FALSE)
+    }
+    # The kron_rank requirement is specific to G_mix: only the low-rank basis
+    # reshapes to a bilinear form, so only it has something to decompose. It
+    # must NOT gate G_oat / G_pea, whose coefficients are already on the
+    # accession scale once premultiplied by L.
+    if ("G_mix" %in% save_terms && (!fit_mix_term || is.na(kron_rank))) {
+      stop("save_effects = \"G_mix\" needs the mix term fitted at an integer ",
+           "kron_rank: the exact kernel's coefficients do not reshape to a ",
+           "bilinear form, so there is nothing to decompose", call. = FALSE)
     }
     # BGLR builds the filename as paste0(saveAt, <term name>, "_beta.bin"), so
     # saveAt is a PREFIX, not a directory. Defaulting it to tempdir() here
@@ -425,11 +520,13 @@ fit_producer_associate <- function(dat, G_oat, G_pea, seed = 12567,
       kron_B <- grm_basis(Gp, rank = kron_rank)
       ETA$G_mix <- list(X = kron_basis(kron_A, kron_B, oat_idx, pea_idx),
                         model = "BRR")
-      if (save_effects) {
-        ETA$G_mix$saveEffects <- TRUE
-        ETA$G_mix$storageMode <- storage_mode
-      }
     }
+  }
+
+  # One place, after ETA is complete, so a term added later cannot be missed.
+  for (tm in intersect(save_terms, names(ETA))) {
+    ETA[[tm]]$saveEffects <- TRUE
+    ETA[[tm]]$storageMode <- storage_mode
   }
 
   set.seed(seed)
@@ -497,6 +594,19 @@ fit_producer_associate <- function(dat, G_oat, G_pea, seed = 12567,
     # Needed to strip burn-in from the streamed draws: BGLR writes every
     # thinned iteration, including burn-in. See read_beta_draws().
     mcmc = list(nIter = nIter, burnIn = burnIn, thin = thin),
+    # WHAT THE FIT ACTUALLY SAW. Returned so a caller can write it out beside
+    # the effects instead of re-deriving it from the phenotype file, which is
+    # how a five-trial fit came to be reported as nine (SELF_CRITIQUE.md
+    # finding A).
+    trials = levels(dat$trialF),
+    # Where the streamed draws landed, per term, for read_beta_draws().
+    effect_files = if (length(save_terms) > 0) {
+      stats::setNames(
+        paste0(save_prefix, "ETA_", intersect(save_terms, names(ETA)), "_beta.bin"),
+        intersect(save_terms, names(ETA)))
+    } else NULL,
+    L = list(oat = L_oat, pea = L_pea),
+    storage_mode = storage_mode,
     n_plots = nrow(dat), n_blocks_fitted = ncol(incBlocks)
   )
 }
