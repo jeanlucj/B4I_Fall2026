@@ -87,18 +87,23 @@ G <- list(
   pea = collapse_grm(read_grm(grm_files[["pea"]]), analysis_name_files[["pea"]])
 )
 
-pheno <- readRDS(pheno_file) |>
-  dplyr::filter(!is.na(oat_yield), !is.na(pea_yield)) |>
+# THE SAME FILTER CHAIN THE PRODUCTION FIT USES. This read the raw phenotype
+# file with no trial QC until 2026-10-03, so it ran a fold for every trial
+# including the crop failure at AL, and AL sat in the TRAINING set of every
+# other fold. Production discarded it. So lambda described a training policy
+# the production BLUPs did not share -- SELF_CRITIQUE.md finding A2. With
+# b4i_fit_frame() the folds and the fit see the same plots.
+pheno <- b4i_fit_frame(pheno_file = pheno_file) |>
   dplyr::transmute(
     trial    = studyName,
-    oatAcc   = as.character(germplasmName),
-    peaAcc   = as.character(intercropGermplasmName),
-    oatYield = oat_yield, peaYield = pea_yield,
-    block    = paste(studyYear, studyName, blockNumber)
+    year     = studyYear,
+    oatAcc, peaAcc, oatYield, peaYield,
+    block    = as.character(blockNumberF)
   )
 
 trials <- sort(unique(pheno$trial))
 message(length(trials), " trials, ", nrow(pheno), " plots")
+message("  ", paste(trials, collapse = ", "))
 
 as_model_frame <- function(d) {
   d |>
@@ -146,24 +151,85 @@ run_fold <- function(held) {
   # An accession's ASSOCIATE effect is read on the PARTNER's yield, and the
   # partner's own producer effect is adjusted for rather than left in the
   # residual.
-  calib <- function(response, as_col, partner_pr_col, species) {
+  #
+  # TWO SCALES. `raw` is the slope in g/m2, which is what the power calculation
+  # works in. `z` divides the held-out trial's response by its own SD first.
+  # The two answer different questions, and section 6 of VALIDATION_DESIGN.md
+  # has flagged the difference as unresolved: the model assumes associate
+  # effects are constant in absolute g/m2, while the trials differ several-fold
+  # in spread. A slope measured in absolute units across environments that
+  # differ that much will vary across folds for reasons that are not genotype x
+  # environment at all. interaction_frac is sd(lambda)/|mean(lambda)|, which is
+  # scale-free, so the two scales' interaction_frac ARE comparable -- and the
+  # comparison is the test.
+  #
+  # TWO LEVELS. The plot-level slope is unbiased but its SE treats plots as
+  # independent, when accessions recur across plots and plots sit in blocks.
+  # VALIDATION_DESIGN.md section 7b uses lambda_p as a trial-exclusion
+  # criterion, so an anticonservative SE there is a decision error, not just a
+  # cosmetic one. The accession-level fit is the honest one for inference.
+  calib <- function(response, as_col, partner_pr_col, species, scale = "raw") {
     if (nrow(dat) < 20) return(NULL)
+    d <- dat
+    if (scale == "z") {
+      sdy <- stats::sd(d[[response]])
+      if (!is.finite(sdy) || sdy <= 0) return(NULL)
+      d[[response]] <- d[[response]] / sdy
+    }
     m <- stats::lm(stats::reformulate(c(as_col, partner_pr_col), response),
-                   data = dat)
-    s <- summary(m)$coefficients
+                   data = d)
+    co <- summary(m)$coefficients
+
+    # Cluster-robust SE by focal accession: a sandwich with the residuals summed
+    # within accession. Written out rather than taken from a package, because
+    # the repo has no sandwich dependency and the formula is three lines.
+    X  <- stats::model.matrix(m)
+    u  <- stats::residuals(m)
+    cl <- d[[if (identical(species, "oat")) "oatAcc" else "peaAcc"]]
+    XtX_inv <- chol2inv(chol(crossprod(X)))
+    meat <- Reduce(`+`, lapply(split(seq_along(u), cl), function(ix) {
+      xu <- crossprod(X[ix, , drop = FALSE], u[ix])
+      tcrossprod(xu)
+    }))
+    G  <- length(unique(cl)); k <- ncol(X); nn <- nrow(X)
+    adj <- (G / (G - 1)) * ((nn - 1) / (nn - k))
+    V  <- adj * XtX_inv %*% meat %*% XtX_inv
+    # chol2inv() DROPS DIMNAMES, so diag(V) comes back unnamed and indexing it
+    # by the coefficient name silently returned NA -- which propagated into
+    # every noise-corrected interaction. Index by position instead, and assert.
+    j <- match(as_col, colnames(X))
+    stopifnot("the associate predictor is not in the model matrix" = !is.na(j))
+    se_cl <- sqrt(V[j, j])
+    stopifnot("the clustered variance is not positive" = is.finite(se_cl))
+    t_cl  <- co[as_col, "Estimate"] / se_cl
+
     tibble::tibble(
-      species = species,
-      lambda = s[as_col, "Estimate"], lambda_se = s[as_col, "Std. Error"],
-      lambda_p = s[as_col, "Pr(>|t|)"],
-      producer_slope = s[partner_pr_col, "Estimate"],
-      n_plots = nrow(dat)
+      species = species, scale = scale,
+      lambda = co[as_col, "Estimate"],
+      # On the `z` scale the response was divided by the held-out trial's SD,
+      # so the slope is in SDs of partner yield per g/m2 of predicted effect
+      # and its MAGNITUDE is not comparable with the raw slope. Multiplying by
+      # that SD puts it back in g/m2. This is cosmetic -- interaction_frac is
+      # sd/|mean| and so is unchanged by any constant rescaling -- but a table
+      # showing lambda = 0.02 beside lambda = 0.77 invites the wrong reading.
+      lambda_gm2 = co[as_col, "Estimate"] *
+        (if (scale == "z") stats::sd(dat[[response]]) else 1),
+      # the plot-level SE, retained but NOT to be used for inference
+      lambda_se_plot = co[as_col, "Std. Error"],
+      lambda_p_plot  = co[as_col, "Pr(>|t|)"],
+      # clustered by focal accession: this is the one to quote
+      lambda_se = se_cl,
+      lambda_p  = 2 * stats::pt(abs(t_cl), df = G - 1, lower.tail = FALSE),
+      se_inflation = se_cl / co[as_col, "Std. Error"],
+      producer_slope = co[partner_pr_col, "Estimate"],
+      n_plots = nrow(d), n_clusters = G
     )
   }
 
-  calibration <- dplyr::bind_rows(
-    calib("peaYield", "oat_As", "pea_Pr", "oat"),
-    calib("oatYield", "pea_As", "oat_Pr", "pea")
-  )
+  calibration <- purrr::map(c("raw", "z"), \(sc) dplyr::bind_rows(
+    calib("peaYield", "oat_As", "pea_Pr", "oat", sc),
+    calib("oatYield", "pea_As", "oat_Pr", "pea", sc)
+  )) |> purrr::list_rbind()
 
   # --- 2. predictive ability at the accession level ---
   # Adjust each plot for the partner's predicted producer effect, then average
@@ -219,9 +285,24 @@ run_fold <- function(held) {
 
     # same constrained rule the real selection uses. PEV is set to 0 because
     # the rehearsal only needs the pools, not their power.
+    # THE REHEARSAL NEEDS THE POOLS, NOT THEIR POWER, so the uncertainty
+    # columns are set to zero rather than measured. Measuring them per fold
+    # would mean streaming the coefficient draws from eight separate refits to
+    # compute a quantity this function never uses. Eligibility is handed over
+    # as a precomputed TRUE for the same reason: `cand` has already been
+    # filtered on the training data's partner counts just above, which is the
+    # right filter here -- a per-fold reliability is not available and the
+    # question the rehearsal asks does not need one.
     fake_inp <- list(species = species,
-                     accessions = dplyr::mutate(cand, eligible = TRUE),
-                     PEV_As = 0)
+                     accessions = dplyr::mutate(cand,
+                       eligible  = TRUE,
+                       GMA       = Pr + As,
+                       PEV_As_i  = 0, PEV_Pr_i = 0, PEV_GMA_i = 0,
+                       rel_As_i  = 1, rel_GMA_i = 1),
+                     PEV_As = 0,
+                     eligibility = list(rule = "partners", rel_min = 0,
+                                        min_partners = min_partners,
+                                        partner_floor = min_partners))
     bp <- tryCatch(build_pools(fake_inp, n, pr_quantile = pr_quantile),
                    error = function(e) NULL)
     if (is.null(bp)) return(NULL)
@@ -286,6 +367,7 @@ run_fold <- function(held) {
     dplyr::left_join(quality, by = "species") |>
     dplyr::mutate(
       held_out = held,
+      year     = dplyr::first(test$year),
       coverage = dplyr::if_else(species == "oat", cover_oat, cover_pea),
       question = dplyr::if_else(coverage >= same_lines_threshold,
                                 "same lines, new environment",
@@ -320,6 +402,13 @@ same <- dplyr::filter(folds, question == "same lines, new environment")
 # A trial whose response barely varies cannot exhibit an effect of any size,
 # so its slope is noise rather than evidence about lambda. Flag those rather
 # than letting them drag the average.
+# response_sd is the held-out trial's own spread in g/m2, so this filter is a
+# statement about the RAW scale; it is applied to both scales so the two are
+# summarised over the same set of folds and their interaction_frac stays
+# comparable. With the trial QC screen now applied upstream, the crop-failure
+# trial never reaches here, so this may well exclude nothing -- which is
+# itself worth saying, because it means lambda is no longer conditional on a
+# fold-inclusion rule chosen by looking at lambda.
 sd_floor <- 0.4 * stats::median(same$response_sd)
 same <- dplyr::mutate(same, informative = response_sd >= sd_floor)
 
@@ -331,21 +420,42 @@ if (any(!same$informative)) {
 
 summarise_folds <- function(d, label) {
   d |>
-    dplyr::group_by(species) |>
+    dplyr::group_by(species, scale) |>
     dplyr::summarise(
       set = label,
       n_folds = dplyr::n(),
       lambda_mean = mean(lambda), lambda_median = stats::median(lambda),
+      lambda_gm2_mean = mean(lambda_gm2),
       lambda_sd = stats::sd(lambda),
-      # the across-fold spread of the slope is the As x location interaction
-      # the power calculation asks for, on the same scale
+      # The mean of a handful of fold slopes is itself uncertain; this is the
+      # SE of the GLOBAL estimate, which is what the power table is
+      # conditioned on.
+      lambda_se_of_mean = stats::sd(lambda) / sqrt(dplyr::n()),
+      # The across-fold spread of the slope is the As x location interaction
+      # the power calculation asks for. Scale-free, so it is comparable
+      # between the raw and standardised scales -- which is the whole point of
+      # fitting both.
       interaction_frac = stats::sd(lambda) / abs(mean(lambda)),
+      # PART OF THAT SPREAD IS JUST ESTIMATION NOISE IN EACH FOLD'S SLOPE.
+      # Under a constant true lambda, E[var(lambda_hat)] = var_true +
+      # mean(se^2), so subtracting the mean squared SE leaves the genuine
+      # across-environment variance. The SE used is the CLUSTERED one -- the
+      # plot-level SE is too small, which would under-correct and leave the
+      # interaction looking larger than it is.
+      #
+      # Report a zero as "not distinguishable from zero", never as "no
+      # interaction": the correction can overshoot, and max(0, .) hides that.
+      mean_lambda_se2 = mean(lambda_se^2),
+      interaction_frac_corrected =
+        sqrt(max(0, stats::var(lambda) - mean(lambda_se^2))) / abs(mean(lambda)),
+      interaction_floored = stats::var(lambda) <= mean(lambda_se^2),
       r_accession_mean = mean(r_accession),
       lambda_pool_mean = mean(lambda_pool, na.rm = TRUE),
       lambda_pool_sd = stats::sd(lambda_pool, na.rm = TRUE),
+      se_inflation_mean = mean(se_inflation),
       .groups = "drop"
     ) |>
-    dplyr::relocate(set, .after = species)
+    dplyr::relocate(set, .after = scale)
 }
 
 summary_tbl <- dplyr::bind_rows(
@@ -370,7 +480,7 @@ readr::write_csv(summary_tbl, file.path(out_dir, "crossval_summary.csv"))
 # ------------------------------------------------------------
 
 jackknife <- same |>
-  dplyr::group_by(species) |>
+  dplyr::group_by(species, scale) |>
   dplyr::mutate(
     lambda_all           = mean(lambda),
     interaction_all      = stats::sd(lambda) / abs(mean(lambda)),
@@ -381,10 +491,10 @@ jackknife <- same |>
     narrows_by           = interaction_all - interaction_without,
     raises_lambda_by     = lambda_without - lambda_all) |>
   dplyr::ungroup() |>
-  dplyr::select(held_out, species, informative, lambda, lambda_p, r_accession,
-                lambda_all, lambda_without, raises_lambda_by,
+  dplyr::select(held_out, species, scale, year, informative, lambda, lambda_p,
+                r_accession, lambda_all, lambda_without, raises_lambda_by,
                 interaction_all, interaction_without, narrows_by) |>
-  dplyr::arrange(species, dplyr::desc(narrows_by))
+  dplyr::arrange(species, scale, dplyr::desc(narrows_by))
 
 readr::write_csv(jackknife, file.path(out_dir, "crossval_jackknife.csv"))
 
@@ -408,6 +518,93 @@ if (nrow(newg) > 0) {
           as.data.frame(), row.names = FALSE, digits = 3)
 }
 
+# ------------------------------------------------------------
+# Lambda by year -- A DIAGNOSTIC, NOT AN ESTIMATE
+#
+# The 5-trial whitelist fit showed a striking split: oat folds held out from
+# 2025 gave lambda around 1.4 and those from 2026 around 0.6. That is very
+# likely an artifact of the training sets rather than a fact about years. Four
+# of that fit's five trials were from 2025, so a held-out 2025 trial was
+# predicted by closely related siblings and a held-out 2026 trial was not.
+# With four trials from each year and every fold training on seven, the
+# asymmetry should largely go.
+#
+# It is reported because if the split SURVIVES that rebalancing it is a real
+# finding about year-to-year transfer and belongs in the write-up. It is NOT
+# the number the trial is sized on: nothing in this chain re-sizes on a subset
+# of folds, and "predict 2026 from 2025" is not a more valid question than its
+# reverse.
+#
+# The year comes from the plot table, not from parsing the trial name -- the
+# naming convention is not a contract.
+# ------------------------------------------------------------
+
+by_year <- same |>
+  dplyr::group_by(species, scale, year) |>
+  dplyr::summarise(n_folds = dplyr::n(),
+                   lambda_mean = mean(lambda),
+                   lambda_sd = stats::sd(lambda),
+                   r_accession_mean = mean(r_accession),
+                   .groups = "drop")
+
+readr::write_csv(by_year, file.path(out_dir, "crossval_lambda_year.csv"))
+
+cat("\n=== Lambda by year (diagnostic; the global estimate is what power uses) ===\n")
+print(as.data.frame(by_year), row.names = FALSE, digits = 3)
+
+spread <- by_year |>
+  dplyr::filter(scale == "raw") |>
+  dplyr::group_by(species) |>
+  dplyr::summarise(gap = abs(diff(lambda_mean)),
+                   pooled_sd = mean(lambda_sd), .groups = "drop")
+cat("\n")
+for (i in seq_len(nrow(spread))) {
+  r <- spread[i, ]
+  cat("  ", r$species, ": the two years differ by ", round(r$gap, 2),
+      " against a within-year SD of ", round(r$pooled_sd, 2),
+      if (is.finite(r$gap) && is.finite(r$pooled_sd) && r$gap < r$pooled_sd)
+        " -- not a year effect worth reading"
+      else " -- worth looking at",
+      "\n", sep = "")
+}
+
+# ------------------------------------------------------------
+# Lambda on the two scales, side by side
+# ------------------------------------------------------------
+
+scales_tbl <- summary_tbl |>
+  dplyr::filter(set == "informative folds only") |>
+  dplyr::select(species, scale, n_folds, lambda_mean, lambda_gm2_mean,
+                lambda_sd, lambda_se_of_mean, interaction_frac,
+                interaction_frac_corrected, interaction_floored,
+                mean_lambda_se2, se_inflation_mean)
+
+readr::write_csv(scales_tbl, file.path(out_dir, "crossval_lambda_scales.csv"))
+
+cat("\n=== Does the across-fold spread survive standardising? ===\n")
+cat("    interaction_frac is sd(lambda)/|mean(lambda)|, so it is scale-free\n")
+cat("    and the two rows per species are directly comparable.\n\n")
+print(as.data.frame(scales_tbl), row.names = FALSE, digits = 3)
+
+cat("\n")
+for (sp in unique(scales_tbl$species)) {
+  a <- dplyr::filter(scales_tbl, species == sp, scale == "raw")
+  b <- dplyr::filter(scales_tbl, species == sp, scale == "z")
+  if (nrow(a) && nrow(b)) {
+    cat("  ", sp, ": interaction_frac ", round(a$interaction_frac, 2),
+        " raw vs ", round(b$interaction_frac, 2), " standardised",
+        if (b$interaction_frac < 0.8 * a$interaction_frac)
+          " -- a good part of the raw spread is scale heterogeneity, not interaction"
+        else " -- standardising does not explain it, so the interaction is real",
+        "\n", sep = "")
+    cat("      after removing fold-level estimation noise: ",
+        round(a$interaction_frac_corrected, 2), " (raw)",
+        if (isTRUE(a$interaction_floored))
+          "  [floored at zero: not distinguishable from no interaction]" else "",
+        "\n", sep = "")
+  }
+}
+
 cat("\n=== What this means for the validation trial ===\n")
 
 inputs <- validation_inputs(min_partners = min_partners)
@@ -416,7 +613,11 @@ p_loc  <- validation_setting("plots_per_location")
 n_pool <- validation_setting("n_per_pool")
 
 measured <- purrr::map(unique(summary_tbl$species), \(sp) {
-  s <- dplyr::filter(summary_tbl, species == sp, set == "informative folds only")
+  # The RAW scale is what the power calculation works in: the trial is sized in
+  # g/m2. The standardised scale is reported alongside for the interaction
+  # comparison, not substituted here.
+  s <- dplyr::filter(summary_tbl, species == sp, scale == "raw",
+                     set == "informative folds only")
   inp <- inputs[[sp]]
   bp  <- build_pools(inp, n_pool[[sp]], pr_quantile = pr_quantile)
 
@@ -426,8 +627,13 @@ measured <- purrr::map(unique(summary_tbl$species), \(sp) {
   lo <- max(0, s$lambda_mean - 1.96 * se_lambda)
   hi <- s$lambda_mean + 1.96 * se_lambda
 
+  # Named arguments throughout: contrast_power() takes only `dAs` positionally.
+  # The per-pool within variance goes in as a length-2 vector so the Welch df
+  # reflects any difference between the two pools.
   pw <- function(lam, int) contrast_power(
-    bp$dAs, bp$sigma2_within, n_pool[[sp]], inp$sigma2_e, p_loc * n_loc,
+    dAs = bp$dAs,
+    sigma2_within = c(bp$sigma2_within_plus, bp$sigma2_within_minus),
+    n = n_pool[[sp]], sigma2_e = inp$sigma2_e, P = p_loc * n_loc,
     lambda = lam, sided = 1, interaction_frac = int, n_loc = n_loc)$power
 
   tibble::tibble(
