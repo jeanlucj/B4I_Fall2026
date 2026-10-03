@@ -607,57 +607,56 @@ or "last modified" date for a trial's phenotypes. If it does, the endpoint behin
 it carries the signal and the fix may be reading a different route rather than a
 change to T3.
 
-**13. The pool builder uses the wrong selection index, and fixing it is worth
-9–19 points of power.** Not a new search method: the right one is already there
-and is being applied to the wrong objective.
+**13. SETTLED 2026-10-03: the pool builder was optimising the wrong index.**
+Fixed, and the fix was worth more than any affordable change to the field design.
 
-**What it does now.** `.pools_at()` (`code/validation_functions.R:194`) scores
-the As⁺ pool by `As + θ·Pr` and the As⁻ pool by `As − θ·Pr`, then
-`build_pools()` bisects θ until the pools' mean Pr difference crosses zero.
-Scoring the As⁻ pool by `As − θ·Pr` *rewards* high Pr in that pool, so raising θ
-drags **both** pools toward high Pr rather than equalising them. Balance is
-reached only indirectly, and it takes a large θ to get there — 0.61 for oat —
-which spends a great deal of As extremity.
+**What was wrong.** `.pools_at()` scored the As⁺ pool by `As + θ·Pr` and the As⁻
+pool by `As − θ·Pr`. The second term *rewards* high Pr in the As⁻ pool, so
+raising θ dragged **both** pools toward high Pr instead of equalising them.
+Balance was reached indirectly and expensively — oat needed θ = 0.61, spending a
+great deal of associate extremity. `build_pools()` also bisected θ for a sign
+change in ΔPr, which on a non-monotone step function can converge on a local
+crossing.
 
-**What the Lagrangian of the constraint actually is.** One index for both pools:
-rank candidates by `As + θ·Pr` and take the **top n** and the **bottom n**. That
-moves the two selections along a single axis, so θ buys balance efficiently. It
-reaches the same tolerance at θ = 0.175 for oat, keeping far more As spread.
+**The fix.** One index for both pools — rank by `As + θ·Pr`, take the top *n* and
+the bottom *n*, which is the actual Lagrangian of the balance constraint — and a
+dense scan for the θ minimising |ΔPr|, with ties broken by larger ΔAs.
+Disjointness became structural rather than enforced. Still targets ΔPr = 0
+rather than the tolerance edge: that costs under a point of power and buys a
+much tighter producer match, which is the cleaner claim.
 
-**Measured on the 2026-10-03 data**, both satisfying |ΔPr| ≤ 1.0 g/m², pools
-disjoint and of the right size, at P = 400:
+**Measured, at P = 400:**
 
-| | ΔAs now | ΔAs single-index | power now | power single-index |
-|---|---|---|---|---|
-| oat (n = 20) | 15.24 | **19.80** (+30%) | 0.691 | **0.782** (+9.1) |
-| pea (n = 30) | 18.01 | **25.58** (+42%) | 0.656 | **0.847** (+19.1) |
+| | ΔAs before | after | ΔPr before | after | power before | after |
+|---|---|---|---|---|---|---|
+| oat (n = 20) | 15.24 | **19.59** | −0.50 | **+0.23** | 0.691 | **0.779** |
+| pea (n = 30) | 18.01 | **25.07** | −0.66 | **−0.13** | 0.656 | **0.840** |
 
-Pea gains more because its Pr–As correlation among candidates is stronger
-(−0.40 against −0.27), so the wrong index costs it more.
+θ fell from 0.61 to 0.19 (oat) and 1.84 to 0.72 (pea) — the corrected index
+reaches balance far more cheaply.
 
-**Two smaller problems in the same function.**
+**And it changed the pool-size conclusion back.** Under the broken index power
+rose steeply with *n*, which argued for larger pools; that gain was mostly the
+pool escaping the index's inefficiency. With the index fixed, power at P = 400
+spans only 0.034 (oat) and 0.036 (pea) across n = 10…50, with optima at n = 30
+and n = 20 — so the configured 20 and 30 are each within 0.005 of the best, and
+the design-geometry rule stands. **A power curve shaped by a defect in the
+selection rule will argue for changing the design when what needs changing is
+the rule.** VALIDATION_DESIGN.md §5 records this.
 
-- *The bisection targets ΔPr = 0 when the tolerance is ±1.0.* Since ΔAs falls as
-  θ rises, the optimum is the **smallest** θ that satisfies the tolerance, not
-  the θ that zeroes the imbalance. Worth +1.5% on pea on its own.
-- *ΔPr(θ) is not monotone.* A 4,001-point scan finds **three** sign changes for
-  oat, so bisection can land on the wrong crossing. The function is
-  O(c log c); a dense grid scan costs nothing and removes the failure mode.
+**Churn is not comparable across the change.** `pool_summary.csv` now carries a
+`pool_index` stamp (`single-v1`), and `validate_pool_selection.R` prints an
+explicit notice when the previous vintage was built by a different rule, in
+place of the 70%-retention guidance — which is about the stability of the effect
+estimates and does not apply to a rule change. The 2026-10-03 vintage retained
+23% (oat) and 26% (pea) against 2026-10-02_1, and that number means nothing
+except that the rule changed.
 
-**The fix, in order of value:** use one index for both pools; scan θ rather than
-bisect; among feasible θ take the one maximising ΔAs rather than the one zeroing
-ΔPr.
-
-**What would confirm it.** The single-index rule is the exact Lagrangian of a
-problem with one side constraint, so its duality gap is at most a single swap —
-but that is an argument, not a check. The problem is small (two disjoint
-*n*-subsets of ~215 candidates, three constraints) and an exact MILP would settle
-it in seconds. No solver is installed; `highs` or `Rglpk` would do. A local
-swap-improvement pass on the Lagrangian solution is the cheaper alternative.
-
-**Not yet implemented.** It changes pool membership, so it changes who is in the
-validation experiment and makes `pool_diff` churn against the previous vintage
-meaningless for one run. That is a decision, not a refactor.
+**Still open: an exact certificate.** The single-index rule is the Lagrangian of
+a problem with one side constraint, so its gap from optimal is at most a single
+swap — an argument, not a proof. The problem is small (≈430 binaries, three
+constraints) and a MILP would certify it in seconds; no solver is installed, and
+`highs` or `Rglpk` would do. Worth one afternoon if the pools are ever contested.
 
 ### Traps in the plumbing, so they are not rediscovered
 

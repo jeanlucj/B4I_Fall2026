@@ -103,7 +103,7 @@ pools <- purrr::map(built, "pools") |> purrr::list_rbind()
 
 pool_summary <- purrr::imap(built, \(bp, name) tibble::tibble(
   species = name, n_per_pool = bp$n, n_candidates = bp$n_candidates,
-  pr_threshold = bp$pr_min, theta = bp$theta,
+  pr_threshold = bp$pr_min, theta = bp$theta, pool_index = bp$pool_index,
   dAs = bp$dAs, dPr = bp$dPr,
   mean_As_plus = bp$mean_As_plus, mean_As_minus = bp$mean_As_minus,
   mean_Pr_plus = bp$mean_Pr_plus, mean_Pr_minus = bp$mean_Pr_minus,
@@ -154,8 +154,28 @@ if (length(previous) > 0) {
     as.data.frame() |>
     print(row.names = FALSE)
 
-  cat("\nA pool that retains well under 70% of its members across a data\n",
-      "vintage is a warning about the estimates, not about the design.\n", sep = "")
+  # Churn only means "the effect estimates moved" when both vintages were built
+  # by the SAME rule. pool_summary.csv carries a pool_index stamp; if the
+  # previous vintage's is missing or different, the churn is measuring the rule
+  # change and the 70% guidance does not apply to it.
+  prev_sum <- file.path(prev_dir, "pool_summary.csv")
+  prev_idx <- if (file.exists(prev_sum)) {
+    ps <- readr::read_csv(prev_sum, show_col_types = FALSE)
+    if ("pool_index" %in% names(ps)) unique(ps$pool_index)[1] else NA_character_
+  } else NA_character_
+
+  if (!identical(prev_idx, POOL_INDEX_VERSION)) {
+    cat("\n*** The previous vintage was built by a DIFFERENT selection rule",
+        " (", if (is.na(prev_idx)) "unstamped, pre-2026-10-03" else prev_idx,
+        " vs ", POOL_INDEX_VERSION, ").\n",
+        "    This churn measures the RULE CHANGE, not the stability of the",
+        " effect estimates.\n    The 70% retention guidance does not apply to",
+        " it. The next vintage is comparable again. ***\n", sep = "")
+  } else {
+    cat("\nA pool that retains well under 70% of its members across a data\n",
+        "vintage is a warning about the estimates, not about the design.\n",
+        sep = "")
+  }
 } else {
   cat("\nNo previous vintage to compare with; this is the baseline.\n")
 }

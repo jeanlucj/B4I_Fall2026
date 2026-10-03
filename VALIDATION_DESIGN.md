@@ -74,9 +74,19 @@ A constrained optimisation: **maximise `mean(As+) − mean(As−)` subject to**
    candidates),
 3. `|mean Pr+ − mean Pr−|` within 1 g/m².
 
-Implemented with a Lagrange multiplier on `Pr`, pushed in opposite directions
-for the two pools and bisected until the producer difference crosses zero
-(`build_pools()` in `code/validation_functions.R`).
+Implemented with a Lagrange multiplier `θ` on `Pr` and **one selection index
+serving both pools**: rank the candidates by `As + θ·Pr`, take the top *n* and
+the bottom *n*. Both selections then move along a single axis, so θ buys producer
+balance efficiently, and disjointness is structural — the top and bottom of one
+ordering cannot collide. θ is chosen by a dense scan that minimises |ΔPr|, not by
+bisection: ΔPr(θ) is a step function and bisecting for a sign change can land on
+a local crossing (`build_pools()` in `code/validation_functions.R`).
+
+Until 2026-10-03 the two pools were scored by *different* indices — `As + θ·Pr`
+and `As − θ·Pr` — which rewarded high Pr in the As⁻ pool and so dragged both
+pools upward instead of equalising them. Correcting it raised the contrast by
+30% for oat and 42% for pea while *tightening* the producer balance; see
+[docs/B4I_followups.md](docs/B4I_followups.md) item 13.
 
 **Candidates are filtered first.** 99 oat and 84 pea accessions appear with
 only a single partner, and 8 oat / 20 pea have no marker data at all. Their
@@ -86,14 +96,18 @@ partners are excluded** — leaving 265 oat and 254 pea, ample for pools of
 
 ### What it delivers
 
-| species | n per pool | ΔAs (g/m²) | ΔPr | mean Pr, As+ | mean Pr, As− | population mean Pr |
-|---|---|---|---|---|---|---|
-| oat | 20 | **14.3** | 0.15 | 14.0 | 13.8 | 0.06 |
-| pea | 30 | **16.5** | 0.01 | 10.5 | 10.5 | 0.26 |
+<!-- BEGIN GENERATED: pools -->
+| species | n per pool | candidates | θ | ΔAs (g/m²) | ΔPr | mean Pr, As+ | mean Pr, As− |
+|---|---|---|---|---|---|---|---|
+| oat | 20 | 215 | 0.194 | **19.59** | 0.226 | 10.02 | 9.80 |
+| pea | 30 | 204 | 0.718 | **25.07** | -0.131 | 7.63 | 7.77 |
 
-The producer constraint is essentially free: it costs about 1 g/m² of
-associate contrast and buys two pools whose producer means differ by less than
-0.2 g/m² while both sit 10–14 g/m² above the population mean.
+*Selection rule: `single-v1`.*
+<!-- END GENERATED: pools -->
+
+The producer constraint is close to free: it costs a little associate contrast
+and buys two pools whose producer means differ by a fraction of a g/m² while
+both sit well above the population mean.
 
 ---
 
@@ -182,22 +196,29 @@ the result generalise. The experimental unit for the contrast is therefore the
 ### The result
 
 <!-- BEGIN GENERATED: vintage -->
-*Numbers below are from vintage **2026-10-02_1**.*
+*Numbers below are from vintage **2026-10-03**.*
 
 | species | trials | plots | accessions | eligible | reliability of As |
 |---|---|---|---|---|---|
-| oat | 9 | 3567 | 440 | 429 | 0.41 |
-| pea | 9 | 3567 | 422 | 406 | 0.27 |
+| oat | 9 | 3567 | 442 | 430 | 0.35 |
+| pea | 9 | 3567 | 423 | 407 | 0.27 |
 
 Trials kept by the QC screen (8): B4I_2025_IA, B4I_2025_IL, B4I_2025_ND, B4I_2025_NY, B4I_2026_IA, B4I_2026_IL, B4I_2026_ND, B4I_2026_NY
 Dropped (1): B4I_2025_AL
 <!-- END GENERATED: vintage -->
 
 <!-- BEGIN GENERATED: power -->
-> **Stale.** `power_grid.csv` in this vintage was written before λ and the
-> pool × location interaction were measured, so it still sweeps them and
-> cannot be collapsed to a single statement. Re-run
-> `Rscript code/validate_power.R` and then `code/validation_report.R`.
+One-sided α = 0.05, at the configured pool size, with λ and the
+pool × location interaction as measured (see §6).
+
+| | plots/loc | n per pool | total plots | λ | interaction | power |
+|---|---|---|---|---|---|---|
+| **oat** | 60 | 20 | 300 | 0.83 | 0.73 | 0.76 |
+| **oat** | 80 | 20 | 400 | 0.83 | 0.73 | 0.78 |
+| **oat** | 100 | 20 | 500 | 0.83 | 0.73 | 0.79 |
+| **pea** | 60 | 30 | 300 | 0.78 | 0.53 | 0.81 |
+| **pea** | 80 | 30 | 400 | 0.78 | 0.53 | 0.84 |
+| **pea** | 100 | 30 | 500 | 0.78 | 0.53 | 0.85 |
 <!-- END GENERATED: power -->
 
 λ is the **attenuation**: how much of the predicted contrast actually
@@ -258,144 +279,66 @@ What actually moves the needle, in order:
 4. **A one-sided test** — 7–11 points, free.
 5. **More plots** — 5–10 points across the whole 300 → 500 range.
 
-### Pool size is a real lever, and larger is better
+### Why pool size is not the hard question
 
-An earlier version of this section said power was nearly flat in *n*, so pool
-size could be set by the design geometry rather than by the power curve. **That
-was true of the six-trial data and is not true now.** At P = 400 plots:
+Power is nearly flat in *n*, and the current defaults are within half a point of
+the best available. At P = 400 plots:
 
 | n per pool | oat power | pea power |
 |---|---|---|
-| 10 | 0.654 | 0.414 |
-| 20 | 0.691 | 0.507 |
-| 30 | 0.699 | 0.656 |
-| 40 | 0.723 | 0.632 |
-| 50 | 0.724 | 0.695 |
+| 10 | 0.750 | 0.804 |
+| 15 | 0.771 | 0.834 |
+| **20** | 0.779 | **0.840** |
+| 25 | 0.782 | 0.836 |
+| **30** | **0.784** | 0.839 |
+| 40 | 0.780 | 0.826 |
+| 50 | 0.770 | 0.807 |
 
-Oat gains about 7 points from n = 10 to n = 50; **pea gains 28**. Pool size is
-not a free choice, and pea is where it pays.
+The whole range spans **0.034 for oat and 0.036 for pea**, and the optimum sits
+at n = 30 (oat) and n = 20 (pea) — so the configured 20 and 30 are each within
+0.005 of the best. Pool size is therefore set by the **design geometry**,
+n = plots-per-location ÷ 4, which makes every accession appear exactly twice at
+every location, rather than by the power curve.
 
-#### Why larger pools win: the two forces, and which one is bigger
+#### Why it is flat — the two forces cancel
 
-Halving the pool size does two opposite things.
+Halving the pool does two opposite things.
 
 **It sharpens selection.** Pools are the extremes of the associate-effect
-distribution, so a smaller pool reaches further into the tail and has a more
-extreme mean. For a normal, the mean of the top *p* fraction is
-`φ(z_p)/p`, and after the Pr filter below there are 221 oat and 212 pea
-candidates, so n = 40 is the top 18% and n = 20 the top 9%:
-
-| top | mean of selected tail |
-|---|---|
-| 20% | 1.40 SD |
-| 10% | 1.76 SD |
-| 5% | 2.06 SD |
-
-Halving n from 40 to 20 therefore buys a contrast about **1.24×** larger.
+distribution, so a smaller pool reaches further into the tail. For a normal the
+mean of the top *p* fraction is `φ(z_p)/p`, and with 215 oat and 204 pea
+candidates after the Pr filter, halving *n* from 40 to 20 buys a contrast about
+**1.24×** larger.
 
 **It costs precision.** The standard error of a pool mean goes as 1/√n, so
-halving n multiplies the SE by **√2 = 1.41**.
+halving *n* multiplies the SE by **√2 = 1.41**.
 
-**The SE loss is bigger than the selection gain**, and the net effect on the
-*t* statistic is
+Those nearly cancel, and the achieved contrast now behaves as the theory says:
+ΔAs falls from 23.2 to 14.9 for oat across n = 10 → 50, almost exactly the 1/√n
+the SE follows. The residual curvature is why there is a shallow optimum rather
+than a perfectly level line.
 
-```
-t ratio = 1.24 / 1.41 = 0.88     →  t falls 12% when n goes 40 → 20
-```
+> **This section said the opposite for one day, and the reason is worth keeping.**
+> Until 2026-10-03 the pool builder used a different selection index for each
+> pool, which was inefficient enough that enlarging the pool helped mainly by
+> escaping that inefficiency — power then rose from 0.654 to 0.724 for oat and
+> 0.414 to 0.695 for pea, and pool size looked like a major lever. Fixing the
+> index (§2) raised power at every *n*, and restored the flat curve. The lesson
+> is that a power curve shaped by a defect in the selection rule will argue for
+> changing the design when what needs changing is the rule.
 
-so power rises with n. For the two to cancel — the flatness the old text claimed
-— the tail mean would have to grow by √2 when *p* halves, and it does that only
-at much weaker selection: the break-even is near **p ≈ 0.37**, about n = 80 per
-pool. Everywhere in the practical range, bigger pools win. (Above that
-break-even the sign flips and smaller pools would win, which is why the claim is
-not absurd — just wrong for the range we are in.)
+#### What the Pr constraints cost
 
-#### What the two Pr constraints do
+**Candidates must have Pr above the median**, which halves the candidate set —
+430 eligible oat become 215, 407 pea become 204 — so n = 20 is the top 9% of
+candidates rather than the top 4.7% of all eligible.
 
-Both make large pools *more* favourable, not less.
-
-**Candidates must have Pr above the median.** This halves the candidate set —
-430 eligible oat become 221, 407 pea become 212 — so any given *n* is twice as
-deep into the candidate distribution as the raw accession count suggests:
-n = 20 is the top 9% of candidates, not the top 4.7% of all eligible.
-
-That works mildly *against* large pools, not for them. A larger *p* sits closer
-to the p ≈ 0.37 break-even, so halving the pool buys a little more there than it
-would in the unfiltered set — ×1.168 at p = 0.09 against ×1.130 at p = 0.047.
-Both are far below the √2 the SE costs, so the conclusion is unchanged, but the
-direction is worth stating correctly.
-
-**The two pools must have nearly equal mean Pr** (within 1.0 g/m²), and Pr and
-As are **negatively correlated** — −0.51 across all accessions, −0.27 for oat
-and −0.40 for pea among the candidates. So the extreme-As⁺ accessions are
-systematically low-Pr and the extreme-As⁻ ones systematically high-Pr, and
-balancing Pr means giving up As extremity. The penalty is worst exactly where
-the extremes are most lopsided, which is in the **small** pools.
-
-That shows up directly. Against the unconstrained normal-theory contrast:
-
-| n | oat ΔAs theory | achieved | % of theory |
-|---|---|---|---|
-| 10 | 27.8 | 18.3 | 66% |
-| 20 | 23.8 | 15.2 | 64% |
-| 40 | 19.2 | 13.6 | 71% |
-| 50 | 17.6 | 13.0 | 74% |
-
-The constraints cost a quarter to a third of the achievable contrast
-throughout — and they cost *more* at small n, so the achieved contrast falls by
-only 29% from n = 10 to n = 50 where theory says 37%. **The selection-intensity
-advantage that small pools should enjoy is largely eaten by the Pr balance.**
-
-Pea is noisier still — its achieved contrast is 44–65% of theory and not
-monotone in *n*. The pool builder is not a greedy search, as an earlier version
-of this sentence said; it is a Lagrangian selection index bisected on one
-multiplier, which is the right family of method. But it is leaving a large
-amount on the table, for reasons measured in
-[docs/B4I_followups.md](docs/B4I_followups.md) item 13 — enough that pea's curve
-should be read as a trend rather than cell by cell, and enough that these power
-figures are a floor rather than an estimate.
-
-#### What the design-geometry rule actually protects — and what it does not
-
-At a fixed plot budget each accession appears `plots-per-location ÷ 2n` times
-per location: at P = 400, n = 20 gives **two** appearances and n = 40 gives
-**one**. The geometry rule exists to keep that at two.
-
-**It is not a power argument.** The contrast's standard error is
-
-```
-SE² = 2·σ²_within / n  +  4·σ²_e / P  +  (interaction_frac · δ)² / n_loc
-```
-
-(`contrast_se()`, `code/validation_functions.R:485`). Appearances per accession
-appear nowhere in it. The plot-error term depends on the **total** plot count
-`P` and not on how those plots are distributed over accessions, and
-`σ²_within` is `PEV + within-pool BLUP variance` — a property of the existing
-fit, not of the validation layout. So trading appearances for pool size costs
-nothing in the power of the pool contrast. An earlier version of this section
-said within-location replication is "what separates the pool contrast from field
-variation"; that is not what the formula says and it was wrong.
-
-What two appearances per location does buy sits outside this calculation:
-
-- **Spatial control within a location** — two plots in different blocks, so a
-  field gradient is differenced out of that accession rather than averaged over.
-- **An in-trial estimate of the pool × location interaction.** Right now
-  `interaction_frac` is imported from cross-validation on the *previous* trials
-  (§6). Replication within a location lets the validation trial estimate it
-  itself, which matters because it is the term that does not shrink with the
-  plot budget.
-- **Per-accession results of useful precision.** Each accession appears
-  `n_loc` times across the trial either way — 5 plots at k = 1, 10 at k = 2 —
-  so accession-level estimates exist in both designs; k = 2 simply halves their
-  error.
-- **Tolerance of plot loss**, which at k = 1 removes an accession from a
-  location entirely.
-
-So the trade is larger pools and materially more power against spatial control
-and an in-trial interaction estimate. That is a real design judgement — but it
-is not the one the old text described, and power is on the side of larger
-pools.
+**The two pools must have nearly equal mean Pr**, and Pr and As are negatively
+correlated (−0.51 across all accessions). The As⁺ extreme is systematically
+low-Pr and the As⁻ extreme high-Pr, so balancing costs As extremity. With the
+corrected index that cost is small: the achieved producer gap is 0.23 g/m² for
+oat and −0.13 for pea against a tolerance of 1.0, and both pools sit about 10
+(oat) and 8 (pea) g/m² above the population mean Pr.
 
 ### Verification
 

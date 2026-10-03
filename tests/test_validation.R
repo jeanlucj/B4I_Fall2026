@@ -56,15 +56,21 @@ for (n in c(10, 20, 30)) {
   check(length(intersect(plus, minus)) == 0,
         sprintf("the pools are disjoint at n = %d", n))
   # The constraint cannot always be met exactly: dPr is a STEP function of
-  # theta, so the bisection lands on a jump and the achieved gap can be
-  # whatever the jump leaves. What is assertable is that it never does worse
-  # than selecting on As alone, and that it sits at the zero crossing.
+  # theta, so the achieved gap is whatever the nearest jump leaves. What is
+  # assertable is that it never does worse than selecting on As alone, and that
+  # the scan really found the best |dPr| available rather than a local one.
   cand_n <- dplyr::filter(inp$accessions, eligible, Pr >= bp$pr_min)
   check(abs(bp$dPr) <= abs(.pools_at(cand_n, n, 0)$dPr) + 1e-8,
         sprintf("constraining never widens the producer gap at n = %d", n))
-  check(.pools_at(cand_n, n, bp$theta * 0.5)$dPr <= 0 &&
-          .pools_at(cand_n, n, bp$theta * 2)$dPr >= 0,
-        sprintf("the solution brackets the zero crossing at n = %d", n))
+
+  # The oracle for the scan: an independent dense sweep must not find a theta
+  # with a smaller |dPr|. This is what the old bisection could fail -- it
+  # stopped at a sign change, which on a non-monotone step function need not be
+  # the global minimum.
+  sweep_dPr <- purrr::map_dbl(seq(0, 10, length.out = 1001),
+                              \(th) .pools_at(cand_n, n, th)$dPr)
+  check(abs(bp$dPr) <= min(abs(sweep_dPr)) + 1e-8,
+        sprintf("the scan finds the global best |dPr| at n = %d", n))
   check(bp$dAs > 0, sprintf("the associate contrast is positive at n = %d", n))
   check(all(bp$pools$Pr >= bp$pr_min),
         sprintf("every member clears the Pr threshold at n = %d", n))
@@ -80,23 +86,64 @@ naive_minus <- dplyr::slice_max(cand, Pr - As, n = 30)$acc
 check(length(intersect(naive_plus, naive_minus)) > 0,
       "the naive Pr+As / Pr-As rule DOES overlap, which is why it is not used")
 
-# What the bisection assumes about theta. dPr is a step function and is NOT
-# locally monotone -- it reverses between adjacent steps -- so the bisection
-# finds *a* zero crossing rather than the global best |dPr|. The trend it relies
-# on is what is assertable, and pinning it here is also a record that the
-# stronger claim is false.
+# ------------------------------------------------------------
+# 1b. The selection index is the Lagrangian of the Pr constraint
+#
+# ONE index serves both pools -- rank by As + theta*Pr, take the top n and the
+# bottom n -- so theta trades As extremity for Pr balance along a single axis.
+# Three properties follow, and all three are independent of any particular
+# number the function returns.
+# ------------------------------------------------------------
+
 cand_m <- dplyr::filter(inp$accessions, eligible,
                         Pr >= stats::quantile(Pr, 0.5, names = FALSE))
-theta_seq <- seq(0, 5, by = 0.25)
-dPr_by_theta <- purrr::map_dbl(theta_seq, \(th) .pools_at(cand_m, 20, th)$dPr)
+theta_seq <- seq(0, 5, by = 0.05)
+sweep <- purrr::map(theta_seq, \(th) .pools_at(cand_m, 20, th))
+dPr_by_theta <- purrr::map_dbl(sweep, "dPr")
+dAs_by_theta <- purrr::map_dbl(sweep, "dAs")
+
 check(dPr_by_theta[1] < 0,
       "selecting on As alone leaves the As+ pool short on Pr")
-check(dPr_by_theta[length(dPr_by_theta)] > 0,
-      "and a large theta overshoots, so a crossing exists to bisect on")
 check(stats::cor(theta_seq, dPr_by_theta) > 0.8,
-      "dPr rises with theta in trend, which is what the bisection needs")
-check(any(diff(dPr_by_theta) < 0),
-      "but NOT monotonically -- so the crossing found is local, not optimal")
+      "dPr rises with theta in trend, which is what makes theta the right knob")
+
+# theta = 0 is the unconstrained optimum, so nothing can beat it on contrast
+check(dAs_by_theta[1] >= max(dAs_by_theta) - 1e-8,
+      "theta = 0 maximises the contrast: it is the unconstrained solution")
+check(stats::cor(theta_seq, dAs_by_theta) < -0.8,
+      "and buying Pr balance costs contrast, monotonically in trend")
+
+# disjointness is STRUCTURAL under one index: the top n and bottom n of a
+# single ordering cannot collide. No exclusion step is needed, and this holds
+# at every theta rather than only at the chosen one.
+overlaps <- purrr::map_int(sweep,
+  \(r) length(intersect(r$plus$acc, r$minus$acc)))
+check(all(overlaps == 0),
+      "top-n and bottom-n of one ordering are disjoint at every theta")
+
+# ------------------------------------------------------------
+# 1c. NEGATIVE: the two-index rule this replaced is worse
+#
+# It scored the As- pool by As - theta*Pr, which REWARDS high Pr there, so
+# raising theta dragged both pools up rather than equalising them. Without this
+# check a revert would pass the whole suite.
+# ------------------------------------------------------------
+
+two_index <- function(cand, n, theta) {
+  plus <- cand |> dplyr::mutate(sc = As + theta * Pr) |>
+    dplyr::slice_max(sc, n = n, with_ties = FALSE)
+  minus <- cand |> dplyr::filter(!acc %in% plus$acc) |>
+    dplyr::mutate(sc = As - theta * Pr) |>
+    dplyr::slice_min(sc, n = n, with_ties = FALSE)
+  c(dAs = mean(plus$As) - mean(minus$As),
+    dPr = mean(plus$Pr) - mean(minus$Pr))
+}
+old_sweep <- vapply(theta_seq, \(th) two_index(cand_m, 20, th), numeric(2))
+best_old <- max(old_sweep["dAs", abs(old_sweep["dPr", ]) <= 1.0])
+best_new <- max(dAs_by_theta[abs(dPr_by_theta) <= 1.0])
+check(best_new > best_old,
+      sprintf("one index beats two at the same tolerance (%.2f vs %.2f)",
+              best_new, best_old))
 
 # the contrast must shrink as the pools grow: that is the trade-off the power
 # calculation balances, and if it stopped holding the pool-size argument changes

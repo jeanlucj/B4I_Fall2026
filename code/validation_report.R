@@ -57,6 +57,7 @@ read_if <- function(name) {
 }
 
 cv    <- read_if("crossval_summary.csv")
+psum  <- read_if("pool_summary.csv")
 grid  <- read_if("power_grid.csv")
 vint  <- read_if("vintage.csv")
 qc    <- if (file.exists(here::here("output", "trial_qc.csv")))
@@ -92,6 +93,22 @@ block_vintage <- function() {
   lines
 }
 
+# §2's contrast table was hand-maintained and went stale twice -- it still read
+# 14.3 / 16.5 when the vintage on disk produced 15.24 / 18.01 -- so it is
+# generated now. pool_summary.csv is the source.
+block_pools <- function() {
+  if (is.null(psum)) return(NULL)
+  idx <- if ("pool_index" %in% names(psum)) unique(psum$pool_index)[1] else NA
+  c("| species | n per pool | candidates | θ | ΔAs (g/m²) | ΔPr | mean Pr, As+ | mean Pr, As− |",
+    "|---|---|---|---|---|---|---|---|",
+    sprintf("| %s | %d | %d | %s | **%s** | %s | %s | %s |",
+            psum$species, psum$n_per_pool, psum$n_candidates,
+            fmt(psum$theta, 3), fmt(psum$dAs, 2), fmt(psum$dPr, 3),
+            fmt(psum$mean_Pr_plus, 2), fmt(psum$mean_Pr_minus, 2)),
+    "",
+    sprintf("*Selection rule: `%s`.*", if (is.na(idx)) "unstamped" else idx))
+}
+
 block_lambda <- function() {
   if (is.null(cv)) return(NULL)
   x <- dplyr::filter(cv, set == "informative folds only")
@@ -121,8 +138,14 @@ block_power <- function() {
   # A grid written before lambda and the interaction were measured still sweeps
   # them, and collapsing that to one row per budget would pick an arbitrary
   # lambda and present it as the estimate. Say so instead of guessing.
-  swept <- dplyr::n_distinct(g$lambda) > 1 ||
-           dplyr::n_distinct(g$interaction_frac) > 1 ||
+  # Count distinct values WITHIN a species: lambda and interaction_frac are
+  # per-species measurements, so two species legitimately give two values and
+  # the naive across-the-board count calls a correct grid "swept".
+  per_sp <- g |>
+    dplyr::group_by(species) |>
+    dplyr::summarise(nl = dplyr::n_distinct(lambda),
+                     ni = dplyr::n_distinct(interaction_frac), .groups = "drop")
+  swept <- any(per_sp$nl > 1) || any(per_sp$ni > 1) ||
            ("sided" %in% names(g) && dplyr::n_distinct(g$sided) > 1)
   if (swept) {
     message("  power_grid.csv still sweeps lambda/interaction/sided -- it ",
@@ -143,8 +166,8 @@ block_power <- function() {
             fmt(g$lambda), fmt(g$interaction_frac), fmt(g$power)))
 }
 
-blocks <- list(vintage = block_vintage(), lambda = block_lambda(),
-               power = block_power())
+blocks <- list(vintage = block_vintage(), pools = block_pools(),
+               lambda = block_lambda(), power = block_power())
 
 # ------------------------------------------------------------
 # Splice

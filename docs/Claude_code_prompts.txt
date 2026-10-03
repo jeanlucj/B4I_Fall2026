@@ -817,3 +817,433 @@ That is, what happens in all of the analyses of validate_refresh.R with those 30
 <pasted_content id="9b66">
 In VALIDATE_DESIGN.md, I still find the section on "Why pool size is not the hard question" confusing.  You said you re-wrote it but as far as I can tell it's very similar to what it used to be.  That is, the power_grid.csv file clearly shows increasing power with increasing pool size so that I would _not_ say that design geometry is the dominant question.  It's not irrelevant but of course maximizing power is very important in experiments.  I think the underlying reason for the change in power could be explained more clearly.  On the one hand, the delta_As is affected by the selection intensity: the mean of the selected tail of a normal distribution increases as the percentage selected goes down, but when selection is already intense, the mean starts to shift more slowly as that percentage goes down.  Since we have over 400 oat and pea accessions, going from n=40 to n=20 means going from ~10% to ~5% selected: what is the change in the selected tail mean then (assuming a normal distribution)?  The change in the standard error of that mean is square root of 2.  I'm unclear how these requirements affect power: 1. Pr be above the median, and 2. the fact that Pr and As have negative covariance but the pools have about equal Pr.  Also, does validate_power.R that writes power_grid.csv still sweep values of lambda and intersection_frac?  I think it does, but I asked you to plug in single values that came from the analysis.
 </pasted_content id="9b66">
+[2026-10-03 07:36:29] <task-notification>
+<task-id>aa1404c0b6c74d07b</task-id>
+<tool-use-id>toolu_01MZtESS8sQKFBNnRCZks89F</tool-use-id>
+<output-file>/private/tmp/claude-1334918876/-Users-jj332-Documents-GitRepo-B4I-Fall2026/e21c7a19-656a-4e24-96ad-8e665e19d591/tasks/aa1404c0b6c74d07b.output</output-file>
+<status>completed</status>
+<summary>Agent "Map pool builder dependencies" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>I have a complete picture. Here is the inventory.
+
+---
+
+# 1. Signature and return value of `build_pools()` (question 3)
+
+`/Users/jj332/Documents/GitRepo/B4I_Fall2026/code/validation_functions.R:218-275`
+
+```r
+build_pools &lt;- function(inp, n, pr_quantile = 0.5, tol = 1.0,
+                        theta_max = 10, iterations = 60L) {
+```
+
+Pipeline: filter `inp$accessions` on `eligible` → `pr_min &lt;- quantile(cand$Pr, pr_quantile)` → filter `Pr &gt;= pr_min` → hard `stop()` if `nrow(cand) &lt; 2 * n` (line 224) → 60-iteration bisection on `theta` in `[0, theta_max]` driven by `sign(.pools_at(cand, n, theta)$dPr)` (lines 240-244) → `res &lt;- .pools_at(cand, n, theta)` (245) → `warning()` if `abs(res$dPr) &gt; tol` (247-252).
+
+Returned list (lines 266-274), 12 elements:
+
+| element | source |
+|---|---|
+| `pools` | tibble built from `res$plus` / `res$minus` via `bind_rows(mutate(res$plus, pool="As+"), mutate(res$minus, pool="As-"))`, then `transmute(species, pool, acc, Pr, As, n_partners, n_plots)`, `arrange(pool, desc(As))` — lines 254-260 |
+| `n` | the argument |
+| `theta` | last bisection midpoint |
+| `pr_min` | the quantile threshold |
+| `n_candidates` | `nrow(cand)` after both filters |
+| `dAs` | `res$dAs` = `mean(plus$As) - mean(minus$As)` |
+| `dPr` | `res$dPr` = `mean(plus$Pr) - mean(minus$Pr)` |
+| `mean_Pr_plus`, `mean_Pr_minus` | `mean(res$plus$Pr)`, `mean(res$minus$Pr)` |
+| `mean_As_plus`, `mean_As_minus` | `mean(res$plus$As)`, `mean(res$minus$As)` |
+| `var_blup_within` | `mean(c(var(res$plus$As), var(res$minus$As)))` — line 264 |
+| `sigma2_within` | `inp$PEV_As + var_blup_within` |
+
+Everything except `n`, `pr_min`, `n_candidates` and `theta` is computed from `res$plus`/`res$minus`.
+
+`.pools_at()` (lines 194-207) returns exactly four elements: `plus`, `minus`, `dAs`, `dPr`. It is the only place the selection index lives:
+
+```r
+  plus &lt;- cand |&gt; dplyr::mutate(score = As + theta * Pr) |&gt;
+    dplyr::slice_max(score, n = n, with_ties = FALSE)
+  minus &lt;- cand |&gt; dplyr::filter(!acc %in% plus$acc) |&gt;
+    dplyr::mutate(score = As - theta * Pr) |&gt;
+    dplyr::slice_min(score, n = n, with_ties = FALSE)
+```
+
+Note it requires `cand` to carry `acc`, `Pr`, `As`; `build_pools`' `transmute` additionally requires `n_partners` and `n_plots` (line 258-259). Any replacement must preserve those column requirements.
+
+The prose contract above the function, `code/validation_functions.R:176-191`, states the algorithm (Lagrange multiplier, bisection, "Disjointness is enforced by building the As+ pool first and excluding its members from the As- candidate set") and would need rewriting too. Lines 230-239 are an in-code comment specifically about the bisection's non-monotonicity.
+
+---
+
+# 2. Every caller (question 1)
+
+### A. `code/validate_pool_selection.R:75` — the production driver
+```r
+  bp &lt;- build_pools(inp, n, pr_quantile = pr_quantile, tol = pr_tolerance)
+```
+The only caller that passes `tol`. Reads: `bp$pr_min` and `bp$n_candidates` (:80-81), `bp$dAs` (:82), `bp$dPr` (:83), `bp$mean_Pr_plus`/`mean_Pr_minus` (:85-87), `bp$sigma2_within` and `bp$var_blup_within` (:88-90), `bp$pools` for the two `stopifnot` guards (:92-98). Then `purrr::map(built, "pools")` (:102) and the `pool_summary` tibble (:104-112) which reads `bp$n`, `bp$n_candidates`, `bp$pr_min`, `bp$theta`, `bp$dAs`, `bp$dPr`, `bp$mean_As_plus`, `bp$mean_As_minus`, `bp$mean_Pr_plus`, `bp$mean_Pr_minus`, `bp$sigma2_within`. Writes `pools.csv`, `pool_summary.csv`, `vintage.csv` (:114-116).
+
+Its own in-script assertions (:92-98) are algorithm-agnostic:
+```r
+    "pools are not disjoint" =
+      length(intersect(bp$pools$acc[bp$pools$pool == "As+"],
+                       bp$pools$acc[bp$pools$pool == "As-"])) == 0,
+    "a pool member falls below the partner filter" =
+      all(bp$pools$n_partners &gt;= min_partners)
+```
+A new index that does not explicitly exclude the As+ members (e.g. top-n / bottom-n on one axis) still satisfies disjointness only if the two slices cannot collide — this `stopifnot` is the guard that would catch it.
+
+Note the `theta` column in `pool_summary.csv` is written unconditionally; if the new algorithm has no single `theta` (e.g. a grid scan returning a chosen θ, or no θ at all), `:106` breaks.
+
+### B. `code/validate_power.R:344-346` — pools for the simulation
+```r
+  pools &lt;- purrr::imap(inputs, \(inp, name)
+    build_pools(inp, sim_cases$n[sim_cases$species == name][1],
+                pr_quantile = pr_quantile)$pools)
+```
+Uses only `$pools`, fed to `simulate_validation(inputs, pools$oat, pools$pea, ...)` (:349). Default `tol = 1.0` — warnings are not suppressed here.
+
+### C. `code/validate_power.R:376-378` — analytic prediction matched to the simulation
+```r
+    bp  &lt;- build_pools(inp, n, pr_quantile = pr_quantile)
+    a   &lt;- contrast_power(bp$dAs, bp$sigma2_within, n, inp$sigma2_e,
+                          p_loc * n_locations, lambda = lambda, sided = 1)
+```
+Reads `bp$dAs`, `bp$sigma2_within`. Feeds `predicted_delta`, `analytic_SE`, `power_analytic` in `power_simulation.csv`, and the sim-vs-analytic consistency check at `:410-416` (a `warning()` if `power_sim &lt; power_analytic - 0.10`) and `:417-421`.
+
+### D. `code/validation_functions.R:549` — `power_grid()`
+```r
+power_grid &lt;- function(inp, n_values, P_values, lambda_values = c(1, 0.8, 0.6), ...) {
+  purrr::map(n_values, \(n) {
+    bp &lt;- build_pools(inp, n, pr_quantile = pr_quantile)
+```
+Reads `bp$dAs`, `bp$sigma2_within`, `bp$dPr`. The doc comment above it (:545-547) is a constraint on any change: *"Pools are rebuilt at every n, because the contrast shrinks as the pool grows -- that trade-off is the whole question and must not be held fixed."* Called from `code/validate_power.R:273`, writes `power_grid.csv` (:279) → consumed by `code/validation_report.R:60,106-145` to regenerate the `&lt;!-- BEGIN GENERATED: power --&gt;` block in VALIDATION_DESIGN.md.
+
+### E. `code/validate_crossval.R:225` — the rehearsal (see question 5)
+### F. `code/validate_crossval.R:421` — the "what this means" table (see question 5)
+
+### Callers of `.pools_at()` outside `build_pools`
+Only `tests/test_validation.R` (lines 63, 65, 66, 91). Nothing in `code/` calls it directly except `build_pools` itself (lines 243, 245).
+
+### Downstream consumer that reads `pools.csv` rather than calling `build_pools`
+`code/validate_design.R:59-68` — hard-stops if `pools.csv` is absent for today's vintage, then splits by species into `oat_pools` / `pea_pools` for `make_validation_design()` and `check_validation_design()`. It only uses `acc`, `pool`, `species`, so a change in *membership* changes the field book but not the design code.
+
+---
+
+# 3. What `tests/test_validation.R` asserts (question 2)
+
+Run entry: `tests/run_all.R:23` globs `^test_.*[.]R$`; `test_validation.R` is in the fast tier (not in `slow_files`). Setup: `load_code("validation_functions.R")` at line 17, `set.seed(5)` at 19, synthetic `make_inputs()` at :24-37 with `cor_pr_as = -0.4`, `Pr` scaled ×10, `As` scaled ×8, all `eligible = TRUE`, 120 accessions.
+
+## Algorithm-agnostic (survive any correct re-implementation)
+
+Loop over `n in c(10, 20, 30)`, `tests/test_validation.R:49-50`:
+```r
+  bp &lt;- suppressWarnings(build_pools(inp, n, pr_quantile = 0.5, tol = 1.0))
+```
+- `:55-56` `length(plus) == n &amp;&amp; length(minus) == n` — "n per pool"
+- `:57-58` `length(intersect(plus, minus)) == 0` — "the pools are disjoint at n = %d"
+- `:69` `check(bp$dAs &gt; 0, ...)` — contrast positive
+- `:70-71` `all(bp$pools$Pr &gt;= bp$pr_min)` — every member clears the Pr threshold
+- `:72-74` `bp$mean_Pr_plus &gt; mean(inp$accessions$Pr) &amp;&amp; bp$mean_Pr_minus &gt; mean(...)` — both pools above population mean Pr
+- `:78-82` the naive-rule negative control; it does not call `build_pools` at all, so it is unaffected:
+```r
+check(length(intersect(naive_plus, naive_minus)) &gt; 0,
+      "the naive Pr+As / Pr-As rule DOES overlap, which is why it is not used")
+```
+- `:109-112` warning on unmeetable tolerance — **text-coupled**, see below
+- `:113-115` `build_pools(inp, 20, tol = 5)` must raise no warning
+- `:118-119` `check_error(build_pools(inp, 100, pr_quantile = 0.5), ...)` — refuse a pool bigger than the candidate set
+- `:123-127` eligibility respected:
+```r
+bp_e &lt;- suppressWarnings(build_pools(inp_partial, 8))
+check(all(bp_e$pools$n_partners &gt;= 8), "ineligible accessions are never selected")
+```
+- `:132-144` the `pool_diff` block only uses `build_pools(inp, 20)$pools` as a fixture; counts are relative (`nrow(old_p) - 1`), so membership changes do not matter.
+- `:195-198` fixtures for `make_validation_design`; section 4's assertions (`:200-224`) are about balance, not membership. `:197` builds a second species from `make_inputs(130)`.
+
+## Would break or require rewriting if the selection index changes
+
+- **`:63-64` — directly references `.pools_at` with the current index:**
+```r
+  check(abs(bp$dPr) &lt;= abs(.pools_at(cand_n, n, 0)$dPr) + 1e-8,
+        sprintf("constraining never widens the producer gap at n = %d", n))
+```
+This asserts the achieved `|dPr|` is no worse than θ = 0. A single-index rule still has a θ = 0 reference point, but `.pools_at`'s signature/semantics must survive for the call to work.
+
+- **`:65-68` — asserts the returned `theta` brackets a zero crossing. This is a direct assertion about the bisection:**
+```r
+  check(.pools_at(cand_n, n, bp$theta * 0.5)$dPr &lt;= 0 &amp;&amp;
+          .pools_at(cand_n, n, bp$theta * 2)$dPr &gt;= 0,
+        sprintf("the solution brackets the zero crossing at n = %d", n))
+```
+If the new rule targets "smallest feasible θ" or "feasible θ maximising ΔAs" instead of a zero crossing, this is false by construction and must be replaced.
+
+- **`:88-101` — an entire block that pins properties of `dPr(θ)` under the current two-sided index:**
+```r
+theta_seq &lt;- seq(0, 5, by = 0.25)
+dPr_by_theta &lt;- purrr::map_dbl(theta_seq, \(th) .pools_at(cand_m, 20, th)$dPr)
+check(dPr_by_theta[1] &lt; 0, "selecting on As alone leaves the As+ pool short on Pr")
+check(dPr_by_theta[length(dPr_by_theta)] &gt; 0,
+      "and a large theta overshoots, so a crossing exists to bisect on")
+check(stats::cor(theta_seq, dPr_by_theta) &gt; 0.8,
+      "dPr rises with theta in trend, which is what the bisection needs")
+check(any(diff(dPr_by_theta) &lt; 0),
+      "but NOT monotonically -- so the crossing found is local, not optimal")
+```
+Note the θ range `[0, 5]` and the cor &gt; 0.8 threshold are tuned to the current index; `docs/B4I_followups.md` says the single-index rule reaches tolerance at θ ≈ 0.175 for oat vs 0.61 now, so the shape of `dPr(θ)` over `[0,5]` changes substantially. The last check is deliberately a record that monotonicity is false — it is the test most tightly bound to the current algorithm.
+
+- **`:103-107` — a cross-`n` ordering, not a hard number, but it is an empirical property of the selection rule:**
+```r
+d10 &lt;- suppressWarnings(build_pools(inp, 10))$dAs
+d30 &lt;- suppressWarnings(build_pools(inp, 30))$dAs
+check(d10 &gt; d30, "a larger pool gives a smaller contrast")
+```
+VALIDATION_DESIGN.md:349-350 already records that the achieved contrast is *not* monotone in n for pea under the current rule, so this holds only for this synthetic fixture. A different index changes the achieved contrast at every n and could flip it.
+
+- **`:109-112` warning-message coupling** — asserts the exact phrase:
+```r
+check(!is.null(w) &amp;&amp; grepl("Pr constraint could not be met", w),
+      "an unmeetable producer tolerance raises a warning that says so")
+```
+The string must be preserved (currently emitted at `validation_functions.R:250`). Also `build_pools(inp, 10, tol = 0.01)` must *still* fail to meet 0.01 under the new rule for this to produce a warning at all — a better index might meet it and silently flip this to a FAIL.
+
+## Hard-coded numeric results
+
+**There are none.** No test compares a pool member, a `dAs`, a `dPr` or a `theta` against a literal. The only literals are tolerances (`1e-8`, `0.8`), the `theta_seq` grid bounds (`0, 5, by = 0.25`), the pool sizes (`10, 20, 30`), the `tol` values (`0.01`, `5`), `n = 100` for the refusal, and `n_partners &gt;= 8`. `tests/helper.R:8-12` states this explicitly as policy: *"most of them compare the code against a quantity known independently ... rather than against a value the code produced earlier. A test that only pins today's output freezes bugs as well as behaviour."*
+
+`tests/README.md:38` also records the naive-rule oracle: *"singular; the naive Pr+As / Pr−As rule must produce overlapping pools)"*. `tests/README.md:22`: `| `test_validation.R` | pool construction, the field design's balance, the power formula | 2 |`.
+
+---
+
+# 4. Persistence and cross-run comparison (question 4)
+
+### `pool_diff()` — `code/validation_functions.R:282-307`
+Joins on `c("species", "acc")` only and classifies:
+```r
+    dplyr::mutate(status = dplyr::case_when(
+      is.na(pool_old)          ~ "entered",
+      is.na(pool_new)          ~ "left",
+      pool_old != pool_new     ~ "switched pool",
+      TRUE                     ~ "retained"
+    ))
+```
+Returns `list(detail = ..., summary = ...)` where `summary` is a `count(species, status)` pivoted wide.
+
+### How the previous vintage is found — `code/validate_pool_selection.R:129-137`
+```r
+previous &lt;- list.dirs(out_root, recursive = FALSE) |&gt;
+  setdiff(out_dir) |&gt;
+  (\(d) d[file.exists(file.path(d, "pools.csv"))])() |&gt;
+  sort()
+
+if (length(previous) &gt; 0) {
+  prev_dir &lt;- utils::tail(previous, 1)
+  prev &lt;- readr::read_csv(file.path(prev_dir, "pools.csv"), show_col_types = FALSE)
+  dif &lt;- pool_diff(prev, pools)
+```
+Purely a lexicographic sort of directory names — there is no algorithm/version marker anywhere in `pools.csv` or `pool_summary.csv`, so a new algorithm's first run will diff against the old algorithm's output with no signal that the comparison is apples-to-oranges. (Side note on the existing sort: `output/validation/` currently holds `2026-09-24`, `2026-09-27`, `2026-10-02`, `2026-10-02_1`, and `"2026-10-02_1"` sorts after `"2026-10-02"`, so `tail(sort(...), 1)` picks the `_1` suffix directory.)
+
+### What the churn report says — `code/validate_pool_selection.R:139-158`
+Writes `pool_diff.csv`, prints `dif$summary`, then:
+```r
+  churn &lt;- dif$detail |&gt; dplyr::filter(status != "retained") |&gt;
+    dplyr::count(species, name = "n_changed")
+  retained &lt;- dif$detail |&gt; dplyr::filter(status == "retained") |&gt;
+    dplyr::count(species, name = "n_retained")
+  ...
+                  pct_retained = round(100 * n_retained / (n_retained + n_changed))) |&gt;
+  ...
+  cat("\nA pool that retains well under 70% of its members across a data\n",
+      "vintage is a warning about the estimates, not about the design.\n", sep = "")
+```
+That 70% rule is the thing an algorithm change invalidates for one run.
+
+### Second place the churn is advertised — `code/validate_refresh.R:184-195`
+```r
+  vints &lt;- sort(list.dirs(vint_dir, recursive = FALSE, full.names = FALSE))
+  ...
+    cat("\nThe pool churn between the last two vintages is in\n  ",
+        file.path(vint_dir, utils::tail(vints, 1), "pool_diff.csv"), "\n",
+        "A pool retaining well under 70% of its members across one data",
+        " vintage is\na warning about the EFFECT ESTIMATES, not about the",
+        " design.\n", sep = "")
+```
+
+### On-disk vintages
+`output/validation/{2026-09-24, 2026-09-27, 2026-10-02, 2026-10-02_1}/`. `pools.csv` + `pool_summary.csv` in all four; `pool_diff.csv` in all but `2026-09-24`. `pool_summary.csv` header: `species,n_per_pool,n_candidates,pr_threshold,theta,dAs,dPr,mean_As_plus,mean_As_minus,mean_Pr_plus,mean_Pr_minus,sigma2_within,PEV,reliability_As`. Current values (`2026-10-02`): oat θ = 0.606, dAs = 15.237, dPr = −0.4997, 215 candidates; pea θ = 1.844, dAs = 18.010, dPr = −0.6589, 204 candidates. (`2026-10-02_1`: oat θ = 0.830, dAs = 13.014; pea θ = 1.884, dAs = 13.723.)
+
+### Documented promise about the churn
+`VALIDATION_DESIGN.md:527-534` and `:600`:
+```
+| `output/validation/&lt;date&gt;/pool_diff.csv` | **who entered and left each pool.** Read this first: it is the stability check |
+```
+
+---
+
+# 5. Does `validate_crossval.R` build pools independently? (question 5)
+
+Yes, at two places. Note the line numbers are **225** and **421**, not 224/379.
+
+### Call 1: the rehearsal, `code/validate_crossval.R:220-227`
+```r
+    # same constrained rule the real selection uses. PEV is set to 0 because
+    # the rehearsal only needs the pools, not their power.
+    fake_inp &lt;- list(species = species,
+                     accessions = dplyr::mutate(cand, eligible = TRUE),
+                     PEV_As = 0)
+    bp &lt;- tryCatch(build_pools(fake_inp, n, pr_quantile = pr_quantile),
+                   error = function(e) NULL)
+    if (is.null(bp)) return(NULL)
+```
+Independent inputs: `cand` is built from the **training-fold BLUPs** (`blups`), joined to training-fold partner counts and restricted to accessions present in the held-out trial (`:212-215`), with `n &lt;- min(rehearsal_max_n, floor(nrow(cand) / 3))` and `if (n &lt; 5) return(NULL)` (`:217-218`). `rehearsal_max_n &lt;- 25L` (`:76`). Default `tol = 1.0` is used (not `pr_tolerance`). Note `fake_inp` has no `sigma2_e`, `rel_As` etc. — only `species`, `accessions`, `PEV_As` — so a changed `build_pools` must not start reading other `inp` fields, or this call breaks.
+
+Reads: `bp$pools` (`:229`, selecting `acc, pool`) and `bp$dAs` (`:245, :248`). Produces per-fold `predicted_contrast = bp$dAs`, `realised_contrast`, `contrast_se`, `lambda_pool = realised / bp$dAs`, `p_one_sided` (`:243-251`).
+
+### Call 2: the power statement, `code/validate_crossval.R:421`
+```r
+  bp  &lt;- build_pools(inp, n_pool[[sp]], pr_quantile = pr_quantile)
+  ...
+  pw &lt;- function(lam, int) contrast_power(
+    bp$dAs, bp$sigma2_within, n_pool[[sp]], inp$sigma2_e, p_loc * n_loc,
+    lambda = lam, sided = 1, interaction_frac = int, n_loc = n_loc)$power
+```
+Reads `bp$dAs`, `bp$sigma2_within`. Feeds `power_at_lambda`, `power_with_interaction`, `power_at_lambda_lo` in `crossval_power.csv` (`:433-444`) and the verdict text at `:456-465`.
+
+### Would a change in pool composition alter λ / interaction_frac?
+
+**No for the headline λ and interaction_frac.** Both come from `calibration`, a plot-level regression that never touches pools — `code/validate_crossval.R:149-161`:
+```r
+    m &lt;- stats::lm(stats::reformulate(c(as_col, partner_pr_col), response), data = dat)
+    ...
+      lambda = s[as_col, "Estimate"], lambda_se = s[as_col, "Std. Error"],
+```
+and `interaction_frac` is purely the across-fold spread of those slopes — `:342`:
+```r
+      interaction_frac = stats::sd(lambda) / abs(mean(lambda)),
+```
+The jackknife (`:372-387`: `lambda_all`, `interaction_all`, `lambda_without`, `interaction_without`, `narrows_by`, `raises_lambda_by`) is likewise built from `same$lambda`, so it is pool-independent. The informative/uninformative split at `:323-324` uses `response_sd`, also pool-independent.
+
+**Yes for the rehearsal columns and the power columns.** `lambda_pool`, `predicted_contrast`, `realised_contrast`, `contrast_se`, `p_one_sided`, and the aggregates `lambda_pool_mean` / `lambda_pool_sd` (`:344-345`) all move with pool composition. So does everything in `crossval_power.csv`, because `bp$dAs` and `bp$sigma2_within` change. The fold-by-fold print at `:312-316` includes `lambda_pool, realised_contrast, predicted_contrast`.
+
+Practical consequence: λ stays put, so `power_at_lambda` moves only through `dAs`/`sigma2_within` — and per `docs/B4I_followups.md:630-633` that is +9.1 points for oat and +19.1 for pea.
+
+---
+
+# 6. Documentation that states the algorithm or quotes its numbers (question 6)
+
+## `VALIDATION_DESIGN.md` — the main burden
+
+**Section 2, "Building the pools" (lines 51-96).** This is where the algorithm is specified.
+
+- `:53-66` "The obvious rule does not work", including a hard-coded overlap table:
+```
+| n per pool | oat accessions in *both* pools |
+| 10 | 1 |  | 20 | 8 |  | 30 | 13 |  | 50 | 20 |
+```
+  and `:66` *"At n = 30 that is 13 of 30 shared, which guts the contrast."*
+- `:70-75` the three constraints.
+- **`:77-79` the algorithm statement — must be rewritten:**
+```
+Implemented with a Lagrange multiplier on `Pr`, pushed in opposite directions
+for the two pools and bisected until the producer difference crosses zero
+(`build_pools()` in `code/validation_functions.R`).
+```
+- `:81-85` candidate filter and *"leaving 265 oat and 254 pea"*.
+- **`:87-96` "What it delivers" — hand-written numbers, NOT inside a GENERATED block:**
+```
+| species | n per pool | ΔAs (g/m²) | ΔPr | mean Pr, As+ | mean Pr, As− | population mean Pr |
+| oat | 20 | **14.3** | 0.15 | 14.0 | 13.8 | 0.06 |
+| pea | 30 | **16.5** | 0.01 | 10.5 | 10.5 | 0.26 |
+```
+  `:94-96` *"The producer constraint is essentially free: it costs about 1 g/m² of associate contrast and buys two pools whose producer means differ by less than 0.2 g/m² while both sit 10–14 g/m² above the population mean."*
+
+**Section 5 (lines 261-356) — the pool-size argument, built on achieved contrasts.**
+- `:267-273` power-by-n table (oat 0.654→0.724, pea 0.414→0.695) and `:275-276` *"Oat gains about 7 points from n = 10 to n = 50; **pea gains 28**."*
+- `:285-294` tail-mean arithmetic, *"after the Pr filter below there are 221 oat and 212 pea candidates"*, *"Halving n from 40 to 20 therefore buys a contrast about **1.24×** larger."*
+- `:317-326` *"430 eligible oat become 221, 407 pea become 212"*, *"×1.168 at p = 0.09 against ×1.130 at p = 0.047"*.
+- `:328-333` *"the two pools must have nearly equal mean Pr (within 1.0 g/m²), and Pr and As are negatively correlated — −0.51 across all accessions, −0.27 for oat and −0.40 for pea among the candidates"*.
+- `:337-347` the "% of theory" table (oat n=10: 27.8/18.3/66%; n=20: 23.8/15.2/64%; n=40: 19.2/13.6/71%; n=50: 17.6/13.0/74%) and *"The constraints cost a quarter to a third of the achievable contrast throughout"*, *"the achieved contrast falls by only 29% from n = 10 to n = 50 where theory says 37%"*.
+- **`:349-356` names the algorithm again and is the exact sentence the change supersedes:**
+```
+Pea is noisier still — its achieved contrast is 44–65% of theory and not
+monotone in *n*. The pool builder is not a greedy search, as an earlier version
+of this sentence said; it is a Lagrangian selection index bisected on one
+multiplier, which is the right family of method. But it is leaving a large
+amount on the table, for reasons measured in
+[docs/B4I_followups.md](docs/B4I_followups.md) item 13 — enough that pea's curve
+should be read as a trend rather than cell by cell, and enough that these power
+figures are a floor rather than an estimate.
+```
+
+**Other spots:**
+- `:402-410` the verification table quoting `predicted Δ` 14.3 / 16.5 and SEs 3.77/3.67, 5.48/5.15, with `:403-405` *"The simulation draws each accession's *true* effect from its posterior and then selects pools on the *estimates*"*.
+- `:453-459` the rehearsal table (predicted → realised per fold), which comes from the `build_pools` call at `validate_crossval.R:225` and therefore changes.
+- `:43-49` the "producer imbalance is not a confound" argument.
+- `:617-625` the ΔAs-as-extremes-of-BLUPs argument (*"the pools are chosen as the extremes of the BLUP distribution"*) and `:633-637` *"Power is computed on the data used to choose the pools, so it is an in-sample statement throughout."*
+- `:523` *"**Nothing in the scripts is hard-coded**; all of it is re-derived at run time"*.
+- `:733` *"Check the selected pools against it (`output/validation/&lt;vintage&gt;/pools.csv`)"* — the collapsed-names worklist.
+
+**Which parts regenerate automatically:** only three blocks, per `code/validation_report.R:19-21`. In VALIDATION_DESIGN.md they are `vintage` (`:184-194`), `power` (`:196-201`, currently holding a *"**Stale.**"* notice), and `lambda` (`:475-480`). `validation_report.R` reads only `crossval_summary.csv`, `power_grid.csv`, `vintage.csv` and `output/trial_qc.csv` (`:59-64`) — **it never reads `pool_summary.csv`**, so every ΔAs / ΔPr / θ / candidate-count number in sections 2 and 5 is hand-maintained prose and must be updated by hand.
+
+## `docs/B4I_followups.md:610-660` — item 13, the pre-written diagnosis
+This file already contains the full analysis of the current index and the proposed replacement, including measured before/after numbers. Key lines:
+- `:614-616` *"`.pools_at()` (`code/validation_functions.R:194`) scores the As⁺ pool by `As + θ·Pr` and the As⁻ pool by `As − θ·Pr`, then `build_pools()` bisects θ until the pools' mean Pr difference crosses zero."*
+- `:617-620` *"Scoring the As⁻ pool by `As − θ·Pr` *rewards* high Pr in that pool, so raising θ drags **both** pools toward high Pr rather than equalising them ... it takes a large θ to get there — 0.61 for oat."*
+- `:622-625` the proposed single index and *"It reaches the same tolerance at θ = 0.175 for oat"*.
+- `:627-633` the measured comparison table on the 2026-10-03 data (oat 15.24 → 19.80, power 0.691 → 0.782; pea 18.01 → 25.58, power 0.656 → 0.847).
+- `:640-645` the two smaller problems (bisection targets ΔPr = 0 when tolerance is ±1.0; *"A 4,001-point scan finds **three** sign changes for oat, so bisection can land on the wrong crossing"*).
+- `:647-649` *"The fix, in order of value: use one index for both pools; scan θ rather than bisect; among feasible θ take the one maximising ΔAs rather than the one zeroing ΔPr."*
+- **`:658-660` — the exact risk you asked about:**
+```
+**Not yet implemented.** It changes pool membership, so it changes who is in the
+validation experiment and makes `pool_diff` churn against the previous vintage
+meaningless for one run. That is a decision, not a refactor.
+```
+This whole item would need to move from "unsettled" to settled/done.
+
+## Other markdown
+- `DESIGN.md:113-114` (pipeline diagram: `As+/As-  pools`) and `DESIGN.md:156`: `| `validate_pool_selection.R` | builds the As+ / As- pools and diffs them against the previous vintage |` — no algorithm detail, no numbers.
+- `tests/README.md:22` and `:38` (the naive-rule oracle, quoted above).
+- `README.md`, `CROSS_VALIDATION.md`, `EVALUATION.md`, `output/README.md`, `code/README.md`: no description of the pool algorithm. (`EVALUATION.md:48` and `DESIGN.md:48` mention "clonal pools" — unrelated, curation.)
+- Nothing in `analysis/` references `build_pools` or `pools.csv`.
+
+---
+
+# 7. Conventions for `validation_functions.R` (question 7)
+
+**"Sourced, not run":** yes. `code/validation_functions.R:29`:
+```
+# Sourced, not run.
+```
+(immediately before the closing `# ====` banner at :30 and `library(tidyverse)` at :32).
+
+**In `EVAL_SOURCES`:** yes, as the sole member of the `validation` pipeline — `code/evaluation.R:141`:
+```r
+  validation = c("code/validation_functions.R")
+```
+The policy that puts it there, `code/evaluation.R:122-127`:
+```
+# Which files are safe to source outright: the ones whose header says
+# "Sourced, not run".  Everything else in code/ runs a driver on source.
+```
+
+**In `EVAL_GROUPS`:** yes — both functions are named explicitly, `code/evaluation.R:64-66`:
+```r
+  # ---- the validation trial (offline; reads the fit in output/) --------
+  validation = c("validation_inputs", "validation_vintage", "build_pools",
+                 ".pools_at", "pool_diff"),
+```
+Neighbouring groups that reach the same file: `val_design` (:68) and `val_power` (:70-71, includes `power_grid` and `crossval_estimates`).
+
+Also relevant: `EVAL_DEFS_FILES$validation` at `code/evaluation.R:151-153` pulls in `code/validate_power.R`, `code/validate_pool_selection.R`, `code/validate_design.R` for their own function definitions without running the drivers.
+
+Implication for the change: if `.pools_at` is removed or renamed, `EVAL_GROUPS$validation` at `evaluation.R:66` must change too — `eval_instrument()`/`disarm_evaluation()` look up names from that list (`evaluation.R:306, 327`) and `evaluation.R:300-303` errors on unknown *groups*, while `:348-358` audits that every group's names are known.
+
+Shared settings also live in this file and are read by all four drivers: `VALIDATION_DEFAULTS` at `code/validation_functions.R:46-60` (`n_per_pool = c(oat = 20L, pea = 30L)`, `pr_quantile = 0.5`, `pr_tolerance = 1.0`, `min_partners = 3L`), accessed via `validation_setting()` in `validate_pool_selection.R:46-49`, `validate_crossval.R:71-72`, `validate_design.R:47-50`, `validate_power.R:89`, `validation_report.R:112`. The header comment at `:36-44` says the three `validate_*` scripts "must agree about them or the vintage is not internally consistent".</result>
+<usage><subagent_tokens>96127</subagent_tokens><tool_uses>34</tool_uses><duration_ms>251454</duration_ms></usage>
+</task-notification>
+[2026-10-03 07:53:19] <task-notification>
+<task-id>b6d5qvole</task-id>
+<tool-use-id>toolu_01QjvZqGRikg7aC3jujTuw9E</tool-use-id>
+<output-file>/private/tmp/claude-1334918876/-Users-jj332-Documents-GitRepo-B4I-Fall2026/e21c7a19-656a-4e24-96ad-8e665e19d591/tasks/b6d5qvole.output</output-file>
+<status>completed</status>
+<summary>Background command "Re-run cross-validation in the background" completed (exit code 0)</summary>
+</task-notification>

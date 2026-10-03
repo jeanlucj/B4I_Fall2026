@@ -63,7 +63,7 @@ EVAL_GROUPS <- list(
 
   # ---- the validation trial (offline; reads the fit in output/) --------
   validation = c("validation_inputs", "validation_vintage", "build_pools",
-                 ".pools_at", "pool_diff"),
+                 ".pools_at", ".pool_scan", "pool_diff"),
 
   val_design = c("make_validation_design", "check_validation_design"),
 

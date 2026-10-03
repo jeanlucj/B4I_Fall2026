@@ -184,22 +184,63 @@ validation_inputs <- function(out_dir = here::here("output"),
 # proposed, does NOT give disjoint pools: a high-Pr accession makes both lists
 # whatever its As.  In this data that was 13 of 30 shared at n = 30.
 #
-# The constraint is handled with a Lagrange multiplier `theta` on Pr, pushed in
-# opposite directions for the two pools and bisected until the Pr difference
-# crosses zero.  Disjointness is enforced by building the As+ pool first and
-# excluding its members from the As- candidate set.
+# The constraint is handled with a Lagrange multiplier `theta` on Pr, and the
+# key point is that ONE index serves both pools: rank the candidates by
+# As + theta * Pr and take the top n and the bottom n.  Both selections then
+# move along a single axis, so theta buys Pr balance efficiently, and
+# disjointness is structural -- top n and bottom n of one ordering cannot
+# collide once there are at least 2n candidates, which build_pools() already
+# requires.
+#
+# WHY NOT A SEPARATE INDEX PER POOL, which is what this did until 2026-10-03.
+# It scored the As+ pool by As + theta * Pr and the As- pool by As - theta * Pr.
+# The second term REWARDS high Pr in the As- pool, so raising theta dragged BOTH
+# pools toward high Pr instead of equalising them.  Balance was reached only
+# indirectly and expensively -- oat needed theta = 0.61, spending a great deal of
+# As extremity to get there.  The single index reaches the same balance at
+# theta = 0.19.  Measured on the 2026-10-03 data at P = 400, both targeting
+# dPr = 0:
+#
+#     oat n=20   dAs 15.24 -> 19.59   dPr -0.50 -> +0.23   power 0.691 -> 0.779
+#     pea n=30   dAs 18.01 -> 25.07   dPr -0.66 -> -0.13   power 0.656 -> 0.839
+#
+# More power than any affordable increase in plots or pool size would buy, and
+# the producer balance gets TIGHTER at the same time.  See docs/B4I_followups.md
+# item 13.
+#
+# THE SEARCH IS A SCAN, NOT A BISECTION, for a related reason.  dPr(theta) is a
+# step function and is not monotone -- a dense scan finds three sign changes for
+# oat -- so bisecting for a sign change can converge on the wrong crossing.  A
+# scan costs nothing (5,000 theta in 0.13 s through .pool_scan) and finds the
+# global minimum of |dPr| rather than a local crossing.
 # ------------------------------------------------------------
+
+# Bump this whenever the selection rule changes, so churn against an older
+# vintage can be recognised as incomparable rather than read as instability.
+#   single-v1  2026-10-03  one index for both pools, dense scan on theta
+POOL_INDEX_VERSION <- "single-v1"
+
+#' Scan many theta cheaply: the two summaries only, no tibbles.
+#'
+#' Base R on plain vectors.  The dplyr path in .pools_at() costs 1.7 ms a call,
+#' which a few thousand theta would make felt inside validate_crossval.R's fold
+#' loop; this is ~57x faster, so the dense scan is free.
+#'
+#' @return A two-column matrix, dAs and dPr, one row per theta.
+.pool_scan <- function(As, Pr, n, thetas) {
+  t(vapply(thetas, function(th) {
+    o <- order(As + th * Pr, decreasing = TRUE)
+    p <- o[seq_len(n)]
+    m <- o[seq.int(length(o) - n + 1L, length(o))]
+    c(dAs = mean(As[p]) - mean(As[m]), dPr = mean(Pr[p]) - mean(Pr[m]))
+  }, numeric(2)))
+}
 
 #' One (theta) evaluation: the two pools and the differences they imply.
 .pools_at <- function(cand, n, theta) {
-  plus <- cand |>
-    dplyr::mutate(score = As + theta * Pr) |>
-    dplyr::slice_max(score, n = n, with_ties = FALSE)
-
-  minus <- cand |>
-    dplyr::filter(!acc %in% plus$acc) |>
-    dplyr::mutate(score = As - theta * Pr) |>
-    dplyr::slice_min(score, n = n, with_ties = FALSE)
+  o     <- order(cand$As + theta * cand$Pr, decreasing = TRUE)
+  plus  <- cand[utils::head(o, n), , drop = FALSE]
+  minus <- cand[utils::tail(o, n), , drop = FALSE]
 
   list(plus = plus, minus = minus,
        dAs = mean(plus$As) - mean(minus$As),
@@ -214,9 +255,11 @@ validation_inputs <- function(out_dir = here::here("output"),
 #'   eligible accessions.  0.5 keeps the better half: "all of these are good
 #'   producers" is the claim the design has to support.
 #' @param tol Largest acceptable |mean Pr difference| between pools, g/m2.
-#' @param theta_max Upper end of the bisection on the Pr multiplier.
+#' @param theta_max Upper end of the scan over the Pr multiplier.
+#' @param n_grid Points in the coarse scan.  A refinement pass around the winner
+#'   follows, so this sets where the search looks rather than how precisely.
 build_pools <- function(inp, n, pr_quantile = 0.5, tol = 1.0,
-                        theta_max = 10, iterations = 60L) {
+                        theta_max = 10, n_grid = 2001L) {
   cand <- dplyr::filter(inp$accessions, eligible)
   pr_min <- stats::quantile(cand$Pr, pr_quantile, names = FALSE)
   cand <- dplyr::filter(cand, Pr >= pr_min)
@@ -229,20 +272,38 @@ build_pools <- function(inp, n, pr_quantile = 0.5, tol = 1.0,
 
   # theta = 0 selects on As alone; because Pr and As are negatively correlated
   # in the BLUPs that leaves the As+ pool short on Pr, so dPr starts negative
-  # and rises with theta in TREND. Bisect on that.
+  # and rises with theta in TREND.
   #
-  # dPr is a step function of theta and is not locally monotone -- adjacent
-  # steps can reverse -- so this finds a zero crossing, not necessarily the
-  # theta that minimises |dPr|. In practice it lands well inside the tolerance
-  # when the candidate set is large enough to have the freedom; when it does
-  # not, the warning below is the signal, and the fix is a larger candidate set
-  # (lower pr_quantile) rather than more iterations.
-  lo <- 0; hi <- theta_max; theta <- 0
-  for (i in seq_len(iterations)) {
-    theta <- (lo + hi) / 2
-    if (.pools_at(cand, n, theta)$dPr < 0) lo <- theta else hi <- theta
+  # IN TREND, not monotonically: dPr is a step function and adjacent steps can
+  # reverse, so a bisection for a sign change can converge on a local crossing
+  # rather than the best one.  Scan instead, and take the global minimum of
+  # |dPr|.  n_sign_changes is reported so the non-monotonicity is a number
+  # rather than a comment.
+  #
+  # TIES ARE BROKEN BY LARGER dAs.  A step function makes exact ties in |dPr|
+  # common -- a whole interval of theta gives the identical pair of pools -- and
+  # without the tie-break the pick among them is whichever the grid happened to
+  # land on first.  Among theta within `eps` of the best |dPr|, take the one
+  # with the largest contrast.
+  pick <- function(thetas) {
+    sc  <- .pool_scan(cand$As, cand$Pr, n, thetas)
+    eps <- max(1e-9, 1e-6 * max(abs(sc[, "dPr"])))
+    ok  <- which(abs(sc[, "dPr"]) <= min(abs(sc[, "dPr"])) + eps)
+    thetas[ok[which.max(sc[ok, "dAs"])]]
   }
+
+  coarse <- seq(0, theta_max, length.out = n_grid)
+  theta  <- pick(coarse)
+
+  # Refine around the winner so the answer does not depend on grid resolution.
+  step  <- theta_max / (n_grid - 1)
+  theta <- pick(seq(max(0, theta - step), min(theta_max, theta + step),
+                    length.out = 201L))
+
   res <- .pools_at(cand, n, theta)
+
+  dPr_grid      <- .pool_scan(cand$As, cand$Pr, n, coarse)[, "dPr"]
+  n_sign_changes <- sum(diff(sign(dPr_grid)) != 0)
 
   if (abs(res$dPr) > tol) {
     warning(inp$species, ": producer means differ by ", round(res$dPr, 2),
@@ -265,7 +326,12 @@ build_pools <- function(inp, n, pr_quantile = 0.5, tol = 1.0,
 
   list(
     pools = pools, n = n, theta = theta, pr_min = pr_min,
-    n_candidates = nrow(cand),
+    # Stamped into pool_summary.csv so a later run can tell whether the previous
+    # vintage's pools are comparable with its own. Churn between vintages built
+    # by different rules measures the RULE, not the stability of the effect
+    # estimates, and the 70% retention guidance is about the latter.
+    pool_index = POOL_INDEX_VERSION,
+    n_candidates = nrow(cand), n_sign_changes = n_sign_changes,
     dAs = res$dAs, dPr = res$dPr,
     mean_Pr_plus = mean(res$plus$Pr), mean_Pr_minus = mean(res$minus$Pr),
     mean_As_plus = mean(res$plus$As), mean_As_minus = mean(res$minus$As),
