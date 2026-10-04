@@ -1252,28 +1252,52 @@ total_yield_power <- function(design, ..., gma_oat, gma_pea,
 #' Welch df reflects any difference between the two pools. The scalar is still
 #' reported as a column, which is what pool_summary.csv and the generated
 #' tables carry.
-power_grid <- function(inp, n_values, P_values, lambda_values = c(1, 0.8, 0.6),
+power_grid <- function(inp, n_values, P_values = NULL,
+                       lambda_values = c(1, 0.8, 0.6),
                        sided = 1, interaction_values = 0, pr_quantile = 0.5,
                        n_loc = 5L, n_loc_values = NULL,
+                       plots_per_loc_values = NULL,
                        interaction_mode = c("frac", "sd"),
                        df_mode = "satterthwaite") {
   interaction_mode <- match.arg(interaction_mode)
   n_loc_values <- n_loc_values %||% n_loc
 
+  # PLOTS PER LOCATION IS THE BETTER AXIS once locations are swept too.
+  # Crossing a TOTAL plot budget with a location count gives cells that are not
+  # comparable: 400 plots is 100 per site at four locations and 80 at five, so
+  # the two location arms never share a per-site effort and a curve drawn
+  # against total P zig-zags between two different designs. Sweeping plots per
+  # location and deriving P = ppl * n_loc keeps the arms comparable and asks the
+  # question the design actually faces -- another site, or more plots at each.
+  #
+  # P_values is kept for callers that genuinely mean a fixed total.
+  if (is.null(plots_per_loc_values) && is.null(P_values)) {
+    stop("power_grid() needs plots_per_loc_values or P_values", call. = FALSE)
+  }
+
+  budget <- if (!is.null(plots_per_loc_values)) {
+    tidyr::expand_grid(plots_per_loc = plots_per_loc_values,
+                       n_locations = n_loc_values) |>
+      dplyr::mutate(P = plots_per_loc * n_locations)
+  } else {
+    tidyr::expand_grid(P = P_values, n_locations = n_loc_values) |>
+      dplyr::mutate(plots_per_loc = P / n_locations)
+  }
+
   purrr::map(n_values, \(n) {
     bp <- build_pools(inp, n, pr_quantile = pr_quantile)
     s2w <- c(bp$sigma2_within_plus, bp$sigma2_within_minus)
-    tidyr::expand_grid(P = P_values, lambda = lambda_values,
-                       interaction = interaction_values,
-                       n_locations = n_loc_values) |>
-      purrr::pmap(\(P, lambda, interaction, n_locations) {
+    tidyr::expand_grid(budget, lambda = lambda_values,
+                       interaction = interaction_values) |>
+      purrr::pmap(\(P, n_locations, plots_per_loc, lambda, interaction) {
         args <- list(dAs = bp$dAs, sigma2_within = s2w, n = n,
                      sigma2_e = inp$sigma2_e, P = P, lambda = lambda,
                      sided = sided, n_loc = n_locations, df_mode = df_mode)
         args[[if (interaction_mode == "sd") "interaction_sd"
               else "interaction_frac"]] <- interaction
         do.call(contrast_power, args) |>
-          dplyr::mutate(n_locations = n_locations, .after = P)
+          dplyr::mutate(n_locations = n_locations,
+                        plots_per_loc = plots_per_loc, .after = P)
       }) |>
       purrr::list_rbind() |>
       dplyr::mutate(species = inp$species, dAs_predicted = bp$dAs,

@@ -418,45 +418,51 @@ coefficient draws; both values and their ratio are reported in `vintage.csv`.
 
 At λ = 0.8:
 
-| | SE at P=300 | SE at P=500 | SE at P=∞ | irreducible | power 300 → 500 → ceiling |
-|---|---|---|---|---|---|
-| oat n=20 | 4.01 | 3.61 | **2.91** | 77% | 0.88 → 0.93 → **0.99** |
-| oat n=25 | 3.80 | 3.38 | **2.61** | 74% | 0.85 → 0.92 → **0.99** |
-| pea n=20 | 6.53 | 6.03 | **5.19** | 83% | 0.70 → 0.76 → **0.86** |
-| pea n=30 | 5.83 | 5.26 | **4.27** | 78% | 0.72 → 0.80 → **0.92** |
-
-**Roughly three quarters of the standard error cannot be bought down with
-plots.** With infinitely many plots, pea at n = 20 still caps at 0.86.
+The current numbers are in `power_ceiling.csv`; the shape of the thing is what
+matters here. **Roughly 80–90% of the standard error cannot be bought down with
+plots**, and most of what cannot be bought is the pool × location term.
 
 What actually moves the needle, in order:
 
 1. **λ** — worth ~40 points across its plausible range.
-2. **More accessions per pool** — attacks the dominant term. Pea's *ceiling*
-   goes from 0.86 to 0.92 moving n from 20 to 30.
-3. **Better estimates** — incoming trials raise reliability, which shrinks PEV,
-   which shrinks the dominant term. This is why pools are selected as late as
-   possible.
+2. **More locations.** At the same per-site effort, going from four sites to
+   five takes oat from 0.643 to 0.743 — ten points. That is more than the
+   entire 60-to-100 plots-per-location range buys, because locations are the
+   only lever on the dominant term, and because that term carries just
+   `n_loc − 1` degrees of freedom.
+3. **Better estimates** — more trials raise reliability, which shrinks PEV,
+   which shrinks the accession term. This is why pools are frozen as late as
+   seed logistics allow.
 4. **A one-sided test** — 7–11 points, free.
-5. **More plots** — 5–10 points across the whole 300 → 500 range.
+5. **More plots per location** — about 2–3 points across the whole 60-to-100
+   range. The weakest lever by a wide margin, which is why the budget is now
+   simply fixed at 80.
+
+**A note on reading the budget.** Until 2026-10-03 this grid crossed a *total*
+plot count with a location count, which produces cells that are not the same
+design: 400 plots is 100 per site at four locations and 80 at five, and those
+give 0.652 and 0.743. The sweep is now over **plots per location**, with the
+total derived, so the two location arms are compared at equal per-site effort.
+`power_curves.png` saw-toothed for exactly this reason — it was joining points
+from two different designs.
 
 ### Why pool size is not the hard question
 
-Power is nearly flat in *n*, and the current defaults are within half a point of
-the best available. At P = 400 plots:
+Power is nearly flat in *n*. At 80 plots per location and five locations:
 
 | n per pool | oat power | pea power |
 |---|---|---|
-| 10 | 0.750 | 0.804 |
-| 15 | 0.771 | 0.834 |
-| **20** | 0.779 | **0.840** |
-| 25 | 0.782 | 0.836 |
-| **30** | **0.784** | 0.839 |
-| 40 | 0.780 | 0.826 |
-| 50 | 0.770 | 0.807 |
+| 10 | 0.742 | 0.882 |
+| 15 | **0.744** | **0.887** |
+| **20** | 0.743 | 0.880 |
+| 25 | 0.737 | 0.879 |
+| **30** | 0.733 | 0.871 |
+| 40 | 0.719 | 0.851 |
+| 50 | 0.701 | 0.823 |
 
-The whole range spans **0.034 for oat and 0.036 for pea**, and the optimum sits
-at n = 30 (oat) and n = 20 (pea) — so the configured 20 and 30 are each within
-0.005 of the best. Pool size is therefore set by the **design geometry**,
+The whole range spans **0.041 for oat and 0.064 for pea**, the optimum sits at
+n = 15 for both, and the configured 20 and 30 are within 0.001 and 0.016 of it.
+Pool size is therefore set by the **design geometry**,
 n = plots-per-location ÷ 4, which makes every accession appear exactly twice at
 every location, rather than by the power curve.
 
@@ -473,10 +479,13 @@ candidates after the Pr filter, halving *n* from 40 to 20 buys a contrast about
 **It costs precision.** The standard error of a pool mean goes as 1/√n, so
 halving *n* multiplies the SE by **√2 = 1.41**.
 
-Those nearly cancel, and the achieved contrast now behaves as the theory says:
-ΔAs falls from 23.2 to 14.9 for oat across n = 10 → 50, almost exactly the 1/√n
-the SE follows. The residual curvature is why there is a shallow optimum rather
-than a perfectly level line.
+Those nearly cancel, and the achieved contrast behaves as the theory says: ΔAs
+falls from 24.5 to 15.7 for oat across n = 10 → 50, and 39.7 to 24.2 for pea —
+close to the 1/√n the SE follows. The residual curvature is why there is a
+shallow optimum rather than a perfectly level line, and why that optimum has
+moved to n = 15: the cancellation is not exact, and with the pool × location
+term added the SE now falls off a little more slowly in *n* than the contrast
+does.
 
 > **This section said the opposite for one day, and the reason is worth keeping.**
 > Until 2026-10-03 the pool builder used a different selection index for each

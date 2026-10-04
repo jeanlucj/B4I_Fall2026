@@ -338,6 +338,48 @@ check_near(g$sigma2_within[g$n == 20][1],
            "the grid's sigma2_within is the one build_pools computed")
 
 # ------------------------------------------------------------
+# 3c-bis. Plots per location is the coherent budget axis
+#
+# Crossing a TOTAL plot budget with a location count produces cells that are
+# not the same design: 400 plots is 100 per site at four locations and 80 at
+# five. A curve drawn against total P therefore joins points from two different
+# designs, which is what made power_curves.png saw-tooth. Sweeping plots per
+# location and deriving P keeps the location arms comparable.
+# ------------------------------------------------------------
+
+gp <- suppressWarnings(power_grid(inp, n_values = 20,
+                                  plots_per_loc_values = c(60, 80),
+                                  lambda_values = 0.8,
+                                  interaction_values = 0.5,
+                                  n_loc_values = c(4, 5)))
+check(nrow(gp) == 4, "one row per (plots/loc, locations)")
+check_near(sort(gp$P), sort(c(60*4, 60*5, 80*4, 80*5)), tol = 1e-12,
+           "P is derived as plots_per_loc * n_locations")
+# the two arms share a per-site effort, which the total-P parameterisation
+# could not deliver
+check(setequal(gp$plots_per_loc[gp$n_locations == 4],
+               gp$plots_per_loc[gp$n_locations == 5]),
+      "both location arms are evaluated at the same plots per location")
+# and at a FIXED per-site effort, more locations must help: the interaction
+# term is the one divided by n_loc, and it is the largest of the three
+check(gp$power[gp$plots_per_loc == 80 & gp$n_locations == 5] >
+        gp$power[gp$plots_per_loc == 80 & gp$n_locations == 4],
+      "more locations raise power at the same plots per location")
+check(gp$df[gp$plots_per_loc == 80 & gp$n_locations == 5] >
+        gp$df[gp$plots_per_loc == 80 & gp$n_locations == 4],
+      "and buy degrees of freedom for the stratum that has fewest")
+# NEGATIVE: the same TOTAL budget at different location counts is NOT the same
+# design, which is the whole reason for the change
+g400 <- suppressWarnings(power_grid(inp, n_values = 20, P_values = 400,
+                                    lambda_values = 0.8,
+                                    interaction_values = 0.5,
+                                    n_loc_values = c(4, 5)))
+check(abs(diff(g400$power)) > 0.01,
+      "400 plots at 4 locations and at 5 is NOT one design -- they differ in power")
+check_error(power_grid(inp, n_values = 20, lambda_values = 0.8),
+            "a grid with neither budget axis is refused")
+
+# ------------------------------------------------------------
 # 3d. The named-only barrier, and that it is still there
 #
 # `...` sits ahead of every argument but the first, so R cannot match them

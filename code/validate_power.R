@@ -437,7 +437,8 @@ print(as.data.frame(est_tbl), row.names = FALSE, digits = 3)
 
 grid <- purrr::imap(inputs, \(inp, name) {
   e <- est_for(name)
-  power_grid(inp, n_values = n_values, P_values = P_values,
+  power_grid(inp, n_values = n_values,
+             plots_per_loc_values = plots_per_location,
              lambda_values = e$lambda, sided = sided,
              interaction_values = e$interaction_frac,
              pr_quantile = pr_quantile, n_loc = n_locations,
@@ -450,17 +451,20 @@ cat("\n=== Power at the design geometry (n = plots-per-location / 4) ===\n")
 cat("    one-sided alpha = 0.05; lambda and interaction as measured above\n\n")
 
 design_rows <- grid |>
-  dplyr::filter(n == P / n_locations / 4) |>
-  dplyr::mutate(plots_per_loc = P / n_locations) |>
-  dplyr::select(species, plots_per_loc, n, P, lambda, delta, SE, power) |>
-  dplyr::arrange(species, plots_per_loc, dplyr::desc(lambda))
+  dplyr::filter(n == plots_per_loc / 4) |>
+  dplyr::select(species, plots_per_loc, n_locations, n, P, lambda, delta,
+                SE, df, power) |>
+  dplyr::arrange(species, n_locations, plots_per_loc)
 print(as.data.frame(design_rows), row.names = FALSE, digits = 3)
 
-cat("\n=== Pool size at P = 400, one-sided ===\n")
+cat("\n=== Pool size at ", plots_per_location_fixed,
+    " plots/location x ", n_locations, " locations, one-sided ===\n", sep = "")
 cat("    power is nearly flat: the contrast shrinks as fast as the SE does\n\n")
 print(grid |>
-  dplyr::filter(P == 400) |>
-  dplyr::select(species, n, dAs_predicted, delta, SE, SE_floor, power) |>
+  dplyr::filter(plots_per_loc == plots_per_location_fixed) |>
+  dplyr::select(species, n, n_locations, dAs_predicted, delta, SE, SE_floor,
+                power) |>
+  dplyr::arrange(species, n_locations, n) |>
   as.data.frame(), row.names = FALSE, digits = 3)
 
 # ------------------------------------------------------------
@@ -475,13 +479,17 @@ ceiling_tbl <- grid |>
   dplyr::summarise(
     dAs = dplyr::first(dAs_predicted),
     lambda = dplyr::first(lambda),
-    SE_300 = SE[P == 300], SE_500 = SE[P == 500],
+    SE_lo = SE[plots_per_loc == min(plots_per_location)],
+    SE_hi = SE[plots_per_loc == max(plots_per_location)],
     SE_floor = dplyr::first(SE_floor),
     SE_accession_only = dplyr::first(SE_accession_only),
-    df = dplyr::first(df[P == 400]),
-    pct_var_interaction = dplyr::first(pct_var_interaction[P == 400]),
-    pct_SE_irreducible = dplyr::first(pct_SE_irreducible[P == 400]),
-    power_300 = power[P == 300], power_500 = power[P == 500],
+    df = dplyr::first(df[plots_per_loc == plots_per_location_fixed]),
+    pct_var_interaction =
+      dplyr::first(pct_var_interaction[plots_per_loc == plots_per_location_fixed]),
+    pct_SE_irreducible =
+      dplyr::first(pct_SE_irreducible[plots_per_loc == plots_per_location_fixed]),
+    power_lo = power[plots_per_loc == min(plots_per_location)],
+    power_hi = power[plots_per_loc == max(plots_per_location)],
     .groups = "drop"
   ) |>
   dplyr::mutate(
@@ -810,26 +818,42 @@ print(estimand_power |>
 # Figure
 # ------------------------------------------------------------
 
+# COLOUR IS PLOTS PER LOCATION, FACET IS LOCATIONS. Drawn against total P with
+# locations swept, each line zig-zagged between two cells that are not the same
+# design -- 400 plots is 100 per site at four locations and 80 at five. The
+# sawtooth was the figure honestly reporting an incoherent x-axis.
+#
+# The y-axis starts at 0.5 because nothing in this grid goes near zero and the
+# interesting range is 0.6 to 0.9; a 0-to-1 axis spent half its height on empty
+# space. The floor is enforced rather than fitted so the two facets stay
+# comparable.
 p_curves <- grid |>
   dplyr::mutate(
-    P = factor(paste0(P, " plots")),
-    species_lab = factor(sprintf("%s  (lambda = %.2f, interaction = %.2f)",
+    ppl = factor(plots_per_loc, levels = sort(unique(plots_per_loc)),
+                 labels = paste0(sort(unique(plots_per_loc)), " plots/loc")),
+    loc_lab = factor(paste0(n_locations, " locations")),
+    # Kept short: this is a VERTICAL strip, so a long label is taller than the
+    # panel and silently clips.
+    species_lab = factor(sprintf("%s\nlambda %.2f\nint %.2f",
                                  species, lambda, interaction_frac))
   ) |>
-  ggplot2::ggplot(ggplot2::aes(n, power, colour = P, group = P)) +
+  ggplot2::ggplot(ggplot2::aes(n, power, colour = ppl, group = ppl)) +
   ggplot2::geom_hline(yintercept = 0.8, linetype = 2, colour = "grey50") +
-  ggplot2::geom_line() +
+  ggplot2::geom_line(linewidth = 0.7) +
   ggplot2::geom_point(size = 1.6) +
-  ggplot2::facet_wrap(~ species_lab, ncol = 1) +
-  ggplot2::scale_y_continuous(limits = c(0, 1)) +
+  ggplot2::facet_grid(species_lab ~ loc_lab) +
+  ggplot2::scale_y_continuous(limits = c(0.5, 1), breaks = seq(0.5, 1, 0.1)) +
+  ggplot2::scale_x_continuous(breaks = n_values) +
   ggplot2::theme_bw(base_size = 12) +
+  ggplot2::theme(strip.text.y = ggplot2::element_text(size = 9, angle = 0)) +
   ggplot2::labs(
     title    = "Power of the As+ vs As- contrast",
-    subtitle = paste0("vintage ", vintage,
-                      "; one-sided alpha = 0.05; dashed line = 0.8. ",
-                      "The curves are flat in pool size and close together ",
-                      "across budgets:\nthe binding constraint is the ",
-                      "reliability of the effects, not the number of plots."),
+    subtitle = paste0(
+      "vintage ", vintage, "; one-sided alpha = 0.05; dashed line = 0.8. ",
+      "Power is nearly flat in pool size and the three\nplot budgets sit almost ",
+      "on top of each other -- but the two location panels are far apart. ",
+      "Locations are the lever;\nplots and pool size are not. Note the y-axis ",
+      "starts at 0.5."),
     x = "accessions per pool", y = "power", colour = NULL
   )
 

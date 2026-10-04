@@ -1,9 +1,9 @@
 # ============================================================
 # THE OAT x PEA DESIGN GRID, AT 9% OF COMBINATIONS EVALUATED
 #
-#   Rscript docs/figures/oat_pea_grid.R
-#   Rscript docs/figures/oat_pea_grid.R --n-acc 30 --sparsity 0.09 --seed 7
-#   Rscript docs/figures/oat_pea_grid.R --random        # unconstrained draw
+#   Rscript code/figures/oat_pea_grid.R
+#   Rscript code/figures/oat_pea_grid.R --n-acc 30 --sparsity 0.09 --seed 7
+#   Rscript code/figures/oat_pea_grid.R --random        # unconstrained draw
 #
 # Oats on the rows, peas on the columns, one cell per possible pairing. A filled
 # cell was evaluated; an empty one is a pairing nobody grew. The point of the
@@ -28,12 +28,12 @@
 # completely empty. Worth looking at once: it shows what the minimum-per-
 # accession constraint is buying.
 #
-# Output: docs/figures/oat_pea_grid.png
+# Output: output/figures/oat_pea_grid.png  (gitignored; re-run to rebuild)
 # ============================================================
 
 library(tidyverse)
 
-here::i_am("docs/figures/oat_pea_grid.R")
+here::i_am("code/figures/oat_pea_grid.R")
 
 source(here::here("code", "sim_config.R"))
 source(here::here("code", "sim_generate.R"))
@@ -50,7 +50,10 @@ min_per_acc <- as.integer(arg_value("--min-per-acc", "2"))
 seed        <- as.integer(arg_value("--seed", "7"))
 random      <- "--random" %in% args
 
-out_dir <- here::here("docs", "figures")
+# The script lives in code/, the figure it makes lives in output/ -- the
+# repository's standing split between what is written and what is generated.
+# output/ is gitignored, so the PNG is not tracked; re-run this to rebuild it.
+out_dir <- here::here("output", "figures")
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 # ------------------------------------------------------------
