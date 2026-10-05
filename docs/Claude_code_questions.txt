@@ -42,3 +42,11 @@ dominates even more clearly.
   Do you mean that if each accession only appears once per location, we don't get a clean estimate of error variance?
 [2026-10-03 07:16:30] There is a comment in the VALIDATION_DESIGN document: "because the pool builder is a greedy constrained search rather than an optimum".  I do want to make sure that the pool builder does as good a job as possible.  That is, it should give an optimum within our search budget.  Are there any search methods that we need to explore?
 [2026-10-03 07:30:23] Do the single index fix.  Do the dense grid scan.  Still target deltaPr = 0.  What is MILP?
+[2026-10-04 19:19:05] in docs > interaction_decomposition, section 2.1 goes to fast.  It explains singular value decomposition then gives M = R_a Beta R_b'      (a small q × q matrix);   svd(M) = U D V'
+oat scores   = Q_a %*% U        pea loadings = Q_b %*% V
+But I don't know what R_a and R_b are or their relationship wto Q_a and Q_b.  Can you update the document to explain those things?
+[2026-10-04 19:43:22] in interaction_decomposition, section 4.2, what is being described in the table of score recovery?  Are these correlations between estimated scores and simulated scores?  I doubt it, but what are they?
+[2026-10-04 20:33:09] How long until the runs finish?
+[2026-10-04 20:53:38] How long until the runs finish?
+[2026-10-04 21:55:21] How is the multiple correlation calculated?
+[2026-10-04 21:58:25] What would code be to calculate the multiple R from regressing the score on the truth, using lm or lmer?

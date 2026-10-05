@@ -42,7 +42,7 @@ has to be run in both orientations.
 Six rows per data scenario, plus two more for each MegaLMM setting the design
 assigned to that scenario.
 
-| `model` | what it is |
+| <div style="width: 100px;">`model`</div> | what it is |
 |---|---|
 | `additive` | The bivariate `BGLR::Multitrait` producer–associate model **without** a specific-combination term. Four genetic effects — oat producer, oat associate, pea producer, pea associate — with kinship on all four through `Σ ⊗ G`, and a residual covariance between the two yields. Its surfaces are pure outer sums, so it has no interaction component at all. |
 | `dge_ige` | The **same** `Multitrait` fit **with** the low-rank specific-combination term: the Khatri–Rao basis of the two GRMs, truncated at `SIM_KRON_RANK = 30` per species and so 900 columns. This is the production model — `fit_producer_associate()` from `code/dge_ige_functions.R`, the one the real analysis runs, not a stand-in. It is the only BGLR model with a non-`NA` `r_int_*`. |

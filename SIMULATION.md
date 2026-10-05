@@ -1,36 +1,24 @@
 # SIMULATION
 
-A framework for asking when the MegaLMM factor framework beats the DGE-IGE
-framework, and when it does not. For usage see [README.md](README.md); for
-structure see [DESIGN.md](DESIGN.md); for the models themselves see
-[BACKGROUND.md](BACKGROUND.md); for how accuracy is measured on real data see
-[CROSS_VALIDATION.md](CROSS_VALIDATION.md).
+A framework for asking when the MegaLMM factor framework beats the DGE-IGE framework, and when it does not. For usage see [README.md](README.md); for structure see [DESIGN.md](DESIGN.md); for the models themselves see [BACKGROUND.md](BACKGROUND.md); for how accuracy is measured on real data see [CROSS_VALIDATION.md](CROSS_VALIDATION.md).
 
 ## The question
 
-On the B4I data neither framework finds oat × pea interaction, and the two
-agree it is not there to find. That leaves the more useful question open:
-**under what conditions would either work?** A simulation can answer it,
-because the truth is known and the design can be moved.
+On the B4I data neither framework finds oat × pea interaction, and the two agree it is not there to find. That leaves the more useful question open: **under what conditions would either work?** A simulation can answer it, because the truth is known and the design can be moved.
 
-The two frameworks differ in exactly one thing — how they model the
-interaction:
+The two frameworks differ in exactly one thing — how they model the interaction:
 
-- **DGE-IGE** gives it covariance `G_oat ⊗ G_pea`: full rank, every pair of
-  combinations related through both parents' relationships.
-- **MegaLMM** gives it a small number of factors: low rank, a few axes along
-  which peas differ in how they rank oats.
+- **DGE-IGE** gives it covariance `G_oat ⊗ G_pea`: full rank, every pair of combinations related through both parents' relationships.
+- **MegaLMM** gives it a small number of factors: low rank, a few axes along which peas differ in how they rank oats.
 
-So the axis that should decide between them is the **true rank** of the
-interaction, and the axis that should decide whether either works at all is
-**how much of the matrix is observed**.
+So the axis that should decide between them is the **true rank** of the interaction, and the axis that should decide whether either works at all is **how much of the matrix is observed**.
 
 ## The design
 
 Six factors, in `SIM_LEVELS` in `code/sim_config.R`:
 
 | factor | levels | why |
-|---|---|---|
+|------------------------|------------------------|------------------------|
 | panel size | 200×200, 400×400 | more accessions means a bigger matrix but not more data per cell |
 | sparsity | 1.6%, 4.8%, 16%, 48% observed | see below |
 | interaction rank | 0, 1, 5 factors | 0 = no interaction; 1 = MegaLMM's home ground; 5 = heading towards Kronecker |
@@ -38,76 +26,42 @@ Six factors, in `SIM_LEVELS` in `code/sim_config.R`:
 | environments | 1, 10 | one site, or ten each holding a tenth of the combinations |
 | `gxe_cor` | 1.0, 0.6 | ordinary GxE: does an effect estimated here survive into another environment |
 
-`2 × 4 × 3 × 2 × 2 × 2 = 192`, less the cells where a level scales nothing —
-`interaction_pct` at `n_factors = 0`, and `gxe_cor` at `n_envs = 1`:
-**120 data scenarios**.
+`2 × 4 × 3 × 2 × 2 × 2 = 192`, less the cells where a level scales nothing — `interaction_pct` at `n_factors = 0`, and `gxe_cor` at `n_envs = 1`: **120 data scenarios**.
 
 ### The MegaLMM sweep is fractional
 
-Crossing those 120 scenarios with the eight MegaLMM settings
-(`K` × `eigen_variance` × `fixed_main_effect`) is 960 combinations, and since
-MegaLMM is now fitted in both orientations that would be **1,920 fits** per
-replicate. What we actually want from the sweep is each lever's main effect and
-the two-way interactions between levers; three-way interactions are not
-interpretable anyway.
+Crossing those 120 scenarios with the eight MegaLMM settings (`K` × `eigen_variance` × `fixed_main_effect`) is 960 combinations, and since MegaLMM is now fitted in both orientations that would be **1,920 fits** per replicate. What we actually want from the sweep is each lever's main effect and the two-way interactions between levers; three-way interactions are not interpretable anyway.
 
-**Two axes have to be recoded before any of that works.** `interaction_pct`
-exists only when `n_factors > 0` and `gxe_cor` only when `n_envs > 1`, so as
-separate factors they are *nested*, not crossed — and a main-effects-plus-2FI
-model is singular on the **full** grid, not merely on a fraction of it. Folding
-each nested pair into a composite factor fixes it:
+**Two axes have to be recoded before any of that works.** `interaction_pct` exists only when `n_factors > 0` and `gxe_cor` only when `n_envs > 1`, so as separate factors they are *nested*, not crossed — and a main-effects-plus-2FI model is singular on the **full** grid, not merely on a fraction of it. Folding each nested pair into a composite factor fixes it:
 
-| factor | levels |
-|---|---|
-| `n_acc` | 200, 400 |
-| `sparsity` | 1.6%, 4.8%, 16%, 48% |
-| `interaction` | none, f1_i10, f1_i20, f5_i10, f5_i20 |
-| `environment` | one, ten_stable, ten_gxe |
-| `K` | 5, 10 |
-| `eigen_variance` | 0.25, 0.75 |
-| `fixed_main_effect` | FALSE, TRUE |
+| factor              | levels                               |
+|---------------------|--------------------------------------|
+| `n_acc`             | 200, 400                             |
+| `sparsity`          | 1.6%, 4.8%, 16%, 48%                 |
+| `interaction`       | none, f1_i10, f1_i20, f5_i10, f5_i20 |
+| `environment`       | one, ten_stable, ten_gxe             |
+| `K`                 | 5, 10                                |
+| `eigen_variance`    | 0.25, 0.75                           |
+| `fixed_main_effect` | FALSE, TRUE                          |
 
-960 candidates, 82 parameters for main effects plus all two-way interactions,
-full-factorial rank 82. `sim_design()` takes a **D-optimal subset of 150 runs**
-via `AlgDesign::optFederov`, which keeps full rank and still touches all 120
-data scenarios — so the DGE-IGE half loses no coverage while MegaLMM drops from
-1,920 fits to 300. `--full` runs every candidate instead; `--runs N` changes the
-fraction.
+960 candidates, 82 parameters for main effects plus all two-way interactions, full-factorial rank 82. `sim_design()` takes a **D-optimal subset of 150 runs** via `AlgDesign::optFederov`, which keeps full rank and still touches all 120 data scenarios — so the DGE-IGE half loses no coverage while MegaLMM drops from 1,920 fits to 300. `--full` runs every candidate instead; `--runs N` changes the fraction.
 
-**This changes how the results are read.** Most scenarios carry only some
-MegaLMM settings, so a table of cell means would compare unlike with unlike.
-Fit the design model to the outcomes instead — `sim_run.R` writes
-`simulation_design_effects.csv` as a first pass. It also removes a bias the old
-summary had: it took the best of twelve MegaLMM settings per scenario, judged on
-the same held-out cells it reported, and compared that maximum against a
-DGE-IGE fitted once.
+**This changes how the results are read.** Most scenarios carry only some MegaLMM settings, so a table of cell means would compare unlike with unlike. Fit the design model to the outcomes instead — `sim_run.R` writes `simulation_design_effects.csv` as a first pass. It also removes a bias the old summary had: it took the best of twelve MegaLMM settings per scenario, judged on the same held-out cells it reported, and compared that maximum against a DGE-IGE fitted once.
 
 ### Why 1.6 / 4.8 / 16 / 48%
 
 Two pairs of the same digits a decade apart, and the low end is deliberate.
 
-The first pass used 3 / 6 / 12%, bracketing where the B4I experiment sits
-(1.1% raw, 3.2% after trimming). A pilot showed all three are deep inside the
-region where the factor model has nothing to work with. At 100×100:
+The first pass used 3 / 6 / 12%, bracketing where the B4I experiment sits (1.1% raw, 3.2% after trimming). A pilot showed all three are deep inside the region where the factor model has nothing to work with. At 100×100:
 
 | observed | MegaLMM, total genetic value | additive DGE-IGE |
-|---|---|---|
-| 50% | 0.79 | 0.76 |
-| 20% | 0.51 | 0.74 |
+|----------|------------------------------|------------------|
+| 50%      | 0.79                         | 0.76             |
+| 20%      | 0.51                         | 0.74             |
 
-so the levels moved up to 5 / 15 / 45% to straddle that crossover. The low end
-came back for a different reason: the **fixed-loading main-effect factor** is
-meant to help most exactly where the matrix is thinnest, because that is where
-reconstructing a main effect from free factors fails. Testing it only at
-densities where it is not needed answers the wrong question.
+so the levels moved up to 5 / 15 / 45% to straddle that crossover. The low end came back for a different reason: the **fixed-loading main-effect factor** is meant to help most exactly where the matrix is thinnest, because that is where reconstructing a main effect from free factors fails. Testing it only at densities where it is not needed answers the wrong question.
 
-**1.6% is the lowest level worth using.** `SIM_MIN_PER_ACC = 3` puts the hard
-floor at 1.50% for a 200 panel (0.75% for 400), and hugging that floor makes
-`sample_combinations()` overrun the request — every cell is then forced by the
-minimum-per-accession matching with none drawn at random, so the achieved
-density exceeds the label and the design is more regular than at other levels.
-1.6% leaves enough slack that all four levels return **exactly** the number of
-observations asked for, which `sample_combinations()` now asserts.
+**1.6% is the lowest level worth using.** `SIM_MIN_PER_ACC = 3` puts the hard floor at 1.50% for a 200 panel (0.75% for 400), and hugging that floor makes `sample_combinations()` overrun the request — every cell is then forced by the minimum-per-accession matching with none drawn at random, so the achieved density exceeds the label and the design is more regular than at other levels. 1.6% leaves enough slack that all four levels return **exactly** the number of observations asked for, which `sample_combinations()` now asserts.
 
 `--extended` resolves the axis more finely (1.6, 3.2, 4.8, 8, 16, 32, 48, 60%).
 
@@ -115,7 +69,7 @@ observations asked for, which `sample_combinations()` now asserts.
 
 For oat *i* with pea *j* in environment *k*, **both yields**:
 
-```
+```         
 y_oat = mu_oat_k + s_oat_k ( oatPr_i + peaAs_j + I_oat_ij + gxe + e_oat )
 y_pea = mu_pea_k + s_pea_k ( peaPr_j + oatAs_i + I_pea_ij + gxe + e_pea )
 
@@ -126,89 +80,38 @@ I_oat, I_pea     two INDEPENDENT surfaces, each of rank n_factors
 gxe              per-environment deviations on all four effects, size 1 - rho
 ```
 
-**Four genetic effects, not two.** A species' producer effect (on its own
-yield) and its associate effect (on its partner's) are correlated properties of
-the same genotype, and that covariance — `Sigma`'s off-diagonal — is the whole
-reason the real analysis fits the two yields jointly. `draw_effect_pair()`
-whitens and re-colours each pair so its realised covariance *is* `Sigma` rather
-than merely having it in expectation.
+**Four genetic effects, not two.** A species' producer effect (on its own yield) and its associate effect (on its partner's) are correlated properties of the same genotype, and that covariance — `Sigma`'s off-diagonal — is the whole reason the real analysis fits the two yields jointly. `draw_effect_pair()` whitens and re-colours each pair so its realised covariance *is* `Sigma` rather than merely having it in expectation.
 
-An earlier version of this framework simulated oat yield alone. That left the
-oat's associate effect and the pea's producer effect out of existence, forced
-the DGE-IGE comparator to be univariate, and meant only one of the two
-contrasts the validation trial tests had any simulation behind it.
+An earlier version of this framework simulated oat yield alone. That left the oat's associate effect and the pea's producer effect out of existence, forced the DGE-IGE comparator to be univariate, and meant only one of the two contrasts the validation trial tests had any simulation behind it.
 
-`rho` (`gxe_cor`) is the across-environment genetic correlation. Each effect
-splits into a stable share and an environment-specific one, so the total
-variances are unchanged and `rho = 1` reduces to no GxE at all.
+`rho` (`gxe_cor`) is the across-environment genetic correlation. Each effect splits into a stable share and an environment-specific one, so the total variances are unchanged and `rho = 1` reduces to no GxE at all.
 
-**The two interaction surfaces are independent.** Fitting the real model with
-the specific-combination term puts their correlation at about +0.20, but with
-1,869 of 2,059 combinations in a single plot that is not separable from plot
-quality — a fertile plot lifts both yields. See the caveats.
+**The two interaction surfaces are independent.** Fitting the real model with the specific-combination term puts their correlation at about +0.20, but with 1,869 of 2,059 combinations in a single plot that is not separable from plot quality — a fertile plot lifts both yields. See the caveats.
 
 ### The interaction is built to be fair to both frameworks
 
-Drawing the oat scores from `G_oat` and the pea loadings from `G_pea` makes a
-single factor's covariance exactly `G_oat[i,i'] * G_pea[j,j']`. So as
-`n_factors` grows the interaction converges on the **full Kronecker structure
-the DGE-IGE model assumes**, while at `n_factors = 1` it is as low-rank as
-MegaLMM could wish for.
+Drawing the oat scores from `G_oat` and the pea loadings from `G_pea` makes a single factor's covariance exactly `G_oat[i,i'] * G_pea[j,j']`. So as `n_factors` grows the interaction converges on the **full Kronecker structure the DGE-IGE model assumes**, while at `n_factors = 1` it is as low-rank as MegaLMM could wish for.
 
-This matters. Simulating the interaction as a factor model and then reporting
-that the factor model wins would be circular. Here the rank axis slides between
-the two frameworks' home ground, and `n_factors = 0` gives a case where the
-correct answer is that neither should find anything.
+This matters. Simulating the interaction as a factor model and then reporting that the factor model wins would be circular. Here the rank axis slides between the two frameworks' home ground, and `n_factors = 0` gives a case where the correct answer is that neither should find anything.
 
 ### Everything else comes from the B4I data
 
-- **Variance shares, one budget per trait and deliberately not symmetric** —
-  oat yield splits producer 0.211 / associate 0.160 / residual 0.630
-  (395.1 / 299.3 / 1181.5), pea yield 0.215 / 0.121 / 0.663
-  (185.9 / 105.3 / 572.9). Read "producer" as "of the species whose yield this
-  is". The interaction takes its share off the top and the rest is split in
-  these proportions.
-- **The off-diagonals** — within-species producer–associate correlations of
-  −0.065 (oat) and −0.234 (pea), and a residual correlation between the two
-  yields of −0.122. These are the **genetic** correlations from the fit, not the
-  correlations between the BLUPs (−0.405, −0.441): the BLUP correlation is
-  inflated because the two effects are estimated with correlated errors.
-  `sim_observed_parameters()` re-derives all of it.
-- **Relationship matrices** — the real `GRM_Avena.rds` and `GRM_Pisum.rds`,
-  subsampled to the panel size, so the relatedness structure and its
-  unevenness are real rather than idealised.
-- **Environment heterogeneity** — two separable things. Mean and spread differ
-  by environment: scale factors are log-normal with SD 0.669, the observed SD of
-  log within-trial SD across the six B4I trials. That figure is driven by
-  `B4I_2025_AL`, a near-total crop failure (mean 8.3 g/m² against 127–383
-  elsewhere); excluding it gives 0.167. The default is the honest "as observed"
-  value; set `SIM_ENV_LOG_SD <- 0.167` to ask what happens in a season where
-  nothing fails. On its own this changes only the spread — no accession changes
-  rank.
-- **Genotype × environment** — controlled separately by `gxe_cor`, swept at
-  1.0 and 0.6. This is the attenuation the validation trial turns on: an effect
-  estimated in one set of environments is worth having only if it survives into
-  another. `code/validate_crossval.R` measures it on the real trials by
-  leave-one-trial-out and found the across-fold spread of the calibration slope
-  to be 0.57–0.69 of its mean, which is roughly where 0.6 sits. Unidentifiable
-  with one environment, so those cells are pinned at 1.0.
+- **Variance shares, one budget per trait and deliberately not symmetric** — oat yield splits producer 0.211 / associate 0.160 / residual 0.630 (395.1 / 299.3 / 1181.5), pea yield 0.215 / 0.121 / 0.663 (185.9 / 105.3 / 572.9). Read "producer" as "of the species whose yield this is". The interaction takes its share off the top and the rest is split in these proportions.
+- **The off-diagonals** — within-species producer–associate correlations of −0.065 (oat) and −0.234 (pea), and a residual correlation between the two yields of −0.122. These are the **genetic** correlations from the fit, not the correlations between the BLUPs (−0.405, −0.441): the BLUP correlation is inflated because the two effects are estimated with correlated errors. `sim_observed_parameters()` re-derives all of it.
+- **Relationship matrices** — the real `GRM_Avena.rds` and `GRM_Pisum.rds`, subsampled to the panel size, so the relatedness structure and its unevenness are real rather than idealised.
+- **Environment heterogeneity** — two separable things. Mean and spread differ by environment: scale factors are log-normal with SD 0.669, the observed SD of log within-trial SD across the six B4I trials. That figure is driven by `B4I_2025_AL`, a near-total crop failure (mean 8.3 g/m² against 127–383 elsewhere); excluding it gives 0.167. The default is the honest "as observed" value; set `SIM_ENV_LOG_SD <- 0.167` to ask what happens in a season where nothing fails. On its own this changes only the spread — no accession changes rank.
+- **Genotype × environment** — controlled separately by `gxe_cor`, swept at 1.0 and 0.6. This is the attenuation the validation trial turns on: an effect estimated in one set of environments is worth having only if it survives into another. `code/validate_crossval.R` measures it on the real trials by leave-one-trial-out and found the across-fold spread of the calibration slope to be 0.57–0.69 of its mean, which is roughly where 0.6 sits. Unidentifiable with one environment, so those cells are pinned at 1.0.
 
 ### Design constraints that are not cosmetic
 
-Every accession is guaranteed `SIM_MIN_PER_ACC` (3) observations. A pea
-environment holding a single oat has no estimable residual variance, and
-MegaLMM's ARD sampler answers that with `NaN` several frames deep in
-`sample_Lambda_prec_ARD` rather than with an error. Guaranteeing three is also
-the more realistic design — nobody grows an entry once — and it keeps
-`sparsity` meaning what it says, since the panel is never trimmed afterwards.
-Masking for cross-validation carries the same floor.
+Every accession is guaranteed `SIM_MIN_PER_ACC` (3) observations. A pea environment holding a single oat has no estimable residual variance, and MegaLMM's ARD sampler answers that with `NaN` several frames deep in `sample_Lambda_prec_ARD` rather than with an error. Guaranteeing three is also the more realistic design — nobody grows an entry once — and it keeps `sparsity` meaning what it says, since the panel is never trimmed afterwards. Masking for cross-validation carries the same floor.
 
 ## What is fitted
 
 Three models, all shown identical data and scored on identical cells:
 
-| model | what it fits |
-|---|---|
+| <div style="width: 100px;">`model`</div> | what it fits |
+|------------------------------------|------------------------------------|
 | `additive` | the bivariate producer–associate model, no interaction term. The model used on the real B4I data, and the floor the others must clear. |
 | `dge_ige` | the same plus the specific-combination term, covariance `G_oat ⊗ G_pea` at low rank. The proposal's Eqn 2 in full. |
 | `megalmm` | the factor model, fitted **twice** — once each orientation. Scored on `Eta_mean`, the predicted phenotype. |
@@ -216,189 +119,95 @@ Three models, all shown identical data and scored on identical cells:
 
 plus `row_mean` and `both_means` as margin-only baselines.
 
-Both DGE-IGE variants are fitted by **`fit_producer_associate()` in
-`code/dge_ige_functions.R`** — the same function the production analysis and the
-leave-one-trial-out cross-validation use. The comparator is therefore the model
-the project actually runs, not a univariate stand-in. Its specific-combination
-term is built from the low-rank Kronecker basis (`kron_rank`), because the exact
-kernel is tractable at the real experiment's 2,059 combinations but not at a
-simulation's 19,200.
+Both DGE-IGE variants are fitted by **`fit_producer_associate()` in `code/dge_ige_functions.R`** — the same function the production analysis and the leave-one-trial-out cross-validation use. The comparator is therefore the model the project actually runs, not a univariate stand-in. Its specific-combination term is built from the low-rank Kronecker basis (`kron_rank`), because the exact kernel is tractable at the real experiment's 2,059 combinations but not at a simulation's 19,200.
 
 ### MegaLMM is fitted in both orientations
 
 | orientation | rows | columns | cells | gives, as margins |
-|---|---|---|---|---|
+|---------------|---------------|---------------|---------------|---------------|
 | oat-side | oat, with `G_oat` | pea | oat yield | oat **producer**, pea **associate** |
 | pea-side | pea, with `G_pea` | oat | pea yield | pea **producer**, oat **associate** |
 
-One orientation cannot give all four effects, because MegaLMM has a per-column
-intercept and **no per-row one**. So the row species' main effect must be
-carried by kinship-shrunk latent structure, while the column species' main
-effect sits in an unshrunk fixed intercept. Each orientation therefore estimates
-one species' producer effect with borrowing and the other species' associate
-effect without it.
+One orientation cannot give all four effects, because MegaLMM has a per-column intercept and **no per-row one**. So the row species' main effect must be carried by kinship-shrunk latent structure, while the column species' main effect sits in an unshrunk fixed intercept. Each orientation therefore estimates one species' producer effect with borrowing and the other species' associate effect without it.
 
-Running both and assembling gives every effect from the orientation that treats
-it best:
+Running both and assembling gives every effect from the orientation that treats it best:
 
-```
+```         
 oat GMA = rowMeans(surface_oat) + rowMeans(surface_pea)
 pea GMA = colMeans(surface_pea) + colMeans(surface_oat)
 ```
 
-The pea-side surface is transposed on the way out, so **every model returns the
-same thing: two full oat × pea surfaces, one per trait, both oat-rows ×
-pea-cols**. That uniformity is what makes the metrics comparable — each effect
-is a margin of a surface, taken the same way from every framework, rather than
-each model's own idea of what it estimated.
+The pea-side surface is transposed on the way out, so **every model returns the same thing: two full oat × pea surfaces, one per trait, both oat-rows × pea-cols**. That uniformity is what makes the metrics comparable — each effect is a margin of a surface, taken the same way from every framework, rather than each model's own idea of what it estimated.
 
-It also predicts something testable: **the associate columns should fall away
-faster than the producer columns as the matrix thins**, because only the
-producer effects get kinship. The 1.6% level is where to look.
+It also predicts something testable: **the associate columns should fall away faster than the producer columns as the matrix thins**, because only the producer effects get kinship. The 1.6% level is where to look.
 
 ### Score `Eta_mean`, not `U`
 
-`U = U_F %*% Lambda + U_R` is a genetic value and **excludes the per-column
-intercept**, which is where MegaLMM keeps the pea main effect. Scoring `U`
-against a truth containing that effect asks it to predict a component it
-structurally cannot hold — worth about 16% of the total variance here. An
-earlier version of this framework did exactly that, and MegaLMM's `r_total`
-was correspondingly understated; `megalmm_U` is retained as a row so the size
-of the difference stays visible.
+`U = U_F %*% Lambda + U_R` is a genetic value and **excludes the per-column intercept**, which is where MegaLMM keeps the pea main effect. Scoring `U` against a truth containing that effect asks it to predict a component it structurally cannot hold — worth about 16% of the total variance here. An earlier version of this framework did exactly that, and MegaLMM's `r_total` was correspondingly understated; `megalmm_U` is retained as a row so the size of the difference stays visible.
 
-`r_interaction` is unaffected either way, because row and column means are
-stripped from prediction and truth alike.
+`r_interaction` is unaffected either way, because row and column means are stripped from prediction and truth alike.
 
 ### MegaLMM settings are swept, and cached apart
 
-`K` (5, 10) and `eigen_variance` (0.20, 0.50, 0.80) are crossed with the data
-design, giving 360 fits. Both are claims MegaLMM makes about itself — that the
-ARD prior makes surplus factors and irrelevant covariates cheap — so the sweep
-tests those claims as much as it tunes anything.
+`K` (5, 10) and `eigen_variance` (0.20, 0.50, 0.80) are crossed with the data design, giving 360 fits. Both are claims MegaLMM makes about itself — that the ARD prior makes surplus factors and irrelevant covariates cheap — so the sweep tests those claims as much as it tunes anything.
 
-Neither changes the simulated experiment, so refitting the BGLR half for each
-would waste five sixths of the compute. The two halves are cached separately:
-`<scenario>_rep<k>_bglr.rds` and `<scenario>_rep<k>_mm_K<K>_ev<pct>.rds`.
+Neither changes the simulated experiment, so refitting the BGLR half for each would waste five sixths of the compute. The two halves are cached separately: `<scenario>_rep<k>_bglr.rds` and `<scenario>_rep<k>_mm_K<K>_ev<pct>.rds`.
 
-K matters more than the shrinkage argument suggests, at least at low density.
-The binding constraint is **observations per pea column relative to K**: a
-column's K loadings are estimated from that column's data, and at 5% observed
-with 200 oats there are 10 observations per column. The crossover reported
-below at 15% observed is 30 per column, which is 3 x K at K = 10 — so it is
-better read as a statement about that ratio than about density as such.
+K matters more than the shrinkage argument suggests, at least at low density. The binding constraint is **observations per pea column relative to K**: a column's K loadings are estimated from that column's data, and at 5% observed with 200 oats there are 10 observations per column. The crossover reported below at 15% observed is 30 per column, which is 3 x K at K = 10 — so it is better read as a statement about that ratio than about density as such.
 
 ### The Kronecker term is low-rank by necessity
 
-The exact specific-combination kernel is `n_obs × n_obs`, which at 19,200
-observations is a 2.9 GB matrix to eigen-decompose. The same space is spanned
-by products of the two species' own eigenvectors, so the term is built from the
-leading `SIM_KRON_RANK` (30) of each: column `(a-1)*rank + b` is
-`A[,a] * B[,b]`, and the fitted coefficients reshape to a `rank × rank` matrix
-whose full interaction surface is `A %*% Beta %*% t(B)`. That reshaping is also
-what makes predicting every cell cheap.
+The exact specific-combination kernel is `n_obs × n_obs`, which at 19,200 observations is a 2.9 GB matrix to eigen-decompose. The same space is spanned by products of the two species' own eigenvectors, so the term is built from the leading `SIM_KRON_RANK` (30) of each: column `(a-1)*rank + b` is `A[,a] * B[,b]`, and the fitted coefficients reshape to a `rank × rank` matrix whose full interaction surface is `A %*% Beta %*% t(B)`. That reshaping is also what makes predicting every cell cheap.
 
-This is an approximation, and it is the DGE-IGE model's handicap in the
-comparison — worth remembering when reading a result where it loses.
+This is an approximation, and it is the DGE-IGE model's handicap in the comparison — worth remembering when reading a result where it loses.
 
-The basis and the reshape are derived from scratch, with a worked example, in
-[docs/specific-combination_kronecker.md](docs/specific-combination_kronecker.md).
-Read it before editing either `grm_basis()` or `kron_basis()`: the index
-arithmetic fails silently, and the check that catches it is level S6 of
-[EVALUATION_SIMULATION.md](EVALUATION_SIMULATION.md).
+The basis and the reshape are derived from scratch, with a worked example, in [docs/specific-combination_kronecker.md](docs/specific-combination_kronecker.md). Read it before editing either `grm_basis()` or `kron_basis()`: the index arithmetic fails silently, and the check that catches it is level S6 of [EVALUATION_SIMULATION.md](EVALUATION_SIMULATION.md).
 
 ## How accuracy is measured
 
 20% of observations held out, with the floor above.
 
-Every model returns a full oat × pea prediction **surface**, which is what makes
-the metrics comparable: any surface splits exactly into an additive part and an
-interaction part, and both halves are taken the same way from every model.
+Every model returns a full oat × pea prediction **surface**, which is what makes the metrics comparable: any surface splits exactly into an additive part and an interaction part, and both halves are taken the same way from every model.
 
-```
+```         
 M  =  additive_part(M)  +  interaction_part(M)
 additive_part(M) = outer(rowMeans(M), colMeans(M), "+") - mean(M)
 ```
 
-**Nothing is held out.** Every observed plot is fitted, so a scenario labelled
-4.8% observed is fitted at 4.8%, and the per-cell metrics are scored on the cells
-that were **never observed** — the prediction target, with known truth like every
-other cell. `SIM_SCORE_SET` switches to `"all"` if the observed cells should be
-included too.
+**Nothing is held out.** Every observed plot is fitted, so a scenario labelled 4.8% observed is fitted at 4.8%, and the per-cell metrics are scored on the cells that were **never observed** — the prediction target, with known truth like every other cell. `SIM_SCORE_SET` switches to `"all"` if the observed cells should be included too.
 
-> Before 30 September 2026 a 20% share of the *observed* cells was held out and
-> the per-cell metrics were scored there, so the models were fitted at
-> **0.8 × the labelled sparsity** with nothing in the output saying so, and the
-> metrics used a small fraction of the available cells (72 against 3,240 at 10%
-> observed). `output/simulation_results.csv` from the September Ceres run is on
-> the old scheme and has not been regenerated. The cache filename carries `v2`
-> from the change onward, so the two schemes cannot be combined.
+> Before 30 September 2026 a 20% share of the *observed* cells was held out and the per-cell metrics were scored there, so the models were fitted at **0.8 × the labelled sparsity** with nothing in the output saying so, and the metrics used a small fraction of the available cells (72 against 3,240 at 10% observed). `output/simulation_results.csv` from the September Ceres run is on the old scheme and has not been regenerated. The cache filename carries `v2` from the change onward, so the two schemes cannot be combined.
 
-**Per trait, over the never-observed cells** (suffix `_oat` for oat yield, `_pea`
-for pea yield):
+**Per trait, over the never-observed cells** (suffix `_oat` for oat yield, `_pea` for pea yield):
 
-- **`r_total_*`** — against the true genetic value `Pr + As + I` for that trait.
-  What a breeder ranking on predicted performance would care about.
-- **`r_addsurf_*`** — against `Pr + As`, the interaction removed from prediction and
-  truth alike. General mixing ability: the quantity that matters when specific
-  combinations will not be chosen, only good general partners.
-- **`r_int_*`** — against the true interaction alone. **The metric the
-  comparison turns on.** Neither framework returns an "interaction" on the same
-  terms, so row and column means are stripped from the predicted surface and
-  from the truth alike. An additive model residualises to exactly zero, which is
-  the correct answer for it.
-- **`r_fit_*`** — against the observed phenotype, at the cells that *were*
-  observed. A goodness of **fit**, not an accuracy, and named accordingly: with
-  nothing held out there is no out-of-sample phenotype to correlate against. It
-  is bounded well below 1 by residual noise (the truth itself scores about 0.69),
-  and is kept because a surface that does not track its own training data has
-  gone wrong in a way the truth-based metrics can hide. The pre-October
-  `r_obs_*` was the same quantity computed out of sample, where it *was* an
-  accuracy.
+- **`r_total_*`** — against the true genetic value `Pr + As + I` for that trait. What a breeder ranking on predicted performance would care about.
+- **`r_addsurf_*`** — against `Pr + As`, the interaction removed from prediction and truth alike. General mixing ability: the quantity that matters when specific combinations will not be chosen, only good general partners.
+- **`r_int_*`** — against the true interaction alone. **The metric the comparison turns on.** Neither framework returns an "interaction" on the same terms, so row and column means are stripped from the predicted surface and from the truth alike. An additive model residualises to exactly zero, which is the correct answer for it.
+- **`r_fit_*`** — against the observed phenotype, at the cells that *were* observed. A goodness of **fit**, not an accuracy, and named accordingly: with nothing held out there is no out-of-sample phenotype to correlate against. It is bounded well below 1 by residual noise (the truth itself scores about 0.69), and is kept because a surface that does not track its own training data has gone wrong in a way the truth-based metrics can hide. The pre-October `r_obs_*` was the same quantity computed out of sample, where it *was* an accuracy.
 
 **Effect recovery — all four, each from the margin that carries it:**
 
-| metric | margin | is the effect of |
-|---|---|---|
-| `r_oat_prod` | `rowMeans(surface_oat)` | oat, on its own yield |
-| `r_pea_assoc` | `colMeans(surface_oat)` | pea, on the oat |
-| `r_oat_assoc` | `rowMeans(surface_pea)` | oat, on the pea |
-| `r_pea_prod` | `colMeans(surface_pea)` | pea, on its own yield |
+| metric        | margin                  | is the effect of      |
+|---------------|-------------------------|-----------------------|
+| `r_oat_prod`  | `rowMeans(surface_oat)` | oat, on its own yield |
+| `r_pea_assoc` | `colMeans(surface_oat)` | pea, on the oat       |
+| `r_oat_assoc` | `rowMeans(surface_pea)` | oat, on the pea       |
+| `r_pea_prod`  | `colMeans(surface_pea)` | pea, on its own yield |
 
-and **`r_oat_gma` / `r_pea_gma`** for each species' producer plus associate,
-assembled across the two surfaces. Taking every effect as a surface margin is
-what asks the three frameworks the same question the same way.
+and **`r_oat_gma` / `r_pea_gma`** for each species' producer plus associate, assembled across the two surfaces. Taking every effect as a surface margin is what asks the three frameworks the same question the same way.
 
-**`r_addsurf_oat` and `r_oat_gma` are not the same quantity.**
-The first is per cell and is the additive part of oat *yield* — oat producer plus
-**pea** associate. The second is per accession and is an oat's total contribution
-— oat producer plus **oat** associate. They share only the producer effect, and
-the two associate vectors correlate at about 0.14. See
-[SIMULATION_GLOSSARY.md](SIMULATION_GLOSSARY.md#r_addsurf_oat-and-r_oat_gma-are-different-quantities).
+**`r_addsurf_oat` and `r_oat_gma` are not the same quantity.** The first is per cell and is the additive part of oat *yield* — oat producer plus **pea** associate. The second is per accession and is an oat's total contribution — oat producer plus **oat** associate. They share only the producer effect, and the two associate vectors correlate at about 0.14. See [SIMULATION_GLOSSARY.md](SIMULATION_GLOSSARY.md#r_addsurf_oat-and-r_oat_gma-are-different-quantities).
 
-**Two diagnostics of the fixed-loading factor**, not estimates of a main
-effect:
+**Two diagnostics of the fixed-loading factor**, not estimates of a main effect:
 
-- **`r_mainfactor_oat` / `r_mainfactor_pea`** — the pinned factor's scores
-  against the true producer effect of the species on that orientation's rows.
-  Says whether `fixed_main_effect` is doing its job. It equals the main effect
-  only if every other factor has zero mean loading, which nothing enforces —
-  measured on a dense panel the factor route explains 7.5% of the margin's
-  variance and correlates 0.05 with the truth against 0.94 for the margin
-  itself. So `r_oat_prod` is the estimate to quote. Reported as `|r|` when the
-  factor is free, because a free factor's sign is arbitrary.
-- **`r_rowmean_oat` / `r_rowmean_pea`** — the bar: a plain average of the
-  training rows.
-- **`fixed_ok_oat` / `fixed_ok_pea`** — `sd(Lambda[1, ]) < 1e-8`, i.e. the
-  pinned loadings really are constant across columns. They come back at the
-  main-effect SD rather than at 1, because `remove_nuisance_parameters`
-  rescales `Lambda`.
-- **`n_dropped`** — accessions with no training observation, padded back with
-  zero. Should be 0; if it is not, whole rows or columns of the surface are
-  exactly zero and the correlations are diluted.
+- **`r_mainfactor_oat` / `r_mainfactor_pea`** — the pinned factor's scores against the true producer effect of the species on that orientation's rows. Says whether `fixed_main_effect` is doing its job. It equals the main effect only if every other factor has zero mean loading, which nothing enforces — measured on a dense panel the factor route explains 7.5% of the margin's variance and correlates 0.05 with the truth against 0.94 for the margin itself. So `r_oat_prod` is the estimate to quote. Reported as `|r|` when the factor is free, because a free factor's sign is arbitrary.
+- **`r_rowmean_oat` / `r_rowmean_pea`** — the bar: a plain average of the training rows.
+- **`fixed_ok_oat` / `fixed_ok_pea`** — `sd(Lambda[1, ]) < 1e-8`, i.e. the pinned loadings really are constant across columns. They come back at the main-effect SD rather than at 1, because `remove_nuisance_parameters` rescales `Lambda`.
+- **`n_dropped`** — accessions with no training observation, padded back with zero. Should be 0; if it is not, whole rows or columns of the surface are exactly zero and the correlations are diluted.
 
 ## Running it
 
-```bash
+``` bash
 Rscript code/sim_run.R --check                          # sanity check, always first
 Rscript code/sim_run.R                                  # 120 scenarios, 150 MegaLMM runs
 Rscript code/sim_run.R --reps 5                         # replicated
@@ -412,28 +221,22 @@ Rscript code/sim_run.R --task 3 --ntasks 20             # one slice, for a job a
 Rscript code/sim_run.R --combine                        # rebuild the CSV from the cache
 ```
 
-`--filter` takes an R expression over the **composite** design columns —
-`n_acc`, `sparsity`, `interaction`, `environment`, `K`, `eigen_variance`,
-`fixed_main_effect` — not over the raw `n_factors` / `n_envs` the generator
-receives. `--check` and `--pilot` are the two to run before anything long.
+`--filter` takes an R expression over the **composite** design columns — `n_acc`, `sparsity`, `interaction`, `environment`, `K`, `eigen_variance`, `fixed_main_effect` — not over the raw `n_factors` / `n_envs` the generator receives. `--check` and `--pilot` are the two to run before anything long.
 
-On a cluster the grid runs as a SLURM job array; see
-[code/scinet/README.md](code/scinet/README.md).
+On a cluster the grid runs as a SLURM job array; see [code/scinet/README.md](code/scinet/README.md).
 
-**Before reading any results table, filter it.** `simulation_results.csv` is
-rebuilt by globbing the cache, so rows from an earlier grid join it silently:
+**Before reading any results table, filter it.** `simulation_results.csv` is rebuilt by globbing the cache, so rows from an earlier grid join it silently:
 
-```bash
+``` bash
 Rscript code/sim_filter_results.R --infer-design
 ```
 
-Every column is defined in
-[SIMULATION_GLOSSARY.md](SIMULATION_GLOSSARY.md).
+Every column is defined in [SIMULATION_GLOSSARY.md](SIMULATION_GLOSSARY.md).
 
 ### What it writes
 
 | path | what it is |
-|---|---|
+|------------------------------------|------------------------------------|
 | `output/simulation/<scenario>_rep<k>_s<seed>_bglr.rds` | the DGE-IGE half of one scenario: a tibble with one row per BGLR model and per baseline, the same shape as a slice of the combined CSV. |
 | `output/simulation/<scenario>_rep<k>_s<seed>_mm_K<k>_ev<vv>_fx<b>.rds` | one MegaLMM setting on one scenario. The two halves are cached apart because the BGLR half does not depend on the MegaLMM levers. |
 | `output/simulation_design.csv` | the run list that was actually executed, composite levels and all. |
@@ -444,158 +247,88 @@ Every column is defined in
 
 Everything under `output/` is gitignored, and everything here regenerates.
 
-Because the cache is per scenario and per MegaLMM setting, the grid can be run
-in pieces, interrupted and resumed. Re-running picks up where it stopped;
-`--refresh` ignores the cache and refits.
+Because the cache is per scenario and per MegaLMM setting, the grid can be run in pieces, interrupted and resumed. Re-running picks up where it stopped; `--refresh` ignores the cache and refits.
 
-**The seed is part of the cache key, not just of the contents**, and it is also
-a column in the results. A scenario's seed is
+**The seed is part of the cache key, not just of the contents**, and it is also a column in the results. A scenario's seed is
 
-```
+```         
 SIM_BASE_SEED + (rep - 1) * n_scenarios + scenario_index
 ```
 
 Two properties follow, and both matter.
 
-**Adding replicates is additive.** `rep` is the *slow* index, so a scenario's
-seed does not depend on how many replicates were requested: replicate 1 of
-`--reps 5` has the same seed as replicate 1 of `--reps 1`, and replicates 2…n are
-simply new work. Running `--reps 5` over a finished single-replicate grid reuses
-what is there and fits only the rest.
+**Adding replicates is additive.** `rep` is the *slow* index, so a scenario's seed does not depend on how many replicates were requested: replicate 1 of `--reps 5` has the same seed as replicate 1 of `--reps 1`, and replicates 2…n are simply new work. Running `--reps 5` over a finished single-replicate grid reuses what is there and fits only the rest.
 
-**Changing the grid is not.** Adding a level to any axis renumbers
-`scenario_index` and so changes every seed downstream of it — while the scenario
-*name*, which encodes only the design, does not change. That is deliberate: those
-cache files should miss and be recomputed rather than be reused under a seed the
-current grid would never have assigned.
+**Changing the grid is not.** Adding a level to any axis renumbers `scenario_index` and so changes every seed downstream of it — while the scenario *name*, which encodes only the design, does not change. That is deliberate: those cache files should miss and be recomputed rather than be reused under a seed the current grid would never have assigned.
 
-> **This numbering changed on 30 September 2026.** It previously varied `rep`
-> fastest, which made replicate 1 of `--reps 5` a *different* seed from replicate
-> 1 of `--reps 1` — so adding replicates silently refitted the whole grid and
-> left the old files in the cache, where they still globbed into the combined CSV
-> calling themselves replicate 1. Any cache written before that date is under the
-> old numbering. **Clear `output/simulation/` before the next run**, or the two
-> schemes will coexist and duplicate replicate 1. `tests/test_design.R` pins the
-> additivity property.
+> **This numbering changed on 30 September 2026.** It previously varied `rep` fastest, which made replicate 1 of `--reps 5` a *different* seed from replicate 1 of `--reps 1` — so adding replicates silently refitted the whole grid and left the old files in the cache, where they still globbed into the combined CSV calling themselves replicate 1. Any cache written before that date is under the old numbering. **Clear `output/simulation/` before the next run**, or the two schemes will coexist and duplicate replicate 1. `tests/test_design.R` pins the additivity property.
 
 ### How long it takes
 
-**Measured on the worst cell**, 400 × 400 at 48% — 76,800 plots per trait,
-61,440 in training after the 20% held out:
+**Measured on the worst cell**, 400 × 400 at 48% — 76,800 plots per trait, 61,440 in training after the 20% held out:
 
-| fit | production chain | measured |
-|---|---|---|
-| `additive` (no interaction term) | 6,000 iterations | **3.9 min** |
+| fit                                | production chain | measured    |
+|------------------------------------|------------------|-------------|
+| `additive` (no interaction term)   | 6,000 iterations | **3.9 min** |
 | `dge_ige` (rank-30 Kronecker term) | 6,000 iterations | **9.0 min** |
 
-The interaction fit was timed at 400 and 800 iterations (37.0 s and 71.3 s) and
-extrapolated, because the cost is essentially all sampling and essentially
-linear: **2.7 s of setup plus 0.086 s per iteration**. Building the 61,440 × 900
-basis is not the expensive part; sampling through it is.
+The interaction fit was timed at 400 and 800 iterations (37.0 s and 71.3 s) and extrapolated, because the cost is essentially all sampling and essentially linear: **2.7 s of setup plus 0.086 s per iteration**. Building the 61,440 × 900 basis is not the expensive part; sampling through it is.
 
-BGLR's cost is close to linear in the number of observations, so scaling that
-anchor across the design gives, for one replicate:
+BGLR's cost is close to linear in the number of observations, so scaling that anchor across the design gives, for one replicate:
 
-| | single-core time |
-|---|---|
-| `additive`, all 120 scenarios | ~1.8 h |
-| `dge_ige`, all 120 scenarios | ~4.1 h |
-| **both halves, whole grid** | **~5.9 h** |
-| the most expensive single scenario | 13 min |
-| per task at `--array=1-20` | 0.1–0.4 h, median 0.3 h |
+|                                    | single-core time        |
+|------------------------------------|-------------------------|
+| `additive`, all 120 scenarios      | \~1.8 h                 |
+| `dge_ige`, all 120 scenarios       | \~4.1 h                 |
+| **both halves, whole grid**        | **\~5.9 h**             |
+| the most expensive single scenario | 13 min                  |
+| per task at `--array=1-20`         | 0.1–0.4 h, median 0.3 h |
 
-So the twelve-hour wall clock in `sim_array.sbatch` has a very large margin, and
-the earlier "budget 4–6 hours" estimate was for the whole grid on one core rather
-than per task. MegaLMM adds to this but is flat in sparsity — its cost is driven
-by the matrix size and `K`, not by how much of the matrix is filled — and the
-D-optimal fraction cut it from 1,920 fits to 300.
+So the twelve-hour wall clock in `sim_array.sbatch` has a very large margin, and the earlier "budget 4–6 hours" estimate was for the whole grid on one core rather than per task. MegaLMM adds to this but is flat in sparsity — its cost is driven by the matrix size and `K`, not by how much of the matrix is filled — and the D-optimal fraction cut it from 1,920 fits to 300.
 
-For context, the older single-trait timings at 200 × 200, mean seconds per
-scenario over all three fits:
+For context, the older single-trait timings at 200 × 200, mean seconds per scenario over all three fits:
 
 | observed | observations | additive | dge_ige | megalmm | per scenario |
-|---|---|---|---|---|---|
-| 5% | 2,000 | 2.8 | 10.0 | 10.2 | 23 s |
-| 15% | 6,000 | 7.3 | 28.6 | 10.0 | 46 s |
-| 45% | 18,000 | 20.4 | 70.6 | 9.8 | 101 s |
+|----------|--------------|----------|---------|---------|--------------|
+| 5%       | 2,000        | 2.8      | 10.0    | 10.2    | 23 s         |
+| 15%      | 6,000        | 7.3      | 28.6    | 10.0    | 46 s         |
+| 45%      | 18,000       | 20.4     | 70.6    | 9.8     | 101 s        |
 
-Those predate the bivariate generator, so they are a lower bound: `Multitrait`
-carries two traits where those carried one. They are kept because the *shape* is
-the same and it is the shape that matters — the BGLR models scale with the number
-of observations, MegaLMM does not.
+Those predate the bivariate generator, so they are a lower bound: `Multitrait` carries two traits where those carried one. They are kept because the *shape* is the same and it is the shape that matters — the BGLR models scale with the number of observations, MegaLMM does not.
 
-`n_envs` and `gxe_cor` cost nothing: they change how the standardisation is
-grouped and how the effects are drawn, not how much data there is. The two new
-low-sparsity levels are the **cheapest** cells in the grid — 1.6% at 200 × 200 is
-640 observations — so doubling the grid from 60 to 120 scenarios cost much less
-than double.
+`n_envs` and `gxe_cor` cost nothing: they change how the standardisation is grouped and how the effects are drawn, not how much data there is. The two new low-sparsity levels are the **cheapest** cells in the grid — 1.6% at 200 × 200 is 640 observations — so doubling the grid from 60 to 120 scenarios cost much less than double.
 
-The cell most likely to give trouble is 400 × 400 at 48%, on **memory rather than
-time**: the Kronecker design matrix is 61,440 × 900, about 440 MB, with two
-temporaries of that size built before they are multiplied, and `Multitrait`
-carrying two traits through it. Halving `SIM_KRON_RANK` to 20 cuts that term from
-900 columns to 400.
+The cell most likely to give trouble is 400 × 400 at 48%, on **memory rather than time**: the Kronecker design matrix is 61,440 × 900, about 440 MB, with two temporaries of that size built before they are multiplied, and `Multitrait` carrying two traits through it. Halving `SIM_KRON_RANK` to 20 cuts that term from 900 columns to 400.
 
 ### Convergence: checked, not swept
 
-`--trace` splits the sampling into `SIM_TRACE_CHUNKS` pieces and scores after
-each, so a single run reports whether accuracy was still moving when the chain
-stopped — no chain-length axis needed.
+`--trace` splits the sampling into `SIM_TRACE_CHUNKS` pieces and scores after each, so a single run reports whether accuracy was still moving when the chain stopped — no chain-length axis needed.
 
-**Caveat: the trace is not yet trustworthy.** Its values do not reconcile with
-the final posterior mean from the same run (one case: −0.116 at the last chunk
-against 0.087 scored at the end). That points at how `save_posterior_chunk()`
-and `load_posterior_param()` accumulate a `posteriorMean` parameter across
-chunks — plausibly each chunk's mean rather than the running mean — which
-would make the trace a sequence of chunk estimates rather than a convergence
-curve. Useful for spotting drift, not for reading off a final number, and it
-needs verifying before either use.
+**Caveat: the trace is not yet trustworthy.** Its values do not reconcile with the final posterior mean from the same run (one case: −0.116 at the last chunk against 0.087 scored at the end). That points at how `save_posterior_chunk()` and `load_posterior_param()` accumulate a `posteriorMean` parameter across chunks — plausibly each chunk's mean rather than the running mean — which would make the trace a sequence of chunk estimates rather than a convergence curve. Useful for spotting drift, not for reading off a final number, and it needs verifying before either use.
 
 ### `--check` exists for a reason
 
-It fits a dense, strongly structured scenario in which MegaLMM should clearly
-recover the signal, and stops if it does not. The failure mode it guards
-against — a wiring mistake that makes every MegaLMM number approximately
-zero — is indistinguishable by eye from "the method does not work here", and
-this project has already spent time on a MegaLMM result that looked like the
-latter. Run it before trusting any sweep.
+It fits a dense, strongly structured scenario in which MegaLMM should clearly recover the signal, and stops if it does not. The failure mode it guards against — a wiring mistake that makes every MegaLMM number approximately zero — is indistinguishable by eye from "the method does not work here", and this project has already spent time on a MegaLMM result that looked like the latter. Run it before trusting any sweep.
 
-The check is also a result in miniature. On a 100×100 matrix at 50% observed
-with a single interaction factor:
+The check is also a result in miniature. On a 100×100 matrix at 50% observed with a single interaction factor:
 
-| model | `r_total` | `r_interaction` | seconds |
-|---|---|---|---|
-| additive | 0.731 | — | 3 |
-| dge_ige | **0.787** | 0.444 | 19 |
-| megalmm | 0.705 | **0.869** | 5 |
-| oat_plus_pea | 0.715 | — | — |
+| model        | `r_total` | `r_interaction` | seconds |
+|--------------|-----------|-----------------|---------|
+| additive     | 0.731     | —               | 3       |
+| dge_ige      | **0.787** | 0.444           | 19      |
+| megalmm      | 0.705     | **0.869**       | 5       |
+| oat_plus_pea | 0.715     | —               | —       |
 
-Read that carefully, because it is the shape of the whole answer. MegaLMM is
-far better at the **interaction** — 0.87 against 0.44 — which is what it is
-for. DGE-IGE is better at the **total**, because it models the additive main
-effects explicitly while MegaLMM absorbs the pea main effect into a per-column
-intercept that never reaches `U`. A framework can win the question it was built
-for and still lose the one the breeder asks.
+Read that carefully, because it is the shape of the whole answer. MegaLMM is far better at the **interaction** — 0.87 against 0.44 — which is what it is for. DGE-IGE is better at the **total**, because it models the additive main effects explicitly while MegaLMM absorbs the pea main effect into a per-column intercept that never reaches `U`. A framework can win the question it was built for and still lose the one the breeder asks.
 
 ## The interaction-focused design
 
-A second, smaller simulation answers one question the main grid raised but could
-not settle: **where** are the two boundaries at which MegaLMM starts to beat the
-Kronecker kernel at recovering the oat × pea interaction? See
-[docs/BGLR_vs_MegaLMM.md](docs/BGLR_vs_MegaLMM.md) for the finding that motivates
-it.
+A second, smaller simulation answers one question the main grid raised but could not settle: **where** are the two boundaries at which MegaLMM starts to beat the Kronecker kernel at recovering the oat × pea interaction? See [docs/BGLR_vs_MegaLMM.md](docs/BGLR_vs_MegaLMM.md) for the finding that motivates it.
 
-It exists as a separate design rather than as more of this one because the main
-MegaLMM sweep is a **D-optimal fraction**. That was right for its own question —
-every main effect and two-way interaction of seven factors at a fifth of the cost
-— but it means most scenarios were never given most settings, so any analysis
-conditioned on a particular configuration keeps only 40% of the scenarios, and
-the survivors are unbalanced across exactly the axis in question. A conditional
-question needs a design where the condition is present everywhere, so this one is
-a **full factorial**.
+It exists as a separate design rather than as more of this one because the main MegaLMM sweep is a **D-optimal fraction**. That was right for its own question — every main effect and two-way interaction of seven factors at a fifth of the cost — but it means most scenarios were never given most settings, so any analysis conditioned on a particular configuration keeps only 40% of the scenarios, and the survivors are unbalanced across exactly the axis in question. A conditional question needs a design where the condition is present everywhere, so this one is a **full factorial**.
 
 | factor | levels | why |
-|---|---|---|
+|------------------------|------------------------|------------------------|
 | `n_acc` | 200, 400 | as before |
 | `sparsity` | 1.6, 4.8, **9**, 16, 48% | 9% is new: the density gate lies between 4.8% and 16% |
 | `n_factors` | 1, **3**, 5 | rank 3 is new: the rank boundary lies between 1 and 5 |
@@ -605,35 +338,25 @@ a **full factorial**.
 | `K` | 5 | settled by the ANOVA |
 | `eigen_variance` | 0.75 | settled: inert, negative partial ω² |
 
-`additive` is not fitted: it has no interaction term, and on the additive part it
-is indistinguishable from `dge_ige`.
+`additive` is not fitted: it has no interaction term, and on the additive part it is indistinguishable from `dge_ige`.
 
-**Pinning is crossed rather than fixed because there is no single right answer.**
-It helps GMA when sparse and costs interaction recovery at every density, so the
-rule that is right for `r_addsurf` is wrong for `r_int` — and nobody knows which way
-it goes at 9%. Crossing it makes the simulation answer that rather than assume
-it.
+**Pinning is crossed rather than fixed because there is no single right answer.** It helps GMA when sparse and costs interaction recovery at every density, so the rule that is right for `r_addsurf` is wrong for `r_int` — and nobody knows which way it goes at 9%. Crossing it makes the simulation answer that rather than assume it.
 
-120 data scenarios × 3 replicates, each with one BGLR `dge_ige` fit and two
-MegaLMM runs. About **65 single-core hours**.
+120 data scenarios × 3 replicates, each with one BGLR `dge_ige` fit and two MegaLMM runs. About **65 single-core hours**.
 
 ### Running it
 
-```bash
+``` bash
 Rscript code/sim_int_run.R --check      # positive control -- always run first
 Rscript code/sim_int_run.R --pilot      # two cheap scenarios, end to end
 Rscript code/sim_int_run.R              # 120 scenarios x 3 replicates
 ```
 
-`--check` is a **positive control**, not a smoke test: it fits a dense, rank-1
-scenario in which MegaLMM *must* beat `dge_ige` on `r_int`, and stops with an
-error if it does not. If that comparison is mis-wired, every boundary this design
-reports is an artefact. It currently returns 0.870 against 0.453, and takes about
-a minute.
+`--check` is a **positive control**, not a smoke test: it fits a dense, rank-1 scenario in which MegaLMM *must* beat `dge_ige` on `r_int`, and stops with an error if it does not. If that comparison is mis-wired, every boundary this design reports is an artefact. It currently returns 0.870 against 0.453, and takes about a minute.
 
 Other flags, all behaving as in `sim_run.R`:
 
-```bash
+``` bash
 Rscript code/sim_int_run.R --reps 5                     # additive: reuses reps 1-3
 Rscript code/sim_int_run.R --filter "sparsity >= 0.09"  # an R expression over the design
 Rscript code/sim_int_run.R --refresh                    # ignore the cache
@@ -643,185 +366,101 @@ Rscript code/sim_int_run.R --combine                    # rebuild the CSV, fit n
 
 On a cluster:
 
-```bash
+``` bash
 mkdir -p logs                                           # SLURM will not create it
 sbatch -A <account> --qos=debug --time=00:30:00 --array=1-1 \
        code/scinet/sim_int_array.sbatch --check
 sbatch -A <account> code/scinet/sim_int_array.sbatch
 ```
 
-~3.3 h per task at `--array=1-20`. **MegaLMM dominates the cost here**, not BGLR,
-because it runs twice per scenario and in both orientations.
+\~3.3 h per task at `--array=1-20`. **MegaLMM dominates the cost here**, not BGLR, because it runs twice per scenario and in both orientations.
 
 ### What it writes
 
 | path | what it is |
-|---|---|
+|------------------------------------|------------------------------------|
 | `output/simulation_int/<scenario>_rep<k>_s<seed>_<half>.rds` | the cache, one file per scenario per half |
 | `output/simulation_int_results.csv` | the combined table, same columns as the main one |
 | `output/simulation_int_design.csv` | the run list. Written only by a run, never by `--combine` |
 | `output/simulation_int_paired.csv` | MegaLMM minus `dge_ige`, paired within scenario |
 
-`--combine` also prints the two tables the design exists for: the gap by density
-and rank, and whether pinning helps, per response and density.
+`--combine` also prints the two tables the design exists for: the gap by density and rank, and whether pinning helps, per response and density.
 
-Scenario names are prefixed `int_` and the cache lives in its own directory, so
-the two designs can never be globbed into one table — which matters, because they
-sweep different levels and the mixing would be silent. Their seed ranges are
-disjoint for the same reason.
+Scenario names are prefixed `int_` and the cache lives in its own directory, so the two designs can never be globbed into one table — which matters, because they sweep different levels and the mixing would be silent. Their seed ranges are disjoint for the same reason.
 
-## Reading the results
+## Reading the results {#reading-the-results}
 
-`simulation_results.csv` has one row per scenario × replicate × model, with
-`r_total`, `r_interaction`, `r_observed`, `seconds`, `n_train` and `n_held` --
-all of them pre-October names; the current columns are in
-[SIMULATION_GLOSSARY.md](SIMULATION_GLOSSARY.md).
-The runner prints three summaries: accuracy for the total, accuracy for the
-interaction, and a head-to-head of MegaLMM minus DGE-IGE.
+`simulation_results.csv` has one row per scenario × replicate × model, with `r_total`, `r_interaction`, `r_observed`, `seconds`, `n_train` and `n_held` -- all of them pre-October names; the current columns are in [SIMULATION_GLOSSARY.md](SIMULATION_GLOSSARY.md). The runner prints three summaries: accuracy for the total, accuracy for the interaction, and a head-to-head of MegaLMM minus DGE-IGE.
 
 Things to look for, given what the pilot already shows:
 
-- **Sparsity should dominate everything.** Find the density at which
-  `r_interaction` for MegaLMM lifts off zero; that is the number a redesign
-  has to hit. Why it dominates, and why MegaLMM loses to a row average rather
-  than merely tying with it, is worked through in
-  [docs/MegaLMM_sparsity_challenge.md](docs/MegaLMM_sparsity_challenge.md).
-- **Rank should decide the winner.** At 1 factor MegaLMM should win the
-  interaction comfortably; at 5 it should narrow as the truth approaches the
-  Kronecker structure DGE-IGE assumes.
-- **`n_factors = 0` is the false-positive check.** `r_interaction` is
-  undefined there — there is no true interaction to correlate against, and the
-  scorer returns `NA` rather than a number. The readout is instead that
-  neither interaction-fitting model should beat `additive` on `r_total`.
-- **Panel size is not sample size.** 400×400 at a given sparsity has four
-  times the observations but the same number per cell. Whether that helps
-  separates "needs more data" from "needs more data per combination".
-- **Ten environments should cost something.** Standardising within
-  environment removes the heterogeneity but spends degrees of freedom to do
-  it, and with a tenth of the combinations each, that estimate is noisy.
+- **Sparsity should dominate everything.** Find the density at which `r_interaction` for MegaLMM lifts off zero; that is the number a redesign has to hit. Why it dominates, and why MegaLMM loses to a row average rather than merely tying with it, is worked through in [docs/MegaLMM_sparsity_challenge.md](docs/MegaLMM_sparsity_challenge.md).
+- **Rank should decide the winner.** At 1 factor MegaLMM should win the interaction comfortably; at 5 it should narrow as the truth approaches the Kronecker structure DGE-IGE assumes.
+- **`n_factors = 0` is the false-positive check.** `r_interaction` is undefined there — there is no true interaction to correlate against, and the scorer returns `NA` rather than a number. The readout is instead that neither interaction-fitting model should beat `additive` on `r_total`.
+- **Panel size is not sample size.** 400×400 at a given sparsity has four times the observations but the same number per cell. Whether that helps separates "needs more data" from "needs more data per combination".
+- **Ten environments should cost something.** Standardising within environment removes the heterogeneity but spends degrees of freedom to do it, and with a tenth of the combinations each, that estimate is noisy.
 
 ## Results so far
 
-**These numbers predate the `Eta_mean` fix and the K sweep**, and were produced
-with MegaLMM scored on `U` at a fixed K = 10. They are kept because the
-interaction comparison is unaffected, but `r_total` for MegaLMM is understated
-throughout and the crossover location is conditional on K = 10. Re-running the
-grid will replace them.
+**These numbers predate the `Eta_mean` fix and the K sweep**, and were produced with MegaLMM scored on `U` at a fixed K = 10. They are kept because the interaction comparison is unaffected, but `r_total` for MegaLMM is understated throughout and the crossover location is conditional on K = 10. Re-running the grid will replace them.
 
-The 200 × 200 single-environment slice, one replicate per cell
-(`--filter "n_acc == 200 & n_envs == 1"`). The full grid adds the panel-size
-and environment axes.
+The 200 × 200 single-environment slice, one replicate per cell (`--filter "n_acc == 200 & n_envs == 1"`). The full grid adds the panel-size and environment axes.
 
 ### Recovering the interaction — the crossover is at about 15% observed
 
-| observed | rank | interaction var | dge_ige | megalmm | MegaLMM gain |
-|---|---|---|---|---|---|
-| 5% | 1 | 10% | **0.341** | 0.112 | −0.229 |
-| 15% | 1 | 10% | 0.440 | **0.475** | +0.035 |
-| 45% | 1 | 10% | 0.510 | **0.888** | +0.378 |
-| 5% | 1 | 20% | **0.044** | −0.080 | −0.125 |
-| 15% | 1 | 20% | 0.519 | **0.803** | +0.284 |
-| 45% | 1 | 20% | 0.522 | **0.947** | +0.425 |
-| 5% | 5 | 10% | **0.113** | −0.026 | −0.139 |
-| 15% | 5 | 10% | **0.367** | 0.266 | −0.101 |
-| 45% | 5 | 10% | 0.435 | **0.633** | +0.198 |
-| 5% | 5 | 20% | **0.254** | 0.027 | −0.227 |
-| 15% | 5 | 20% | 0.327 | **0.383** | +0.056 |
-| 45% | 5 | 20% | 0.497 | **0.794** | +0.297 |
+| observed | rank | interaction var | dge_ige   | megalmm   | MegaLMM gain |
+|----------|------|-----------------|-----------|-----------|--------------|
+| 5%       | 1    | 10%             | **0.341** | 0.112     | −0.229       |
+| 15%      | 1    | 10%             | 0.440     | **0.475** | +0.035       |
+| 45%      | 1    | 10%             | 0.510     | **0.888** | +0.378       |
+| 5%       | 1    | 20%             | **0.044** | −0.080    | −0.125       |
+| 15%      | 1    | 20%             | 0.519     | **0.803** | +0.284       |
+| 45%      | 1    | 20%             | 0.522     | **0.947** | +0.425       |
+| 5%       | 5    | 10%             | **0.113** | −0.026    | −0.139       |
+| 15%      | 5    | 10%             | **0.367** | 0.266     | −0.101       |
+| 45%      | 5    | 10%             | 0.435     | **0.633** | +0.198       |
+| 5%       | 5    | 20%             | **0.254** | 0.027     | −0.227       |
+| 15%      | 5    | 20%             | 0.327     | **0.383** | +0.056       |
+| 45%      | 5    | 20%             | 0.497     | **0.794** | +0.297       |
 
 Three things, all as the design predicted:
 
-- **Sparsity decides whether MegaLMM works at all.** At 5% it is at or below
-  zero in every cell; by 45% it is at 0.63–0.95. DGE-IGE degrades far more
-  gracefully — 0.04–0.34 at 5%, 0.44–0.52 at 45% — because a Kronecker kernel
-  borrows through relatedness rather than needing a column's own data.
-- **The crossover sits near 15% observed**, which is where the two are within
-  a few hundredths of each other in three of four cells. That is roughly five
-  times the density of the B4I experiment.
-- **Rank decides the size of the win.** At rank 1 MegaLMM's advantage at 45%
-  is +0.38 to +0.43; at rank 5 it falls to +0.20 to +0.30, as the truth moves
-  towards the full Kronecker structure DGE-IGE assumes.
+- **Sparsity decides whether MegaLMM works at all.** At 5% it is at or below zero in every cell; by 45% it is at 0.63–0.95. DGE-IGE degrades far more gracefully — 0.04–0.34 at 5%, 0.44–0.52 at 45% — because a Kronecker kernel borrows through relatedness rather than needing a column's own data.
+- **The crossover sits near 15% observed**, which is where the two are within a few hundredths of each other in three of four cells. That is roughly five times the density of the B4I experiment.
+- **Rank decides the size of the win.** At rank 1 MegaLMM's advantage at 45% is +0.38 to +0.43; at rank 5 it falls to +0.20 to +0.30, as the truth moves towards the full Kronecker structure DGE-IGE assumes.
 
-More interaction variance helps MegaLMM disproportionately: at 15% observed
-and rank 1, going from 10% to 20% interaction variance takes it from 0.475 to
-0.803 while DGE-IGE moves 0.440 to 0.519.
+More interaction variance helps MegaLMM disproportionately: at 15% observed and rank 1, going from 10% to 20% interaction variance takes it from 0.475 to 0.803 while DGE-IGE moves 0.440 to 0.519.
 
 ### The breeder-facing number tells a different story
 
 `r_total`, against the true genetic value:
 
-| observed | rank | interaction var | additive | dge_ige | megalmm |
-|---|---|---|---|---|---|
-| 5% | 0 | — | **0.909** | 0.898 | 0.137 |
-| 45% | 0 | — | **0.978** | 0.975 | 0.732 |
-| 5% | 1 | 20% | 0.670 | 0.654 | −0.011 |
-| 45% | 1 | 20% | 0.753 | 0.825 | **0.828** |
-| 45% | 5 | 20% | 0.763 | **0.825** | 0.739 |
+| observed | rank | interaction var | additive  | dge_ige   | megalmm   |
+|----------|------|-----------------|-----------|-----------|-----------|
+| 5%       | 0    | —               | **0.909** | 0.898     | 0.137     |
+| 45%      | 0    | —               | **0.978** | 0.975     | 0.732     |
+| 5%       | 1    | 20%             | 0.670     | 0.654     | −0.011    |
+| 45%      | 1    | 20%             | 0.753     | 0.825     | **0.828** |
+| 45%      | 5    | 20%             | 0.763     | **0.825** | 0.739     |
 
-DGE-IGE or the plain additive model wins almost everywhere. MegaLMM only draws
-level in the single most favourable cell — densest, lowest rank, most
-interaction variance. The reason is structural and was visible in `--check`:
-MegaLMM absorbs the pea main effect into a per-column intercept that never
-reaches `U`, so it is giving away a variance component that the DGE-IGE model
-estimates explicitly.
+DGE-IGE or the plain additive model wins almost everywhere. MegaLMM only draws level in the single most favourable cell — densest, lowest rank, most interaction variance. The reason is structural and was visible in `--check`: MegaLMM absorbs the pea main effect into a per-column intercept that never reaches `U`, so it is giving away a variance component that the DGE-IGE model estimates explicitly.
 
-**A framework can win the question it was built for and still lose the one the
-breeder asks.** If the goal is ranking oats on expected performance, DGE-IGE is
-the better choice at every density tested. If the goal is understanding which
-specific oat × pea combinations do something unusual, MegaLMM is much better —
-but only once the matrix is dense enough.
+**A framework can win the question it was built for and still lose the one the breeder asks.** If the goal is ranking oats on expected performance, DGE-IGE is the better choice at every density tested. If the goal is understanding which specific oat × pea combinations do something unusual, MegaLMM is much better — but only once the matrix is dense enough.
 
 ### The false-positive check passes
 
-At `n_factors = 0` neither interaction-fitting model beats the additive model
-on `r_total` (0.898 and 0.136 against 0.909 at 5% observed; 0.975 and 0.732
-against 0.978 at 45%). Fitting an interaction that is not there costs a little
-and gains nothing, which is the correct behaviour.
+At `n_factors = 0` neither interaction-fitting model beats the additive model on `r_total` (0.898 and 0.136 against 0.909 at 5% observed; 0.975 and 0.732 against 0.978 at 45%). Fitting an interaction that is not there costs a little and gains nothing, which is the correct behaviour.
 
 ### What this says about B4I
 
-The real experiment sits at 1.1% observed, 3.2% after trimming — below the
-lowest level simulated, where MegaLMM is already at or below zero and even
-DGE-IGE recovers little. The simulated crossover near 15% is roughly five times
-the current density. Reaching it means replicating specific oat × pea pairs
-rather than spreading singleton combinations thinly, which is the same design
-change the bivariate model needs for `σ_PrAs`.
+The real experiment sits at 1.1% observed, 3.2% after trimming — below the lowest level simulated, where MegaLMM is already at or below zero and even DGE-IGE recovers little. The simulated crossover near 15% is roughly five times the current density. Reaching it means replicating specific oat × pea pairs rather than spreading singleton combinations thinly, which is the same design change the bivariate model needs for `σ_PrAs`.
 
 ## Caveats
 
-- The interaction is generated as a factor model with genetic loadings. At
-  `n_factors = 5` that is close to, but not identical to, the Kronecker
-  structure DGE-IGE assumes, and the approach to it is asymptotic in rank. A
-  cleaner test of DGE-IGE's home ground would draw the interaction directly
-  from `G_oat ⊗ G_pea`; the generator would need one more branch.
-- The Kronecker term is rank-limited (see above), so `dge_ige` is not fitting
-  the exact model it claims. `SIM_KRON_RANK` controls this and is worth a
-  sensitivity check at small sizes where the exact kernel is tractable.
-- Genotype × environment is now an axis (`gxe_cor`) rather than an absent
-  feature, but it enters as independent per-environment deviations on the
-  producer and associate effects — a single correlation parameter, not a
-  structured G×E. Nothing crosses over in a patterned way.
+- The interaction is generated as a factor model with genetic loadings. At `n_factors = 5` that is close to, but not identical to, the Kronecker structure DGE-IGE assumes, and the approach to it is asymptotic in rank. A cleaner test of DGE-IGE's home ground would draw the interaction directly from `G_oat ⊗ G_pea`; the generator would need one more branch.
+- The Kronecker term is rank-limited (see above), so `dge_ige` is not fitting the exact model it claims. `SIM_KRON_RANK` controls this and is worth a sensitivity check at small sizes where the exact kernel is tractable.
+- Genotype × environment is now an axis (`gxe_cor`) rather than an absent feature, but it enters as independent per-environment deviations on the producer and associate effects — a single correlation parameter, not a structured G×E. Nothing crosses over in a patterned way.
 - The convergence trace does not reconcile with the final posterior (above).
-- **Both orientations are now fitted**, so MegaLMM is no longer penalised for
-  never having been given the pea relationships. What remains is structural and
-  cannot be fixed by running it twice: in each orientation the column species'
-  main effect sits in an unshrunk intercept, so neither associate effect gets
-  kinship from MegaLMM, while the DGE-IGE model shrinks all four through
-  `Sigma ⊗ G`. [BOTH_ORIENTATIONS.md](BOTH_ORIENTATIONS.md) sets out the
-  cross-orientation covariate idea that would close that gap.
-- **Both yields are now simulated**, so the within-species producer–associate
-  covariance is present and the DGE-IGE comparator is the real `Multitrait`
-  model. What is *not* simulated is any covariance between the two interaction
-  surfaces (below), or any structured pattern to the GxE.
-- **The correlation between the two interaction surfaces is not known.** Fitting
-  the real bivariate model *with* the specific-combination term
-  (`fit_producer_associate(..., fit_mix_term = TRUE)`) gives var(I on oat yield)
-  ≈ 202, var(I on pea yield) ≈ 73 and a correlation of **+0.20**, stable to
-  three digits across two seeds. But 1,869 of the 2,059 combinations occur in a
-  single plot and only 10 block levels are fitted, so **plot quality is a live
-  alternative explanation for the positive sign** — a fertile plot lifts both
-  yields, and a singleton combination's effect absorbs it. Consistent with that
-  reading, adding the term pushes the residual correlation *more* negative
-  (−0.122 → −0.159), as if positive plot covariance had been drawn out of it and
-  competition left behind. Until replicated combinations settle it, the
-  simulation treats the two surfaces as independent.
+- **Both orientations are now fitted**, so MegaLMM is no longer penalised for never having been given the pea relationships. What remains is structural and cannot be fixed by running it twice: in each orientation the column species' main effect sits in an unshrunk intercept, so neither associate effect gets kinship from MegaLMM, while the DGE-IGE model shrinks all four through `Sigma ⊗ G`. [BOTH_ORIENTATIONS.md](BOTH_ORIENTATIONS.md) sets out the cross-orientation covariate idea that would close that gap.
+- **Both yields are now simulated**, so the within-species producer–associate covariance is present and the DGE-IGE comparator is the real `Multitrait` model. What is *not* simulated is any covariance between the two interaction surfaces (below), or any structured pattern to the GxE.
+- **The correlation between the two interaction surfaces is not known.** Fitting the real bivariate model *with* the specific-combination term (`fit_producer_associate(..., fit_mix_term = TRUE)`) gives var(I on oat yield) ≈ 202, var(I on pea yield) ≈ 73 and a correlation of **+0.20**, stable to three digits across two seeds. But 1,869 of the 2,059 combinations occur in a single plot and only 10 block levels are fitted, so **plot quality is a live alternative explanation for the positive sign** — a fertile plot lifts both yields, and a singleton combination's effect absorbs it. Consistent with that reading, adding the term pushes the residual correlation *more* negative (−0.122 → −0.159), as if positive plot covariance had been drawn out of it and competition left behind. Until replicated combinations settle it, the simulation treats the two surfaces as independent.
