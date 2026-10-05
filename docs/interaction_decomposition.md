@@ -146,6 +146,88 @@ reason this construction is used rather than the exact kernel.
 `kron_basis()` (`code/dge_ige_functions.R:168`) builds those rows for the
 observed plots.
 
+#### What is passed to BGLR, and what comes back as `Beta`
+
+This is the same device as the main effects
+(`docs/BGLR_RKHS_effects_problem.md`, §7): a `BRR` term on a factored design
+matrix instead of an `RKHS` term on a kernel. For the interaction the design
+matrix is the row-wise Kronecker basis above. In `fit_producer_associate()`
+(`code/dge_ige_functions.R`):
+
+```r
+Z_oat <- incidence(dat$oatAcc, rownames(Go))        # plots × oats
+Z_pea <- incidence(dat$peaAcc, rownames(Gp))        # plots × peas
+L_oat <- grm_factor(Go);  L_pea <- grm_factor(Gp)   # full-rank factors of G
+
+kron_A <- grm_basis(Go, rank = kron_rank)           # n_oat × q
+kron_B <- grm_basis(Gp, rank = kron_rank)           # n_pea × q
+
+ETA <- list(
+  trial = list(X = incTrials,       model = "FIXED"),
+  block = list(X = incBlocks,       model = "BRR"),       # if any informative
+  G_pea = list(X = Z_pea %*% L_pea, model = "BRR"),
+  G_oat = list(X = Z_oat %*% L_oat, model = "BRR"),
+  G_mix = list(X = kron_basis(kron_A, kron_B, oat_idx, pea_idx),
+               model = "BRR")                               # n_plots × q²
+)
+fit <- BGLR::Multitrait(
+  y = Y,                                    # n_plots × 2: peaYield, oatYield
+  ETA = ETA, intercept = FALSE,
+  resCov = list(df0 = 4, S0 = NULL, type = "UN"),
+  nIter = nIter, burnIn = burnIn, thin = thin, saveAt = save_prefix)
+```
+
+- **`y`** has two columns, in the fixed order `DGE_IGE_TRAITS = (peaYield,
+  oatYield)`. Every coefficient matrix BGLR returns has the same two columns in
+  that order, so the oat-yield interaction is **column 2**, and picking column 1
+  by mistake gives the pea surface with no error.
+- **`G_mix$X`** is the `n_plots × q²` matrix from `kron_basis()`: one row per
+  observed plot, built from that plot's oat and pea coordinates only. At
+  `q = 30` it is 900 columns however many combinations were grown.
+- **`model = "BRR"`** gives every one of the `q²` coefficients the same prior
+  covariance across the two traits: a single 2 × 2 matrix, estimated from the
+  data, not one variance per direction. With the basis built from `A ⊗ B`, the
+  fitted interaction effects therefore have covariance `G_oat ⊗ G_pea` scaled
+  by that 2 × 2, exactly as in §1.4. No prior is passed for the term, so BGLR's
+  default applies.
+- **`intercept = FALSE`**: no global intercept is fitted; the `trial` term is a
+  fixed effect. The residual is a free 2 × 2 covariance (`type = "UN"`), which is
+  how the two yields on a plot are allowed to be correlated.
+- **`nIter`, `burnIn`, `thin`** default to 20,000 / 3,000 / 10 in
+  `fit_producer_associate()`; the simulation decomposition sweep uses 3,000 /
+  600 / 10. With `save_effects = TRUE` BGLR also streams every thinned
+  coefficient draw to `<saveAt>ETA_G_mix_beta.bin`.
+
+**From BGLR's output to `Beta`.** BGLR returns the interaction coefficients as a
+**`q² × 2` matrix**, `fit$ETA$G_mix$beta`, the posterior mean (900 × 2 at
+`q = 30`). Row `(a−1)q + b` is the coefficient on the product column
+`A[,a] · B[,b]`, because `kron_basis()` runs the pea index fastest: row 1 is
+(oat direction 1, pea direction 1), row 2 is (1, 2), row `q + 1` is (2, 1). Take
+one trait's column and fold it back into a table with oat directions down the
+rows and pea directions across the columns:
+
+```r
+b    <- fit$ETA$G_mix$beta[, 2]                          # column 2 = oatYield
+Beta <- matrix(b, nrow = q, ncol = q, byrow = TRUE)      # beta_from_vector()
+I_hat <- kron_A %*% Beta %*% t(kron_B)                   # n_oat × n_pea
+```
+
+`byrow = TRUE` is what matches the row-major layout; `beta_from_vector()` is the
+one place it happens, and it checks the length is `q × q` before reshaping.
+`Beta` is a coefficient table, one entry per (oat direction, pea direction)
+pair, and the expansion `kron_A %*% Beta %*% t(kron_B)` is the whole fitted
+interaction surface, including cells nobody grew
+(`fit_producer_associate()` does exactly this when it builds `interaction`).
+
+**Per-draw `Beta`.** The streamed file holds one `q² × 2` coefficient set per
+saved iteration, burn-in included, because BGLR writes every thinned iteration.
+`read_beta_draws()` reads it into an array `[draws, q², 2]` and drops the first
+`burnIn %/% thin` rows (at 3,000 / 600 / 10 that is 300 saved rows, 240 kept).
+Each draw's row for the trait of interest goes through the same
+`beta_from_vector()`, giving one `Beta` per draw, which §2 decomposes separately
+to get posterior intervals. The `fit$ETA$G_mix$beta` posterior mean is used for
+the reference decomposition that the draws are aligned to.
+
 ### 1.5 `kron_rank`: what is truncated, and what is not
 
 `A ⊗ B` has `n_oat × n_pea` columns — 186,966 for the real panel. That is the
@@ -228,12 +310,79 @@ thought not to.
 The layers are ordered: `d_1` is the largest, so layer 1 is the single best
 rank-1 summary of the whole surface.
 
-In code (`decompose_bilinear()`), after double-centring the two bases:
+**The shortcut, and where `Q` and `R` come from.** `I_hat` is `n_oat × n_pea`
+(442 × 423), but the only thing the model estimated is the `q × q` `Beta`. The
+SVD of the big matrix can be had from the SVD of a small one, via one extra
+step. Take the oat basis `A` (`n_oat × q`, the `kron_A` above, after centring —
+see below) and split it into two factors:
 
 ```
-M = R_a Beta R_b'      (a small q × q matrix);   svd(M) = U D V'
-oat scores   = Q_a %*% U        pea loadings = Q_b %*% V
+A = Q_a R_a
 ```
+
+- **`Q_a`** is `n_oat × q` with **orthonormal columns**: each has length 1, and
+  any two are at right angles. It is a tidied-up set of axes spanning exactly
+  the same `q`-dimensional slice as `A` (`span(Q_a) = span(A)`), but with the
+  redundancy squeezed out. It carries the *oat-side geometry*: one row per oat.
+- **`R_a`** is `q × q`. It is the **recipe** that turns the tidy axes back into
+  `A`'s own columns: column *c* of `A` is `Q_a` times column *c* of `R_a`. It
+  carries the *scale and mixing* — how stretched each direction is, and how the
+  original columns blend into the tidy ones. It is small, so it is cheap.
+
+`B = Q_b R_b` is the same for the pea side (`n_pea × q`). Nothing about this is
+specific to our problem; it is how any tall matrix is split into "orientation"
+and "size".
+
+Substitute into the bilinear form:
+
+```
+I_hat = A Beta B'
+      = (Q_a R_a) Beta (Q_b R_b)'
+      = Q_a  (R_a Beta R_b')  Q_b'
+      = Q_a  M  Q_b'
+```
+
+so the surface is the small matrix `M = R_a Beta R_b'` sandwiched between two
+orthonormal frames. Now take the SVD of `M` alone, `M = U D V'` (`q × q`, cheap).
+Then
+
+```
+I_hat = (Q_a U) D (Q_b V)'
+```
+
+and this **is** the SVD of `I_hat`, because `Q_a U` is a product of two
+matrices with orthonormal columns and so still has orthonormal columns (likewise
+`Q_b V`), and `D` is diagonal, non-negative and decreasing. An SVD is defined by
+exactly those properties, so nothing further is needed. Reading it off:
+
+```
+oat scores   = Q_a %*% U        (n_oat × q: one score per oat per layer)
+pea loadings = Q_b %*% V        (n_pea × q: one loading per pea per layer)
+```
+
+`U` and `V` are the layers *in the `q`-direction coordinates*; multiplying by
+`Q_a` and `Q_b` carries them out to one value per actual accession. `R_a` and
+`R_b` are what let `Beta` — which is expressed in `A`'s and `B`'s own columns —
+be re-expressed in the orthonormal frames, where "length" and "angle" mean what
+the SVD needs them to.
+
+**What the code actually does.** `.whiten()` gets the split from an SVD rather
+than a QR, because `qr()` may pivot columns and a pivoted `R` would silently
+break `M = R_a Beta R_b'`. If `A = U_A D_A V_A'`, then
+
+```
+Q_a = U_A        R_a = D_A V_A'
+```
+
+(`w$Ua` and `w$Wa` in the code; `Wb` is `R_b'`, so `M = Wa %*% Beta %*% Wb`).
+**Centring** happens first: each column of `A` and `B` has its mean removed, so
+the interaction is double-centred against the main effects. That costs each
+basis one dimension, which shows up as a zero singular value in `A`'s SVD
+rather than as an error.
+
+Because `A` and `B` do not change between MCMC draws, `Q` and `R` are computed
+once, and only `Beta` — hence `M` — changes per draw. That keeps every draw
+expressed in the same `Q_a`, `Q_b` coordinates.
 
 No `n_oat × n_pea` matrix ever has to be formed. `decompose_surface()` does the
 dense version and the two are tested to agree.
@@ -417,19 +566,90 @@ as "the spectrum is uninformative everywhere", which is false.
 
 ### 4.2 Score recovery: the ceiling inverts the comparison
 
+**What the numbers are.** Every entry is a **leading canonical correlation**
+([§3.1](#31-compare-subspaces-not-columns)), not a column-by-column correlation
+between an estimated score and a simulated score. For each simulated dataset
+(oat side only, interaction present):
+
+1. Take the top `n_factors` oat score columns from the decomposition of the
+   fitted surface (`dec$scores`) — the *recovered* subspace.
+2. Take the first `n_factors` columns of the simulated `truth$U_oat` — the
+   *true* subspace.
+3. `subspace_cors()` orthonormalises both and returns the cosines of the
+   principal angles between them. The table uses the **first, largest** one
+   (`score_cor1`): how well the *best-matching pair of directions*, one from
+   each subspace, line up. It is 1 if the spaces share a direction and 0 if they
+   are perpendicular. When `n_factors = 1` each subspace is one vector and this
+   is an ordinary correlation of the two score vectors (after centring); when
+   `n_factors` is 3 or 5 it is not, because the truth is only identified up to
+   rotation.
+
+The columns:
+
+- **raw** — that correlation, averaged over simulated datasets (`score_cor1`).
+- **of ceiling** — the same correlation divided by the ceiling
+  ([§3.2](#32-the-ceiling)) *within each dataset*, then averaged
+  (`score_frac1`). The ceiling is the same first canonical correlation computed
+  between the truth and `span(kron_A)` — the best any vector confined to the
+  fitted basis could score against the truth, with nothing fitted. So 0.778
+  means "78% of the best this basis permits", not 78% of the truth.
+- **MegaLMM** is not confined to a truncated basis, so its ceiling is taken as 1
+  and its two columns are identical.
+
+The floor ([§3.3](#33-the-floor-which-is-not-small)) applies to these numbers:
+a random direction in the span already scores about 0.15.
+
+Tables are by `n_factors` (the number of layers in the simulated truth),
+pooled within each over `n_acc`, `interaction_pct` and the environment settings
+(24 simulated datasets per row). They come from
+`output/simulation_decomp_score_recovery.csv`, written by
+`code/sim_decomp_run.R`. Bold marks the densities at which `dge_ige` beats
+MegaLMM in absolute (raw) terms.
+
+**`n_factors` = 1**
+
 | observed | `dge_ige` raw | MegaLMM raw | `dge_ige` **of ceiling** | MegaLMM of ceiling |
 |---|---|---|---|---|
-| 1.6% | 0.658 | 0.145 | **0.778** | 0.145 |
-| 4.8% | 0.724 | 0.369 | **0.862** | 0.369 |
-| 9% | 0.752 | 0.748 | **0.896** | 0.748 |
-| 16% | 0.789 | 0.902 | 0.942 | 0.902 |
-| 48% | 0.814 | 0.971 | 0.975 | 0.971 |
+| 1.6% | 0.560 | 0.050 | **0.702** | 0.050 |
+| 4.8% | 0.644 | 0.412 | **0.832** | 0.412 |
+| 9% | 0.696 | 0.848 | 0.871 | 0.848 |
+| 16% | 0.735 | 0.945 | 0.939 | 0.945 |
+| 48% | 0.757 | 0.983 | 0.977 | 0.983 |
 
-`dge_ige` recovers 78–98% of what its truncated basis permits, **at every
-density**. Its ceiling is ~0.84 and immovable at `kron_rank = 30`, which is why
-MegaLMM overtakes it in absolute terms above about 9% observed. Raising the rank
-is what lifts the cap; `sim_kron_study.R` measured that gain at 0.04–0.22 per
-cell.
+**`n_factors` = 3**
+
+| observed | `dge_ige` raw | MegaLMM raw | `dge_ige` **of ceiling** | MegaLMM of ceiling |
+|---|---|---|---|---|
+| 1.6% | 0.664 | 0.154 | **0.777** | 0.154 |
+| 4.8% | 0.739 | 0.312 | **0.858** | 0.312 |
+| 9% | 0.759 | 0.707 | **0.903** | 0.707 |
+| 16% | 0.801 | 0.896 | 0.942 | 0.896 |
+| 48% | 0.830 | 0.969 | 0.975 | 0.969 |
+
+**`n_factors` = 5**
+
+| observed | `dge_ige` raw | MegaLMM raw | `dge_ige` **of ceiling** | MegaLMM of ceiling |
+|---|---|---|---|---|
+| 1.6% | 0.749 | 0.230 | **0.854** | 0.230 |
+| 4.8% | 0.788 | 0.384 | **0.896** | 0.384 |
+| 9% | 0.801 | 0.689 | **0.913** | 0.689 |
+| 16% | 0.830 | 0.864 | 0.945 | 0.864 |
+| 48% | 0.855 | 0.961 | 0.972 | 0.961 |
+
+`dge_ige` recovers 70–98% of what its truncated basis permits, rising with
+density in every panel (70→98% at one layer, 78→98% at three, 85→97% at five).
+The ceiling itself does not move with density, as a basis-only quantity must be
+flat: about 0.77–0.80 for one layer, 0.84–0.86 for three and 0.88 for five.
+Because that cap is fixed at `kron_rank = 30`, MegaLMM overtakes `dge_ige` in
+absolute terms between 4.8% and 9% observed for one layer, and between 9% and 16% for three
+and five layers. Raising the rank is what lifts the cap; `sim_kron_study.R` measured
+that gain at 0.04–0.22 per cell.
+
+Pooled over `n_factors` as well, the five-row table that earlier versions of
+this section showed is: `dge_ige` raw 0.658 / 0.724 / 0.752 / 0.789 / 0.814 and
+MegaLMM raw 0.145 / 0.369 / 0.748 / 0.902 / 0.971 at 1.6 / 4.8 / 9 / 16 / 48%.
+The pooling hides that the one-layer truth is the hardest case for `dge_ige` at
+low density and the easiest for MegaLMM at high density.
 
 **The low-density number is signal, checked explicitly.** A random direction in
 `span(kron_A)` scores 0.146 (n = 200) / 0.167 (n = 400) against the truth, 95th
@@ -462,7 +682,7 @@ The real B4I data is **1.1% observed** — 2,063 combinations of 186,966 possibl
 442 oats × 423 peas, 90.7% of combinations unreplicated. That is sparser than
 the sparsest cell in the design. The nearest cell is n = 400, 1.6% observed:
 
-| model | n_factors | raw `cor1` | ceiling | of ceiling | `share1` | participation |
+| <div style="width: 80px;">`model`</div> | n_factors | raw `cor1` | ceiling | of ceiling | `share1` | participation |
 |---|---|---|---|---|---|---|
 | `dge_ige` | 1 | **0.673** | 0.794 | 0.846 | 0.301 | 7.34 |
 | `dge_ige` | 3 | **0.701** | 0.846 | 0.826 | 0.245 | 8.23 |
@@ -475,6 +695,66 @@ the sparsest cell in the design. The nearest cell is n = 400, 1.6% observed:
 At the density B4I actually has, **`dge_ige` recovers the leading compatibility
 axis at ρ ≈ 0.67–0.77 and MegaLMM recovers nothing** (0.055–0.178, at or below
 the random-direction floor of 0.167).
+
+#### Does the first estimated factor track a true factor?
+
+The canonical correlation answers "is the interaction signal in the recovered
+subspace?". A sharper question, and the one a latent trait raises, is whether
+the **first estimated factor alone** corresponds to something real. Two
+statistics, from `first_factor_cors()` in `code/interaction_decomp.R`
+(sign-free, on centred scores; the simulated experiment is the same
+n = 400, 1.6% cell, 12 datasets per row):
+
+- **|r| with each true factor** — the correlation of estimated factor 1 with
+  true factor 1, 2, … *k*.
+- **Multiple R** — the correlation of estimated factor 1 with the *whole* true
+  span (the cosine of its angle to the subspace). It never exceeds the leading
+  canonical correlation above, which also picks the best direction on the
+  estimated side.
+
+| model | n_factors | multiple R | floor: median (p95) | \|r\| true 1 | true 2 | true 3 | true 4 | true 5 |
+|---|---|---|---|---|---|---|---|---|
+| `dge_ige` | 1 | **0.676** | 0.156 (0.413) | 0.676 | — | — | — | — |
+| `dge_ige` | 3 | **0.614** | 0.308 (0.477) | 0.305 | 0.430 | 0.330 | — | — |
+| `dge_ige` | 5 | **0.637** | 0.362 (0.535) | 0.265 | 0.299 | 0.248 | 0.292 | 0.190 |
+| `megalmm` | 1 | 0.052 | 0.156 (0.413) | 0.052 | — | — | — | — |
+| `megalmm` | 3 | 0.092 | 0.308 (0.477) | 0.047 | 0.036 | 0.056 | — | — |
+| `megalmm` | 5 | 0.115 | 0.362 (0.535) | 0.038 | 0.023 | 0.058 | 0.053 | 0.035 |
+
+The floor is what a *random* direction in the centred rank-30 oat basis scores
+against a simulated truth of the same size (60 draws,
+`code/first_factor_null.R`). Per true factor it is about 0.15 (95th percentile
+0.22–0.24 averaged over the *k* factors).
+
+**How to read it.**
+
+- **One layer: clean.** Estimated factor 1 correlates 0.68 with the single true
+  factor, well above the 0.41 95th-percentile floor. This is the unambiguous
+  version of "the estimate is capturing the latent trait".
+- **Three or five layers: the individual correlations are not interpretable as
+  "factor *j*".** The true factors are equal-variance, so the simulated surface
+  `U Λ'` has no first factor: any rotation of the true `U` and `Λ` together gives
+  the same surface, and the labels 1…*k* are arbitrary. Which direction the
+  decomposition returns as *its* first one is decided by noise within that
+  span, which is also why the correlations are spread flat (0.19–0.43) rather
+  than concentrated on one true factor. The question the table can answer is
+  whether estimated factor 1 lies in the true span, and that is **multiple R**.
+- **Multiple R has a floor that grows with *k*.** A random direction already
+  scores a median 0.31 against a 3-dimensional truth and 0.36 against a
+  5-dimensional one, more than the 0.16 it scores against a single factor.
+  The observed 0.61 and 0.64 clear the 95th percentile (0.48 and 0.54) but
+  only modestly, so for three- and five-layer truths the first estimated factor
+  is better described as *probably a mixture inside the true span* than as a
+  recovered trait. The same applies to `score_cor1` in the table above for
+  `n_factors` > 1, whose own floor (`recovery_null()`) compares a random
+  direction with only the *first* true column and so is too low for those rows.
+- **MegaLMM is at or below the floor in every row** — nothing recovered at this
+  density.
+
+This is a calibration, not an assurance about a real experiment: with real
+data there is no true factor to correlate with, and what carries over is the
+rule of reading an estimated score against its own floor (§5.3), not the
+number.
 
 ### 4.5 One of the instruments was defective
 
@@ -762,7 +1042,7 @@ reprinting the summary tables. Do it before reading anything.
 
 ### Every flag
 
-| flag | default | what it does |
+| <div style="width: 80px;">flag</div> | default | what it does |
 |---|---|---|
 | `--check` | — | The positive control: one dense rank-1 cell at `n_acc = 120`, 48% observed, short chain. Prints the diagnostics and `stop()`s if the draws do not average to BGLR's posterior mean, if the leading layer carries under 0.3, if the recovered score misses half its ceiling, or if MegaLMM's shares do not sum to 1. Run it first; a negative result from the sweep is only worth having if the pipeline can produce a positive one. |
 | `--pilot` | — | Two cheap cells (`rep 1`, `n_acc = 200`, 48% observed), end to end. They are genuine design cells with design seeds, so the full run reuses their cache. |

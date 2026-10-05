@@ -123,7 +123,12 @@ filter_expr  <- arg_value("--filter", NULL)
 # analysed in docs/interaction_decomposition.md section 4; its cached cells are
 # simply not reused, which is the right trade against mixing two schemas
 # silently.
-DECOMP_SCHEME <- "d2"
+#
+# d2 -> d3, 2026-10-04. The first recovered factor's correlation with each true
+# factor (`first_cor1`..`first_cor5`) and with the whole true span
+# (`first_multiple`) were added, for docs/interaction_decomposition.md 4.4.
+# Same trade as before: d2 cells are not reused.
+DECOMP_SCHEME <- "d3"
 
 # The null cells are new scenarios, so they need their own seed block. Clear of
 # SIM_BASE_SEED (20260921), SIM_INT_BASE_SEED (20270000) and sim_kron_study's
@@ -165,6 +170,8 @@ summarise_model <- function(dec, model, trait, sim, basis, n_factors,
   truth_Lam <- if (trait == "oat") sim$truth$Lambda_oat else sim$truth$Lambda_pea
 
   sc <- score_recovery(dec$scores, truth_U, basis$A, n_factors)
+  ff <- first_factor_cors(dec$scores, truth_U)
+  ff_cors <- c(ff$cors, rep(NA_real_, 5))[1:5]
   ld <- score_recovery(dec$loadings, truth_Lam, basis$B, n_factors)
   # The floor as well as the ceiling: a recovery number only carries
   # information between them, and the truth is kinship-structured, so a random
@@ -179,6 +186,9 @@ summarise_model <- function(dec, model, trait, sim, basis, n_factors,
     share1 = share_at(1), share2 = share_at(2), share3 = share_at(3),
     cum_share3 = dec$cum_share[min(3L, length(dec$cum_share))],
     participation = dec$participation, n90 = dec$n90,
+    first_multiple = ff$multiple,
+    first_cor1 = ff_cors[1], first_cor2 = ff_cors[2], first_cor3 = ff_cors[3],
+    first_cor4 = ff_cors[4], first_cor5 = ff_cors[5],
     score_cor1 = sc$cor1, score_cor_mean = sc$cor_mean,
     score_ceil1 = sc$ceil1, score_ceil_mean = sc$ceil_mean,
     score_frac1 = sc$frac1, score_frac_mean = sc$frac_mean,
@@ -502,15 +512,36 @@ results |>
 cat("\n", strrep("=", 78),
     "\nDoes the recovered score match the truth, as a fraction of its ceiling?\n",
     strrep("=", 78), "\n", sep = "")
-results |>
+# One row per model x n_factors x sparsity, pooled over n_acc, interaction_pct
+# and the environment settings. Kept separate by n_factors because the truth is
+# a 1-, 3- or 5-dimensional subspace and the leading canonical correlation means
+# something different in each (docs/interaction_decomposition.md, section 4.2).
+score_recovery_summary <- results |>
   dplyr::filter(interaction_pct > 0, trait == "oat") |>
-  dplyr::group_by(model, sparsity, n_factors) |>
-  dplyr::summarise(cor1 = mean(score_cor1, na.rm = TRUE),
+  dplyr::group_by(model, n_factors, sparsity) |>
+  dplyr::summarise(n_cells = dplyr::n(),
+                   cor1 = mean(score_cor1, na.rm = TRUE),
                    ceil1 = mean(score_ceil1, na.rm = TRUE),
                    frac1 = mean(score_frac1, na.rm = TRUE),
-                   .groups = "drop") |>
-  tidyr::pivot_wider(names_from = model, values_from = c(cor1, ceil1, frac1)) |>
+                   .groups = "drop")
+readr::write_csv(score_recovery_summary,
+                 file.path(out_dir, "simulation_decomp_score_recovery.csv"))
+score_recovery_summary |>
+  tidyr::pivot_wider(names_from = model,
+                     values_from = c(cor1, ceil1, frac1)) |>
   print(n = 40, width = 220)
+
+# The first recovered factor against every true factor, for the cell closest to
+# the real experiment. Tidy: one row per model x n_factors x true factor.
+first_factor_summary <- results |>
+  dplyr::filter(interaction_pct > 0, trait == "oat") |>
+  dplyr::group_by(model, n_acc, sparsity, n_factors) |>
+  dplyr::summarise(n_cells = dplyr::n(),
+                   dplyr::across(c(first_multiple, first_cor1:first_cor5),
+                                 \(x) mean(x, na.rm = TRUE)),
+                   .groups = "drop")
+readr::write_csv(first_factor_summary,
+                 file.path(out_dir, "simulation_decomp_first_factor.csv"))
 
 cat("\n", strrep("=", 78),
     "\nIs 'component 1' a stable object, or only the leading subspace?\n",
@@ -527,4 +558,6 @@ results |>
   print(n = 40)
 
 message("\nwrote:\n  output/simulation_decomp_results.csv\n",
-        "  output/simulation_decomp_spectrum.csv")
+        "  output/simulation_decomp_spectrum.csv\n",
+        "  output/simulation_decomp_score_recovery.csv\n",
+        "  output/simulation_decomp_first_factor.csv")

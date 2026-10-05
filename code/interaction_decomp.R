@@ -95,6 +95,33 @@ subspace_cors <- function(X, Y) {
   svd(crossprod(qx, qy), nu = 0, nv = 0)$d
 }
 
+#' How the FIRST recovered factor relates to the true factors.
+#'
+#' Two things, both on centred vectors and both sign-free:
+#'
+#'   * `cors`: |correlation| of the first recovered score with each true factor
+#'     (one per column of `truth`). Read it knowing that when the truth has
+#'     several equal-variance factors it is identified only up to rotation, so
+#'     the individual columns are arbitrary labels: the recovered first factor
+#'     is some direction inside their span, not "factor 1".
+#'   * `multiple`: the multiple correlation of the first recovered score with
+#'     the whole true span, i.e. the cosine of the angle between the vector and
+#'     the subspace. Rotation-invariant, and never larger than the leading
+#'     canonical correlation of `subspace_cors()`, which also gets to pick the
+#'     best direction on the recovered side.
+first_factor_cors <- function(recovered, truth) {
+  if (is.null(recovered) || is.null(truth)) {
+    return(list(cors = NA_real_, multiple = NA_real_))
+  }
+  ctr <- function(M) sweep(as.matrix(M), 2, colMeans(as.matrix(M)), "-")
+  v <- ctr(recovered)[, 1]
+  tr <- ctr(truth)
+  cors <- abs(as.vector(stats::cor(v, tr)))
+  qt <- qr.Q(qr(tr))
+  list(cors = cors,
+       multiple = sqrt(sum(crossprod(qt, v)^2)) / sqrt(sum(v^2)))
+}
+
 #' The ceiling on recovery imposed by the truncated basis, with nothing fitted.
 #'
 #' At `kron_rank = q` the recovered scores are confined by construction to

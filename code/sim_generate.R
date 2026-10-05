@@ -188,6 +188,31 @@ sample_combinations <- function(n_oat, n_pea, sparsity,
   )
 }
 
+#' The variance budget: what each effect gets, as a share of its trait's total
+#' PHENOTYPIC variance (genetic + residual, within one environment, before the
+#' environment scale factors act).
+#'
+#' Each trait's interaction takes `interaction_pct` off the top, and the rest is
+#' split in the proportions of `var_shares`. So `interaction_pct` is a share of
+#' the phenotypic total, not of the genetic variance: as a share of the genetic
+#' part it is larger. A species' producer variance comes from its OWN trait's
+#' budget and its associate variance from the other trait's, because that is
+#' where each effect acts. Each trait's entries plus `interaction_pct` sum to 1.
+#' With GxE the producer and associate shares are split into a stable and an
+#' environment-specific part, but their totals here do not change.
+sim_variance_budget <- function(interaction_pct, var_shares = SIM_VAR_SHARES) {
+  rest <- 1 - interaction_pct
+  sh <- lapply(var_shares, \(x) x / sum(x))
+  c(
+    oat_prod  = rest * sh$oat[["producer"]],   # oat on oat yield
+    pea_assoc = rest * sh$oat[["associate"]],  # pea on oat yield
+    e_oat     = rest * sh$oat[["residual"]],
+    pea_prod  = rest * sh$pea[["producer"]],   # pea on pea yield
+    oat_assoc = rest * sh$pea[["associate"]],  # oat on pea yield
+    e_pea     = rest * sh$pea[["residual"]]
+  )
+}
+
 #' Simulate one bivariate experiment.
 #'
 #' Both yields, and therefore all four genetic effects. For oat i with pea j in
@@ -246,17 +271,7 @@ simulate_experiment <- function(G_oat, G_pea, sparsity, n_factors,
   # from its OWN trait's budget and its associate variance from the other
   # trait's, because that is where each effect acts.
   V_I <- interaction_pct
-  rest <- 1 - V_I
-  sh <- lapply(var_shares, \(x) x / sum(x))
-
-  V <- c(
-    oat_prod  = rest * sh$oat[["producer"]],   # oat on oat yield
-    pea_assoc = rest * sh$oat[["associate"]],  # pea on oat yield
-    e_oat     = rest * sh$oat[["residual"]],
-    pea_prod  = rest * sh$pea[["producer"]],   # pea on pea yield
-    oat_assoc = rest * sh$pea[["associate"]],  # oat on pea yield
-    e_pea     = rest * sh$pea[["residual"]]
-  )
+  V <- sim_variance_budget(interaction_pct, var_shares)
 
   # ---- the four genetic effects, as two correlated pairs ----
   oat_pair <- draw_effect_pair(

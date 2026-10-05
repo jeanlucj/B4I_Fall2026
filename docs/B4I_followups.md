@@ -723,3 +723,46 @@ oat accession's total contribution (oat producer + **oat** associate). They were
       three plot budgets. Not urgent, but it is the form every real design
       decision takes, and the budget-matched pairs already in `sim_int` suggest
       the answer is not the one the separate-axes reading implies.
+
+## 9. Redo the simulations with current variance components — added 2026-10-04
+
+The simulations draw their variance split from `SIM_VAR_SHARES`, `SIM_PR_AS_COR`
+and `SIM_RESID_COR` in `code/sim_config.R`, which come from the 2026-09-21 fit.
+They are **stale** against `output/BGLR_variance_components.csv`, the estimate
+from the full dataset:
+
+| trait | component | `sim_config.R` | current CSV |
+|---|---|---|---|
+| oat yield | oat producer | 0.211 | 0.131 |
+| oat yield | pea associate | 0.160 | 0.127 |
+| oat yield | residual | 0.630 | 0.742 |
+| pea yield | pea producer | 0.215 | 0.182 |
+| pea yield | oat associate | 0.121 | 0.112 |
+| pea yield | residual | 0.663 | 0.707 |
+| oat | producer–associate correlation | −0.065 | −0.27 |
+| pea | producer–associate correlation | −0.234 | −0.43 |
+
+(CSV shares are the means over the four seeds, as a fraction of producer +
+associate + residual; the residual correlation, −0.122 in the config, is −0.12 in
+the CSV.) The oat producer variance is unchanged (about 396), but the residuals
+are roughly double, which is what moves the shares.
+
+- [ ] **Update `SIM_VAR_SHARES` and `SIM_PR_AS_COR`** from the current CSV, via
+      `sim_observed_parameters()`, and decide whether the correlations should be
+      the CSV's `cor_PrAs` or the genetic correlations the config comment
+      describes — the two now disagree by more than the comment's explanation
+      would predict.
+- [ ] **Re-run the sweeps that depend on them** (`sim_run.R`, `sim_int_run.R`,
+      `sim_kron_study.R`, `sim_decomp_run.R`), moving the cache scheme marker so
+      old cells are not mixed in. Not urgent; the current results stay valid as
+      statements about the 2026-09-21 parameters.
+- [ ] **Regenerate `output/simulation_variance_components.csv`** with
+      `Rscript code/sim_variance_components.R`, and re-read the interaction
+      shares: the interaction is a fixed 10% or 20% of *phenotypic* variance, so
+      a larger residual leaves it a smaller share of the genetic variance than
+      the 23–43% the stale parameters give.
+- [ ] **Interaction variance stays an assumption.** It was not estimated from
+      the real data (too confounded with the residual), so 10% and 20% of the
+      phenotypic total are choices, not measurements.
+- [ ] Update the 4.x tables and any figure in
+      `docs/interaction_decomposition.md` that quotes the old numbers.
