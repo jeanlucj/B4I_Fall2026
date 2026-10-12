@@ -20,7 +20,8 @@
 # strength across peas that were never paired with the same oats:
 #   * pea grain yield BLUE across the whole experiment
 #   * pea phenology BLUE (flowering by default; see `phenology_trait`)
-#   * eigenvectors of the pea GRM, enough to reach `eigen_variance`
+#   * eigenvectors of the pea GRM, enough to reach `eigen_variance`, scaled by
+#     sqrt(eigenvalue) so that X X' is the GRM (see grm_eigenvectors())
 #
 # Outputs: output/megalmm_inputs_<fill>.rds
 # ============================================================
@@ -228,17 +229,24 @@ pea_trait_blues <- function(obs_file, cache_dir, trait_names, name_file) {
     purrr::reduce(dplyr::full_join, by = "peaAcc")
 }
 
-#' Eigenvectors of the pea GRM covering `variance` of the genetic variance.
+#' Eigenvectors of the pea GRM covering `variance` of the genetic variance,
+#' each scaled by the square root of its eigenvalue.
+#'
+#' The scaling is not cosmetic. MegaLMM puts independent zero-mean normals, with
+#' one variance per covariate GROUP, on the coefficients that regress a pea's
+#' factor loadings on these columns, so the implied covariance of the loadings
+#' across peas is `v * X X'`. With unit eigenvectors that is `V V'`: every
+#' retained PC weighs the same, PC1 as much as PC80, and there is no kinship in
+#' it. With `X = V sqrt(Lambda)` it is `V Lambda V' = G` (truncated), the same
+#' identity that turns an RKHS term into a BRR term for BGLR (`grm_factor()`).
+#' `grm_basis()` is shared with the simulation fit (code/sim_fit.R), so the two
+#' cannot drift apart again.
 grm_eigenvectors <- function(G, variance) {
-  e <- eigen(G, symmetric = TRUE)
-  vals <- pmax(e$values, 0)
-  k <- which(cumsum(vals) / sum(vals) >= variance)[1]
+  V <- grm_basis(G, variance = variance)
+  colnames(V) <- paste0("PC", seq_len(ncol(V)))
 
-  V <- e$vectors[, seq_len(k), drop = FALSE]
-  rownames(V) <- rownames(G)
-  colnames(V) <- paste0("PC", seq_len(k))
-
-  message("  ", k, " eigenvectors reach ", round(100 * variance), "% of the ",
+  vals <- pmax(eigen(G, symmetric = TRUE, only.values = TRUE)$values, 0)
+  message("  ", ncol(V), " eigenvectors reach ", round(100 * variance), "% of the ",
           "pea genetic variance (PC1 alone is ",
           round(100 * vals[1] / sum(vals), 1), "%)")
   V

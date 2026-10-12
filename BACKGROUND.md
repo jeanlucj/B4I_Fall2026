@@ -175,6 +175,16 @@ The covariates characterise the pea:
   ratio. The three covariate types are given separate ARD groups so the 58
   markers cannot swamp the two phenotypic covariates by sheer number.
 
+  The eigenvectors are **scaled by the square root of their eigenvalue** (changed
+  2026-10-12; the figures above describe the earlier fit on unit-length
+  eigenvectors). MegaLMM gives the regression coefficients on a group of
+  covariates independent normal priors with one shared variance, so the implied
+  covariance among the peas' loadings is that variance times `X X'`. Unit
+  eigenvectors make `X X'` flat: PC1 would weigh the same as PC58 and kinship
+  would not appear at all. Scaling makes `X X' = V Λ V'`, the (truncated) GRM,
+  the same identity that turns the RKHS term into a ridge regression for BGLR.
+  The simulation fits (`code/sim_fit.R`) already used the scaled version.
+
 ### Trimming, and why it is not optional either
 
 84 pea environments held a single oat and 169 held two or fewer. A column with
