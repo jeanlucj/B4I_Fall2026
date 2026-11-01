@@ -47,6 +47,7 @@ matches the question you have.
 | document | what it is for |
 |---|---|
 | [VALIDATION_DESIGN.md](VALIDATION_DESIGN.md) | the proposed trial to test whether the producer and associate effects are real: pool selection, the field design, and the power it gives. **§7 is how to re-issue it when new trials land** — one command, `code/validate_refresh.R` |
+| [POOL_SELECTION_HOWTO.md](POOL_SELECTION_HOWTO.md) | **how to actually run the pool selection, and iterate it against the seed store**: round 1, what to record in `data/seed_search_ledger.csv`, the anchored rounds after it, and when another trip to the freezer is not worth taking |
 
 **Checking the work**
 
@@ -112,6 +113,26 @@ Rscript code/BGLR_multi_trait_model.R           # ~4 min
 Rscript code/megalmm_build_inputs.R             # ~1 min
 Rscript code/megalmm_oat_pea.R                  # ~20 min
 ```
+
+The validation trial — the design that tests whether these effects are real —
+is re-issued from the fit by one command, `Rscript code/validate_refresh.R`
+(see [VALIDATION_DESIGN.md](VALIDATION_DESIGN.md) §7). Only the pool selection
+normally needs running by hand, because choosing the pools is a conversation
+with the seed store:
+
+```bash
+Rscript code/validate_pool_selection.R                     # round 1: propose
+# ... fill in `status` in data/seed_search_ledger.csv, then:
+Rscript code/validate_pool_selection.R                     # round 2: anchored
+```
+
+Round 1 writes `search_request.csv` / `.md` — one row per bag to find, with
+ranked alternates. You record `found` / `missing` / `missing_retry` in
+`data/seed_search_ledger.csv`, and the next run holds what was found and asks
+for replacements for the rest. **[POOL_SELECTION_HOWTO.md](POOL_SELECTION_HOWTO.md)
+is the step-by-step guide** — the flags, what to type into the ledger, how to
+read the request, what the infeasible message means, and how to tell when
+another round is not worth the trip.
 
 The simulation framework is separate from the pipeline and answers a different
 question — when either framework *would* work. See [SIMULATION.md](SIMULATION.md):
@@ -228,8 +249,8 @@ Each script has a settings block at the top. The ones that change conclusions:
   table described nine — see `SELF_CRITIQUE.md` finding A.
 - `draw_storage_mode` (`"single"`) — precision of the streamed per-draw
   coefficients the per-accession PEV is computed from.
-- `fit_mix_term` (FALSE) — the specific-combination term. Off because 91% of
-  oat–pea combinations occur in a single plot; the script reports the
+- `fit_mix_term` (FALSE) — the specific-combination term. Off because 87.5% of
+  oat–pea combinations occur in a single plot (8 trials); the script reports the
   replication either way.
 
 **`sim_config.R`** (the simulation, not the analysis)
@@ -264,7 +285,7 @@ point estimates are a hypothesis rather than a result.
 **The MegaLMM framing does not work on this data yet.** Predicting held-out
 oat×pea cells, the best MegaLMM configuration reaches r = 0.07 against 0.28 for
 simply predicting each oat's own mean. The pea covariates do help — they roughly
-double the model's accuracy — but not nearly enough. With 91% of combinations
+double the model's accuracy — but not nearly enough. With 87.5% of combinations
 appearing in a single plot there is no specific-combination signal to find, which
 is the same conclusion the bivariate model reached from the other direction.
 

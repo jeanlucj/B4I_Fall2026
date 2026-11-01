@@ -139,7 +139,23 @@ block_pools <- function() {
             fmt(psum$theta, 3), fmt(psum$dAs, 2), fmt(psum$dPr, 3),
             fmt(psum$mean_Pr_plus, 2), fmt(psum$mean_Pr_minus, 2)),
     "",
-    sprintf("*Selection rule: `%s`.*", if (is.na(idx)) "unstamped" else idx))
+    sprintf("*Selection rule: `%s`.*", if (is.na(idx)) "unstamped" else idx),
+    # theta keeps its old meaning under search-v3 -- the Pr multiplier whose
+    # ranking the adopted membership was reached FROM -- so the table above
+    # needed no change. n_moves is what the stamp cannot say: 0 means the
+    # theta rule was already optimal, which measurement says is the usual
+    # outcome, and a large number would mean the two now disagree materially.
+    if (all(c("search_mode", "n_moves") %in% names(psum)))
+      paste0("*", paste(sprintf(
+        "%s: reached from θ = %s in %d move(s), %s search%s",
+        psum$species, fmt(psum$theta, 4), psum$n_moves, psum$search_mode,
+        ifelse(psum$search_mode == "anchored" &
+                 "n_anchors_used" %in% names(psum),
+               sprintf(" (%d of %d accessions carried over from round %d)",
+                       psum$n_anchors_used, 2 * psum$n_per_pool, psum$round),
+               "")),
+        collapse = "; "), ".*")
+    else NULL)
 }
 
 block_lambda <- function() {

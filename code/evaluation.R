@@ -51,19 +51,37 @@ EVAL_GROUPS <- list(
                       "resolve_analysis_names"),
 
   matrix = c("scale_within_trial", "build_matrix", "trim_matrix",
-             "grm_eigenvectors", "pea_blue", "pea_trait_blues"),
+             "grm_eigenvectors", "megalmm_covariates",
+             "pea_blue", "pea_trait_blues"),
 
   megalmm = c("setup_megalmm_state", "run_megalmm", "megalmm_posterior",
-              ".undecorate_rows"),
+              "fit_megalmm_cells", ".undecorate_rows"),
 
   cv = c("mask_cells", "margin_baselines", "cv_once"),
 
   bglr = c("covariance_components", "accession_effects", "rank_summary",
-           "apply_trial_qc", "b4i_plot_table", "b4i_fit_frame"),
+           "apply_trial_qc", "b4i_plot_table", "b4i_fit_frame",
+           "plots_to_fit_frame"),
 
   # ---- the validation trial (offline; reads the fit in output/) --------
   validation = c("validation_inputs", "validation_vintage", "build_pools",
-                 ".pools_at", ".pool_scan", "pool_diff", "prereg_lines"),
+                 ".pools_at", ".pool_scan", ".pool_candidates",
+                 ".pools_from_acc", "pool_diff", "prereg_lines",
+                 # the pool search: unconstrained, then anchored to the
+                 # accessions already found in seed storage
+                 "pr_adjust_slope", "pool_search_context", "pool_score",
+                 ".theta_family", ".pools_climb", "pools_search",
+                 "pools_optimal", "pool_anchor_feasibility",
+                 ".anchored_start", ".pool_prune", "pools_anchored",
+                 "pool_search_curve",
+                 # names on seed bags, and the round protocol between the
+                 # search and whoever walks to the freezer
+                 "resolve_seed_names", "classify_search_input",
+                 "collapsed_entries", "read_seed_ledger", "ledger_state",
+                 "seed_ledger_round", "update_seed_ledger",
+                 "write_seed_ledger", "pool_slot_alternates",
+                 "search_request", "search_request_md",
+                 "found_missing_balance"),
 
   val_design = c("make_validation_design", "check_validation_design"),
 
@@ -95,12 +113,12 @@ EVAL_GROUPS <- list(
   sim_design  = c("sim_grid", "sim_observed_parameters"),
   sim_panel   = c("sim_grms", "grm_factor", "draw_effect"),
   sim_cells   = c("sample_combinations"),
-  sim_truth   = c("simulate_experiment"),
-  sim_split   = c("standardize_within_env", "scoring_index",
+  sim_truth   = c("simulate_experiment", "as_plot_table"),
+  sim_split   = c("add_centred_yields", "scoring_index",
                   "prepare_scenario"),
   sim_basis   = c("grm_basis", "kron_basis"),
   sim_bglr    = c("fit_dge_ige", "run_scenario_bglr"),
-  sim_megalmm = c("fit_megalmm", "run_scenario_megalmm"),
+  sim_megalmm = c("fit_megalmm_one", "fit_megalmm_both", "run_scenario_megalmm"),
   sim_score   = c("interaction_part", "score_predictions",
                   "baseline_predictions"),
   sim_decomp  = c("double_centre", "decompose_surface", "decompose_bilinear",
@@ -137,11 +155,13 @@ EVAL_SOURCES <- list(
   analysis = c("code/t3_functions.R",
                "code/curation_functions.R",
                "code/dge_ige_functions.R",
+               "code/megalmm_inputs_functions.R",
                "code/megalmm_setup.R",
                "code/interaction_decomp.R"),
   simulation = c("code/dge_ige_functions.R",   # read_grm, grm_factor
                  "code/sim_config.R",
                  "code/sim_generate.R",
+                 "code/megalmm_inputs_functions.R",
                  "code/sim_fit.R",
                  "code/megalmm_setup.R",
                  "code/interaction_decomp.R"),

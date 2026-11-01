@@ -761,8 +761,216 @@ are roughly double, which is what moves the shares.
       shares: the interaction is a fixed 10% or 20% of *phenotypic* variance, so
       a larger residual leaves it a smaller share of the genetic variance than
       the 23–43% the stale parameters give.
+- [ ] **Replace the scale parameters** in `sim_config.R`, which were computed on
+      six trials including Alabama. For the 8 fitted trials: `SIM_ENV_LOG_SD`
+      0.669 → oat 0.30 / pea 0.34; `SIM_ENV_MEAN_LOG_SD` 1.355 → 0.53 / 0.67;
+      `SIM_GRAND_MEAN` 167.3 → 204.5 (oat; pea 106.5); `SIM_YIELD_SD` 43 / 32 is
+      still right (43.9 / 32.8). `sim_observed_parameters()` reads the phenotype
+      file without trial QC, so it still includes Alabama; point it at
+      `b4i_fit_frame()` first.
 - [ ] **Interaction variance stays an assumption.** It was not estimated from
       the real data (too confounded with the residual), so 10% and 20% of the
       phenotypic total are choices, not measurements.
 - [ ] Update the 4.x tables and any figure in
       `docs/interaction_decomposition.md` that quotes the old numbers.
+
+## 10. Simulation now shares the real analysis's data preparation — added 2026-10-15
+
+An audit found the model-fitting functions were already shared between the real
+analysis and the simulation (`fit_producer_associate()`, the MegaLMM engine,
+`grm_basis()`), but the data preparation around them was not. Done (code and
+tests only; **no simulation has been re-run**):
+
+- `as_plot_table()` gives simulated plots the columns of the real plot table;
+  `plots_to_fit_frame()` (split out of `b4i_fit_frame()`) prepares both.
+- BGLR is fitted to the **raw** yields, as the real fit is. The simulation used
+  to z-score each trait within environment first and describe that as "what the
+  real analysis does". To keep the raw scale realistic, simulated yields are now
+  multiplied by `SIM_YIELD_SD` (oat 43, pea 32 g/m²).
+- MegaLMM's matrix is built by `build_matrix()` / `trim_matrix()` (now in
+  `code/megalmm_inputs_functions.R`) on the `centered` fill the real analysis
+  chose, so replicate plots are averaged and thin rows and columns trimmed.
+  Covariates come from `megalmm_covariates()`, and both worlds fit through
+  `fit_megalmm_cells()` with chain lengths from `MEGALMM_MCMC`.
+- `sim_grms()` draws panels from the collapsed GRMs.
+- `tests/test_pipeline_parity.R` pins all of the above. Cache schemes moved
+  (`v3`→`v4`, `d3`→`d4`), so old cells are not reused.
+
+- [ ] **Re-run every sweep** (together with item 9). Until then the committed
+      simulation CSVs describe the old preparation (z-scored response, `y`
+      overwrite instead of averaging, un-collapsed panels), and the panels
+      themselves change because collapsing the GRM changes which accessions a
+      seed draws.
+- [ ] Check after the re-run that BGLR mixes on the raw scale at the smallest
+      panels (trace of the trial effects; `tests/test_fits.R` passes at small
+      N_ITER, but the production chains are longer).
+
+Differences that remain, deliberately, and should be quoted wherever the
+simulation is used as evidence about the real analysis:
+
+- the real MegaLMM has pea phenotypic covariates (two BLUEs, ARD group 2); a
+  simulation has none;
+- the simulation fits MegaLMM in both orientations and assembles them; the real
+  analysis fits one;
+- the simulation has no within-environment blocking, so its block term drops
+  out;
+- BGLR chain lengths: production 20000/3000, real cross-validation 6000/1000 or
+  12000/2000, simulation 6000/1000;
+- the decomposition (`interaction_decomp.R`) has only ever been run on
+  simulations, because the real fit has no interaction term.
+
+## 11. Fit the real MegaLMM in both orientations — added 2026-10-15
+
+`code/megalmm_oat_pea.R` fits MegaLMM with oats on the rows and peas as the
+"environments" only. The simulation fits both orientations (`fit_megalmm_both()`)
+and assembles the oat and pea general mixing abilities from whichever
+orientation estimates each effect better (see the header of `code/sim_fit.R`:
+MegaLMM has a per-column intercept and no per-row one, so each orientation
+treats one species' producer and the other's associate effect badly).
+
+- [ ] **Build the transposed inputs.** `build_matrix(pheno, fill, yield =
+      "pea_yield", row_id = "intercropGermplasmName", col_id =
+      "germplasmName")` gives the pea-rows matrix; trim it with `trim_matrix()`
+      and take the oat GRM eigenvectors as column covariates with
+      `grm_eigenvectors()`. The oat phenotypic BLUEs (yield, phenology) would
+      be the analogue of the pea ones and need `pea_blue()` generalised.
+- [ ] **Cross-validate it** as `megalmm_oat_pea.R` does for the oat side
+      (`mask_cells()`, `margin_baselines()`), then fit once on everything
+      through `fit_megalmm_cells()`.
+- [ ] **Assemble the surfaces** as the simulation does (`rowMeans` +
+      `rowMeans`, `colMeans` + `colMeans`) so the real and simulated GMA
+      estimates mean the same thing.
+- [ ] Expect the same sparsity limit: the oat-side fit does not beat a row
+      mean at 3.2% density (docs/MegaLMM_sparsity_challenge.md), so run the
+      cross-validation before reading anything off the fit.
+
+## 12. Heteroscedastic residual (an idea, not planned) — added 2026-10-15
+
+Within-trial SDs differ across the 8 fitted trials (oat 31–84, pea 17–51 g/m²;
+`output/real_design_numbers.csv`) while `BGLR::Multitrait` fits one residual
+matrix R for every plot. Unmodelled, that heterogeneity could leak into the
+specific-combination term. **Not planned:** `Multitrait` has no per-observation
+weights or per-group R (types `UN`, `DIAG`, `REC`, `FA`, all shared).
+
+If it is ever revisited, the workable route is weighted least squares by row
+scaling: divide the rows of `Y` and of every term's design matrix (trial and
+block dummies, `Z L` for both species, the Kronecker basis) by a per-trial
+weight. Then `b` and every variance component stay in g/m², and the residual is
+homoscedastic. One weight per plot, common to both traits (the design matrix is
+shared by the two columns of `Y`): the geometric mean of the trial's oat and pea
+residual SDs, estimated from a pilot fit. It would be an argument to
+`fit_producer_associate()`, defaulting to off.
+
+Rejected: z-scoring `y` within trial (a different model, which assumes genetic
+effects scale with the trial; it is what the old simulation did) and a per-trial
+R in MCMCglmm (not feasible with G ⊗ G kernels at this size).
+
+- [ ] **Cheap first check, no new model:** report the per-trial residual SD from
+      the existing fit (observed minus fitted, by trial and trait) to see
+      whether the heterogeneity survives removing the genetic effects.
+
+## 13. Plot quality is not estimated — added 2026-10-15
+
+The phenotype table carries `repNumber` and `blockNumber` and no row, column or
+plot coordinates. Six of the eight trials are a single block (2025 IL has 8,
+2026 IL has 2), so the block term is nearly absent. Nothing separates a fertile
+plot from noise except the residual.
+
+Why this matters for the interaction: with 87.5% of combinations in one plot, a
+combination's effect S and the plot's residual e are both plot-level random
+pairs, and the data see only their sum. Only the kinship pattern G_oat ⊗ G_pea
+in S, against iid e, tells them apart. Adding S gives the model a second
+unstructured 2 × 2 matrix that can absorb a positive plot-quality covariance,
+leaving R with more of the negative competition covariance. Check on the earlier
+fit: R had variances 2248 / 1019 and covariance −186.5 (correlation −0.123); S
+had variances 202 / 73 and correlation +0.20 (covariance ≈ 24). Moving S out of
+R gives covariance −210.8, variances 2046 / 946 and correlation −0.152, against
+the observed −0.159. Close enough to support the reading, not to prove it.
+
+- [ ] **Find out whether T3 holds plot coordinates** (`observationUnitPosition`
+      is already read for the block in `code/t3_functions.R`; the local cache
+      has none). If it does, add a spatial or row/column term before fitting
+      the interaction on real data.
+- [ ] Replicated combinations are the decisive evidence: a combination grown in
+      two plots shares its S and not its e. Only 12.5% (334) are replicated now.
+
+## 14. The seed-search protocol: what was settled and what was not — added 2026-11-01
+
+`code/validate_pool_selection.R` now runs in two modes and keeps a hand-typed
+ledger of what seed storage actually holds (`data/seed_search_ledger.csv`).
+VALIDATION_DESIGN.md §2 has the design; what follows is the part that is worth
+recording because the data settled it against the obvious answer.
+
+### Rejected: a catalogue of near-equal pool sets
+
+The first plan was a catalogue of ~12 near-equivalent pool sets per species,
+scored so that seed availability could pick one. **Do not re-propose it.** It
+optimises for *choice* when the real cost is *search*: twelve sets span ~105
+distinct accessions, so the catalogue asks for more freezer work than the single
+proposal it replaces, not less. The iterative protocol — propose, search,
+re-optimise around what was found — asks for 2n bags in round 1 and about six
+in round 2.
+
+### Settled: three things that were counter-intuitive
+
+- **The minimum feasible substitution allowance costs power, by a margin that
+  cannot be predicted from the counts.** At the minimum every usable anchor must
+  be kept, so the search cannot drop a badly-estimated one. Re-measured on the
+  2026-11-01 vintage, allowance 3 against allowance 4, over three random
+  found-sets per species: oat at 34 of 40 found loses 0.1, 0.1 and 1.4 power
+  points and pays one or two extra bags to recover it; pea at 54 of 60 loses
+  0, 0 and 0.9 and recovers it *for the same six bags*. An earlier pass over
+  this measurement happened to draw a free-recovery case and the write-up read
+  it as the general rule; it is not. Which accessions went missing decides both
+  the size of the penalty and the price of escaping it, so `search_curve.csv`
+  has to be read rather than reasoned about. The infeasibility message advises
+  the minimum, so it is easy to land on by accident; `at_min_budget` in
+  `pool_summary.csv` says when you have.
+- **Feasibility, not power, binds — and pea binds harder.** An allowance of 3
+  needs `2(n−3)` anchors: 85% of oat's 40 but 90% of pea's 60, because the
+  budget is an absolute count while the pool is larger. Raising pea's allowance
+  is close to free in design quality.
+- **The θ scan was already optimal.** The explicit search moves 3 of 40 oat
+  members and gains 0.0015 in t. It exists for the *anchored* problem and as the
+  reference optimum, not as an improvement, and `n_moves == 0` says so out loud.
+
+### Open
+
+- [ ] **Re-measure λ under the anchored selection rule.**
+      `code/validate_crossval.R`'s fold rehearsal calls `build_pools()`, because
+      it measures how the *selection rule* transfers to a held-out trial and the
+      anchored rule depends on a ledger that has no analogue inside a fold.
+      That is the right call for now, but it means the λ reported beside an
+      anchored proposal was measured under a slightly different rule. Harmless
+      while the two agree to four significant figures; worth re-checking if a
+      future vintage makes the climb move more than a handful of members.
+- [ ] **Is the seed store biased in As?** `found_missing_balance.csv` tests
+      found-vs-missing means of As and Pr every round. Nothing significant at
+      the first synthetic trial of the protocol, but if storage is
+      systematically short of old low-As lines then anchoring entrenches that,
+      and the As− pool ends up describing the store's history rather than the
+      trait. It would be a caveat on the interpretation, not a bug in the
+      search.
+- [ ] **Prereg question: does an anchored design need Pr as a covariate?**
+      Pr-adjusted power as a *selection* index needs no `PREREG_MODEL` bump, and
+      an unconstrained proposal is Pr-matched by construction (ΔPr 0.14 / 0.04
+      on a ~21 g/m² contrast). An **anchored** one need not be. The driver warns
+      when an adopted proposal's `|ΔPr|` exceeds the tolerance, which is exactly
+      when the adjustment stops being cosmetic; deciding to condition the `pool`
+      estimand on Pr is a `prereg-v2`, and a person's call.
+- [ ] **A `--pools` flag for `code/validate_design.R`.** It reads today's
+      vintage's `pools.csv`, so building the field book for an earlier adopted
+      design means moving files. `--vintage` already exists; a `--pools` taking
+      a path would be more direct.
+- [ ] **`make_validation_design()` calls bare `set.seed()`**
+      (`code/validation_functions.R`), without saving and restoring the caller's
+      stream the way `.with_seed()` does. Harmless today because the drivers set
+      their own seeds afterwards, but it is the kind of thing that makes a
+      "reproducible" run depend on call order.
+- [ ] **A ledger row typed with a germplasm name resolves correctly but is not
+      merged.** `resolve_seed_names()` maps a name read off a bag forward to the
+      analysis name the fit knows, so such a row anchors the search properly.
+      But the ledger then carries both that row and, if the analysis name is
+      proposed, a second row for the analysis name. Cosmetic — the anchors are
+      de-duplicated before the feasibility count — and not worth machinery
+      unless it starts happening.

@@ -9,13 +9,14 @@ see [CROSS_VALIDATION.md](CROSS_VALIDATION.md).
 **Generated from the fit in `output/`** by `code/validate_pool_selection.R`,
 `code/validate_power.R` and `code/validate_design.R`. Every number below is a
 snapshot of one data vintage, not a fixed parameter — see §7. Numbers here are
-from the **6-trial fit, vintage 2026-09-24**.
+from the **8-trial fit, vintage 2026-11-01**, and the pools from the
+`search-v3` selection rule (§2).
 
 ---
 
 ## 1. What we are testing, and why it sets the whole design
 
-We have estimated, for ~440 oat and ~420 pea accessions, a **producer effect**
+We have estimated, for 462 oat and 434 pea accessions, a **producer effect**
 (`Pr`, what an accession does for its own yield) and an **associate effect**
 (`As`, what it does to its partner's yield). Only a tiny fraction of the
 oat × pea combination space was ever sown, so these rest heavily on genomic
@@ -67,12 +68,17 @@ At n = 30 that is 13 of 30 shared, which guts the contrast.
 
 ### What we do instead
 
-A constrained optimisation: **maximise `mean(As+) − mean(As−)` subject to**
+A constrained optimisation: **maximise the associate contrast subject to**
 
 1. the pools being disjoint,
 2. both pool means of `Pr` above a threshold (the median of eligible
    candidates),
 3. `|mean Pr+ − mean Pr−|` within 1 g/m².
+
+The contrast being maximised is the **Pr-adjusted** one, `ΔAs − b·ΔPr`, divided
+by its standard error — see the next subsection for why the raw ΔAs is the wrong
+objective. Constraint 3 and that adjustment do different jobs: the constraint
+keeps the pools comparable, the adjustment prices the imbalance that remains.
 
 Implemented with a Lagrange multiplier `θ` on `Pr` and **one selection index
 serving both pools**: rank the candidates by `As + θ·Pr`, take the top *n* and
@@ -81,6 +87,70 @@ balance efficiently, and disjointness is structural — the top and bottom of on
 ordering cannot collide. θ is chosen by a dense scan that minimises |ΔPr|, not by
 bisection: ΔPr(θ) is a step function and bisecting for a sign change can land on
 a local crossing (`build_pools()` in `code/validation_functions.R`).
+
+### What is actually maximised: the Pr-adjusted contrast
+
+ΔAs is the wrong thing to maximise on its own, and the hypothesis says why. What
+is being claimed is that **among accessions of equal Pr there is variation in As
+we can select on** — strictly, that the genetic correlation between As and Pr
+differs from −1. The trial tests it with Pr as a covariate, so two pools that
+diverge more in As can give *less* power if they also diverge in Pr in the
+direction the negative As–Pr correlation already predicts. The objective is
+therefore
+
+```
+t = (ΔAs − b·ΔPr) / SE,     SE inflated by  f = 1 + (n/2)·ΔPr² / Sxx_w
+```
+
+the noncentrality of the covariate-adjusted contrast, where `b` is the As-on-Pr
+slope and `Sxx_w` the within-pool sum of squares of Pr. `b` is pinned to the
+**post-threshold candidate set** — the population the selection actually chooses
+from — by `pr_adjust_slope()`, the single definition of it, so this document and
+the optimiser cannot drift apart. It is **−0.171** (oat) and **−0.443** (pea);
+the eligible-set slope is a materially different −0.272 / −0.525, and the
+within-pool slope is selection-biased by the `As + θ·Pr ≥ cut` truncation.
+
+The index re-ranks on the first real case. The ΔAs-maximal pools (θ = 0) have the
+larger raw contrast and the *smaller* adjusted one:
+
+| | ΔAs | ΔPr | ΔAs − b·ΔPr |
+|---|---|---|---|
+| oat, θ = 0 | 21.28 | −3.91 | **20.61** |
+| oat, adopted | 21.08 | 0.429 | **21.15** |
+| pea, θ = 0 | 31.87 | −4.24 | **29.99** |
+| pea, adopted | 30.89 | −0.645 | **30.61** |
+
+One deliberate conservatism: conditioning on Pr strictly also *reduces* the
+accession residual, by `b²·var(Pr within)`. That is not applied — it would raise
+power — matching the choice already made for λ.
+
+The objective is computed at **λ = 1 with no pool × location interaction**, which
+makes the selection a pure function of the fit and independent of the
+cross-validation. That is not an approximation of convenience: the chosen
+membership is *invariant* to both across the whole plausible range (identical
+accessions for λ ∈ 0.5…1.0 crossed with interaction_frac ∈ 0…0.74), because the
+landscape is flat. A test pins the invariance so a future vintage that breaks it
+fails loudly instead of moving the pools in silence. The power **reported**
+beside a proposal is still the Pr-adjusted power at the measured λ. Selection and
+reporting are deliberately different quantities, and `pool_summary.csv` carries
+both (`score` and `t_reported`).
+
+### Two search modes, because seed has to be found before it can be sown
+
+θ scans a one-parameter family. The **anchored** problem — "keep at least this
+many of the accessions we actually found in the freezer" — has no such family, so
+`code/validation_functions.R` also carries an explicit steepest-ascent exchange
+search, seeded from the θ family and from `build_pools()`'s own answer.
+
+It is **not** here to improve the unconstrained proposal and must not be sold as
+doing so. On the 2026-10-31 vintage the θ rule already sits at the optimum to
+four significant figures: climbing from it moves 3 of 40 oat members and 2 of 60
+pea, and gains 0.0015 in t. Six restarts converge within 0.0004, so that is the
+global optimum rather than a stall. `n_moves` in `pool_summary.csv` reports it,
+and `n_moves == 0` says outright that the θ rule was already optimal.
+
+The search exists so that **round 2 can be constrained**, and to supply the
+reference optimum the constraint's cost is measured against.
 
 Until 2026-10-03 the two pools were scored by *different* indices — `As + θ·Pr`
 and `As − θ·Pr` — which rewarded high Pr in the As⁻ pool and so dragged both
@@ -106,8 +176,8 @@ ground alone.
 <!-- BEGIN GENERATED: eligibility -->
 | species | rule | reliability threshold | eligible | of |
 |---|---|---|---|---|
-| oat | reliability | 0.605 | 398 | 462 |
-| pea | reliability | 0.614 | 389 | 434 |
+| oat | reliability | 0.590 | 398 | 462 |
+| pea | reliability | 0.599 | 388 | 434 |
 
 Candidates must clear that reliability **and** have met at least two distinct partners in the data the model was fitted to. The partner floor is not redundant: reliability measures posterior precision, not identifiability, and an accession grown with a single partner has its producer and associate effects perfectly aliased while still scoring well by borrowing from genotyped relatives.
 <!-- END GENERATED: eligibility -->
@@ -124,15 +194,94 @@ finding A1.
 <!-- BEGIN GENERATED: pools -->
 | species | n per pool | candidates | θ | ΔAs (g/m²) | ΔPr | mean Pr, As+ | mean Pr, As− |
 |---|---|---|---|---|---|---|---|
-| oat | 20 | 199 | 0.131 | **21.15** | -0.033 | 13.08 | 13.12 |
-| pea | 30 | 195 | 0.414 | **30.17** | -0.127 | 10.93 | 11.05 |
+| oat | 20 | 199 | 0.100 | **21.08** | 0.429 | 12.96 | 12.53 |
+| pea | 30 | 194 | 0.535 | **30.89** | -0.645 | 10.49 | 11.14 |
 
-*Selection rule: `single-v2`.*
+*Selection rule: `search-v3`.*
+*oat: reached from θ = 0.1000 in 2 move(s), unconstrained search; pea: reached from θ = 0.5350 in 3 move(s), unconstrained search.*
 <!-- END GENERATED: pools -->
 
 The producer constraint is close to free: it costs a little associate contrast
 and buys two pools whose producer means differ by a fraction of a g/m² while
 both sit well above the population mean.
+
+### Finding the seed: the round protocol
+
+Accessions in the proposal sometimes cannot be found in seed storage, and
+substituting by hand moves the design off its optimum in an unrecorded way. The
+cost being minimised here is not computation but **trips to the freezer**, so the
+protocol is iterative rather than a menu:
+
+1. **Round 1** proposes the unconstrained optimum and writes
+   `search_request.csv` / `.md` — one row per bag to find, each slot with two or
+   three ranked alternates and, for a collapsed analysis name, the original
+   entries any one of which satisfies it.
+2. Whoever searched records `found`, `missing` or `missing_retry` in
+   **`data/seed_search_ledger.csv`**.
+3. **Round 2+** holds the found accessions, allows at most `max_new_per_pool`
+   substitutions per pool, re-optimises, and asks for a short list of
+   replacements.
+
+[POOL_SELECTION_HOWTO.md](POOL_SELECTION_HOWTO.md) is the operator's guide to
+running it: the commands, what to type into the ledger, how to read the request,
+and how to tell when another round is not worth it.
+
+The ledger is hand-typed primary data, so it lives in `data/` beside
+`trial_qc_manual.csv` rather than in a regenerated vintage folder, and the
+driver only ever appends to it. The three statuses do three different things:
+`found` anchors the search, `missing` is **excluded cumulatively across rounds**
+so a confirmed-absent accession is never proposed again, and `missing_retry`
+does neither — it records a search that was not finished, which is evidence
+about the searcher rather than about the store.
+
+An earlier version of this section proposed a **catalogue** of ~12 near-equal
+pool sets, so that seed availability could pick one. That is abandoned: it
+optimised for *choice* when the real cost is *search*, and a catalogue spanning
+~105 distinct accessions asks for more freezer work, not less. See
+[docs/B4I_followups.md](docs/B4I_followups.md).
+
+**Feasibility, not power, is the binding constraint.** Each pool must hold at
+least `n − max_new_per_pool` anchors and the pools are disjoint, so the allowance
+needs `2(n − max_new)` usable anchors — 34 of 40 for oat (85% found) but **54 of
+60 for pea (90%)**, because the budget is an absolute count while the pool is
+larger. Expect pea to hit the infeasible path at 3 per pool. When it does, the
+run reports the smallest feasible allowance and **stops**; it never relaxes the
+allowance on its own, because widening it spends somebody's afternoon.
+
+Two things measured while building this are worth stating because they are
+counter-intuitive:
+
+- **The minimum feasible allowance costs power, by a margin that cannot be
+  predicted from the counts.** At the minimum every usable anchor must be kept,
+  so the search cannot drop a badly-estimated one. Allowance 3 against
+  allowance 4, over three random found-sets per species: oat at 34 of 40 found
+  loses 0.1, 0.1 and 1.4 power points and pays one or two extra bags to recover
+  it; pea at 54 of 60 loses 0, 0 and 0.9 and recovers it for the same six bags.
+  Which accessions went missing decides both the penalty and the price of
+  escaping it, which is why `search_curve.csv` prices every allowance from the
+  minimum up — turning "is another round worth it?" into one monotone column
+  rather than a rule of thumb.
+- **A plain hill-climb on power asks for far more seed than it is worth**: the
+  greedy optimum spends its entire allowance, at one point asking for 11 new
+  accessions instead of 8 to gain 0.03 power points. So the search has an
+  explicit **parsimony stage** that hands slots back while the score stays within
+  `score_slack_frac` (0.5% of t, ≈0.3 power points) of the optimum, and reports
+  both answers so the trade is visible rather than made silently.
+
+That slack is calibrated against what is actually knowable: λ is 0.759 ± 0.198
+(oat) and 0.784 ± 0.140 (pea), i.e. about ±15 power points on the realised
+contrast, and associate reliability is 0.29 / 0.36. **Differences of a few tenths
+of a power point are far below the sampling error of the quantity being
+predicted.** The index is a screen against bad choices, not a fine-grained
+preference order.
+
+Two consequences to watch, both reported every round rather than guarded against:
+anchors are **one global list the search may reassign between pools** (a found
+bag is found, and the As+/As− label is a property of the design, not of the seed
+lot), so `anchor_pool_switches` and `previous_pool` exist; and an **anchored** set
+need not be Pr-matched by construction, so when `|ΔPr|` exceeds the tolerance the
+`pool` estimand would have to condition on Pr — a `PREREG_MODEL` bump, which the
+driver warns about and will not make for you.
 
 ---
 
@@ -249,10 +398,10 @@ model this section used to specify rejects a true null at:
 
 | denominator | oat | pea |
 |---|---|---|
-| no `pool × location` — the old §4 | **0.170** | **0.120** |
-| with it, variance re-estimated from the trial's own locations | 0.062 | 0.046 |
-| **with it, variance taken as measured** | **0.027** | **0.034** |
-| location-level contrasts, 4 df (narrow inference) | 0.052 | 0.046 |
+| no `pool × location` — the old §4 | **0.166** | **0.111** |
+| with it, variance re-estimated from the trial's own locations | 0.064 | 0.043 |
+| **with it, variance taken as measured** | **0.028** | **0.034** |
+| location-level contrasts, 4 df (narrow inference) | 0.054 | 0.046 |
 
 against a nominal 0.05, over 2,000 replicates each
 (`output/validation/<vintage>/power_type1.csv`). That is the concrete reason
@@ -296,12 +445,12 @@ penalise reporting two views of one regression.
 ### The result
 
 <!-- BEGIN GENERATED: vintage -->
-*Numbers below are from vintage **2026-10-03**.*
+*Numbers below are from vintage **2026-11-01**.*
 
 | species | trials | plots | accessions | eligible | reliability of As |
 |---|---|---|---|---|---|
 | oat | 8 | 3181 | 462 | 398 | 0.29 |
-| pea | 8 | 3181 | 434 | 389 | 0.36 |
+| pea | 8 | 3181 | 434 | 388 | 0.36 |
 
 Trials kept by the QC screen (8): B4I_2025_IA, B4I_2025_IL, B4I_2025_ND, B4I_2025_NY, B4I_2026_IA, B4I_2026_IL, B4I_2026_ND, B4I_2026_NY
 Dropped (1): B4I_2025_AL
@@ -316,18 +465,18 @@ three variance components and carries only `n_loc − 1` degrees of freedom.
 
 | estimand | role | target | locations | effect | SE | df | power | power at λ's lower 95% |
 |---|---|---|---|---|---|---|---|---|
-| `pool` | descriptive | oat | 4 | 16.34 | 7.280 | 6.7 | **0.64** | 0.46 |
-| `pool` | descriptive | oat | 5 | 16.34 | 6.586 | 9.3 | **0.74** | 0.52 |
-| `pool` | descriptive | pea | 4 | 22.68 | 8.622 | 11.5 | **0.80** | 0.62 |
-| `pool` | descriptive | pea | 5 | 22.68 | 7.820 | 16.1 | **0.87** | 0.69 |
-| `slope` | primary | oat | 4 | 0.77 | 0.341 | 6.5 | **0.65** | 0.47 |
-| `slope` | primary | oat | 5 | 0.77 | 0.309 | 9.0 | **0.75** | 0.53 |
-| `slope` | primary | pea | 4 | 0.75 | 0.277 | 10.1 | **0.81** | 0.65 |
-| `slope` | primary | pea | 5 | 0.75 | 0.250 | 14.0 | **0.89** | 0.73 |
-| `total` | co-primary | both | 4 | 0.76 | 0.298 | 6.9 | **0.74** | 0.59 |
-| `total` | co-primary | both | 5 | 0.76 | 0.268 | 9.4 | **0.84** | 0.67 |
+| `pool` | descriptive | oat | 4 | 16.00 | 7.311 | 7.1 | **0.63** | 0.43 |
+| `pool` | descriptive | oat | 5 | 16.00 | 6.615 | 9.8 | **0.73** | 0.49 |
+| `pool` | descriptive | pea | 4 | 24.22 | 8.939 | 13.6 | **0.82** | 0.65 |
+| `pool` | descriptive | pea | 5 | 24.22 | 8.111 | 19.2 | **0.89** | 0.72 |
+| `slope` | primary | oat | 4 | 0.76 | 0.344 | 6.8 | **0.63** | 0.44 |
+| `slope` | primary | oat | 5 | 0.76 | 0.311 | 9.5 | **0.73** | 0.50 |
+| `slope` | primary | pea | 4 | 0.78 | 0.280 | 11.9 | **0.84** | 0.68 |
+| `slope` | primary | pea | 5 | 0.78 | 0.252 | 16.4 | **0.91** | 0.76 |
+| `total` | co-primary | both | 4 | 0.77 | 0.301 | 7.5 | **0.75** | 0.59 |
+| `total` | co-primary | both | 5 | 0.77 | 0.271 | 10.2 | **0.84** | 0.67 |
 
-The pool × location term is 61% of the variance.
+The pool × location term is 58% of the variance.
 <!-- END GENERATED: estimands -->
 
 The three come out within a few points of each other, which is the point: the
@@ -349,12 +498,12 @@ pool × location interaction as measured (see §6).
 
 | | plots/loc | n per pool | total plots | λ | interaction | power |
 |---|---|---|---|---|---|---|
-| **oat** | 60 | 20 | 300 | 0.77 | 0.73 | 0.72 |
-| **oat** | 80 | 20 | 400 | 0.77 | 0.73 | 0.74 |
-| **oat** | 100 | 20 | 500 | 0.77 | 0.73 | 0.75 |
-| **pea** | 60 | 30 | 300 | 0.75 | 0.54 | 0.84 |
-| **pea** | 80 | 30 | 400 | 0.75 | 0.54 | 0.87 |
-| **pea** | 100 | 30 | 500 | 0.75 | 0.54 | 0.89 |
+| **oat** | 60 | 20 | 300 | 0.76 | 0.74 | 0.71 |
+| **oat** | 80 | 20 | 400 | 0.76 | 0.74 | 0.73 |
+| **oat** | 100 | 20 | 500 | 0.76 | 0.74 | 0.74 |
+| **pea** | 60 | 30 | 300 | 0.78 | 0.50 | 0.86 |
+| **pea** | 80 | 30 | 400 | 0.78 | 0.50 | 0.89 |
+| **pea** | 100 | 30 | 500 | 0.78 | 0.50 | 0.91 |
 <!-- END GENERATED: power -->
 
 λ is the **attenuation**: how much of the predicted contrast actually
@@ -385,7 +534,7 @@ SE(Δ)² = (σ²_within⁺ + σ²_within⁻)/n  +  (int_sd)²/n_loc  +  4·σ²_
 ```
 
 This section said "two terms" until 2026-10-03, and the missing middle one is
-the largest of the three — **65% of the variance for oat and 50% for pea** at
+the largest of the three — **64% of the variance for oat and 45% for pea** at
 the measured interaction, at 80 plots across 5 locations. That changes the
 conclusion's *direction*, not its force:
 
@@ -395,23 +544,23 @@ contrast is the accession, and the trial is really a two-sample comparison with
 15–30 per side. `σ²_within` is the per-accession prediction error variance plus
 the within-pool spread of the predictions, and it is now computed **per pool**,
 because the two extremes of the distribution are not equally well estimated —
-oat's As⁺ pool carries 56.9 against As⁻'s 40.4.
+oat's As⁺ pool carries 54.6 against As⁻'s 45.3.
 
 **And more plots do nothing at all to the middle term**, which is divided by the
-number of *locations*. So **88% of the oat standard error and 80% of the pea
+number of *locations*. So **87% of the oat standard error and 77% of the pea
 cannot be bought with plots**, and most of what cannot be bought is
 associate × location. **The one remaining lever is more sites**, which is why
 `n_loc` is the sweep in the table above and the plot budget is simply fixed at
 80 per location. It is also why the middle term drives the *degrees of freedom*
 as well as the variance: it carries only `n_loc − 1`, which is what takes the
-effective df from 38 down to 9.3 for oat.
+effective df from 38 down to 9.8 for oat.
 
 A note on `σ²_within`, because the number moved a long way. It used to be
 backed out of the identity Var(true) = Var(BLUP) + E[PEV] by solving for the
 second term. That identity does not hold in this fit: for oat,
-Var(BLUP) = 46.9 and the measured E[PEV] = 49.0 sum to 95.9 against a fitted
-component of 160.9, with mean(diag(G)) = 1.00 so the GRM scale is not the
-explanation. The backed-out PEV was therefore **2.3× the posterior's own value**
+Var(BLUP) = 45.3 and the measured E[PEV] = 49.3 sum to 94.6 against a fitted
+component of 155.1, with mean(diag(G)) = 1.00 so the GRM scale is not the
+explanation. The backed-out PEV was therefore **2.2× the posterior's own value**
 (the same ratio appears independently in pea), which inflated this term and
 *understated* power. PEV is now measured per accession from the streamed
 coefficient draws; both values and their ratio are reported in `vintage.csv`.
@@ -419,14 +568,17 @@ coefficient draws; both values and their ratio are reported in `vintage.csv`.
 At λ = 0.8:
 
 The current numbers are in `power_ceiling.csv`; the shape of the thing is what
-matters here. **Roughly 80–90% of the standard error cannot be bought down with
-plots**, and most of what cannot be bought is the pool × location term.
+matters here. **Roughly 77% (pea) to 87% (oat) of the standard
+error cannot be bought down with plots**, and most of what cannot be bought is
+the pool × location term.
 
 What actually moves the needle, in order:
 
-1. **λ** — worth ~40 points across its plausible range.
+1. **λ** — worth 24 points for oat (0.49 → 0.73) and 17 for pea
+   (0.72 → 0.89) between the bottom of its 95% interval and its point estimate,
+   and about as much again above it.
 2. **More locations.** At the same per-site effort, going from four sites to
-   five takes oat from 0.643 to 0.743 — ten points. That is more than the
+   five takes oat from 0.629 to 0.727 — ten points. That is more than the
    entire 60-to-100 plots-per-location range buys, because locations are the
    only lever on the dominant term, and because that term carries just
    `n_loc − 1` degrees of freedom.
@@ -434,14 +586,14 @@ What actually moves the needle, in order:
    which shrinks the accession term. This is why pools are frozen as late as
    seed logistics allow.
 4. **A one-sided test** — 7–11 points, free.
-5. **More plots per location** — about 2–3 points across the whole 60-to-100
-   range. The weakest lever by a wide margin, which is why the budget is now
+5. **More plots per location** — about 3 points for oat and 5 for pea across
+   the whole 60-to-100 range. The weakest lever by a wide margin, which is why the budget is now
    simply fixed at 80.
 
 **A note on reading the budget.** Until 2026-10-03 this grid crossed a *total*
 plot count with a location count, which produces cells that are not the same
 design: 400 plots is 100 per site at four locations and 80 at five, and those
-give 0.652 and 0.743. The sweep is now over **plots per location**, with the
+give 0.639 and 0.727. The sweep is now over **plots per location**, with the
 total derived, so the two location arms are compared at equal per-site effort.
 `power_curves.png` saw-toothed for exactly this reason — it was joining points
 from two different designs.
@@ -452,16 +604,17 @@ Power is nearly flat in *n*. At 80 plots per location and five locations:
 
 | n per pool | oat power | pea power |
 |---|---|---|
-| 10 | 0.742 | 0.882 |
-| 15 | **0.744** | **0.887** |
-| **20** | 0.743 | 0.880 |
-| 25 | 0.737 | 0.879 |
-| **30** | 0.733 | 0.871 |
-| 40 | 0.719 | 0.851 |
-| 50 | 0.701 | 0.823 |
+| 10 | 0.728 | **0.909** |
+| 15 | **0.729** | 0.907 |
+| **20** | 0.727 | 0.903 |
+| 25 | 0.722 | 0.898 |
+| **30** | 0.717 | 0.888 |
+| 40 | 0.703 | 0.868 |
+| 50 | 0.687 | 0.842 |
 
-The whole range spans **0.041 for oat and 0.064 for pea**, the optimum sits at
-n = 15 for both, and the configured 20 and 30 are within 0.001 and 0.016 of it.
+The whole range spans **0.042 for oat and 0.067 for pea**, the optimum sits at
+n = 15 for oat and n = 10 for pea, and the configured 20 and 30 are within
+0.002 and 0.020 of it.
 Pool size is therefore set by the **design geometry**,
 n = plots-per-location ÷ 4, which makes every accession appear exactly twice at
 every location, rather than by the power curve.
@@ -472,7 +625,7 @@ Halving the pool does two opposite things.
 
 **It sharpens selection.** Pools are the extremes of the associate-effect
 distribution, so a smaller pool reaches further into the tail. For a normal the
-mean of the top *p* fraction is `φ(z_p)/p`, and with 199 oat and 195 pea
+mean of the top *p* fraction is `φ(z_p)/p`, and with 199 oat and 194 pea
 candidates after the Pr filter, halving *n* from 40 to 20 buys a contrast about
 **1.24×** larger.
 
@@ -480,7 +633,7 @@ candidates after the Pr filter, halving *n* from 40 to 20 buys a contrast about
 halving *n* multiplies the SE by **√2 = 1.41**.
 
 Those nearly cancel, and the achieved contrast behaves as the theory says: ΔAs
-falls from 24.5 to 15.7 for oat across n = 10 → 50, and 39.7 to 24.2 for pea —
+falls from 24.2 to 15.9 for oat across n = 10 → 50, and 41.6 to 24.9 for pea —
 close to the 1/√n the SE follows. The residual curvature is why there is a
 shallow optimum rather than a perfectly level line, and why that optimum has
 moved to n = 15: the cancellation is not exact, and with the pool × location
@@ -499,15 +652,15 @@ does.
 #### What the Pr constraints cost
 
 **Candidates must have Pr above the median**, which halves the candidate set —
-398 eligible oat become 199, 389 pea become 195 — so n = 20 is the top 10% of
+398 eligible oat become 199, 388 pea become 194 — so n = 20 is the top 10% of
 candidates rather than the top 5% of all eligible.
 
 **The two pools must have nearly equal mean Pr**, and Pr and As are negatively
-correlated (−0.47 for oat and −0.56 for pea across all accessions). The As⁺
+correlated (−0.46 for oat and −0.55 for pea across all accessions). The As⁺
 extreme is systematically low-Pr and the As⁻ extreme high-Pr, so balancing
 costs As extremity. With the corrected index that cost is small: the achieved
-producer gap is **−0.03 g/m² for oat and −0.13 for pea** against a tolerance of
-1.0, and both pools sit about 10 (oat) and 11 (pea) g/m² above the population
+producer gap is **0.43 g/m² for oat and −0.65 for pea** against a tolerance of
+1.0, and both pools sit about 9 (oat) and 10 (pea) g/m² above the population
 mean Pr.
 
 ### Verification
@@ -542,8 +695,8 @@ Two things the simulation does now that it did not:
   what the `(int_sd)²/n_loc` term describes.
 
 The type I rates that follow are in §4. The headline: the model this document
-specified until 2026-10-03 rejects a true null at 0.170 for oat, and the
-pre-registered one at 0.027.
+specified until 2026-10-03 rejects a true null at 0.166 for oat, and the
+pre-registered one at 0.028.
 
 ---
 
@@ -571,14 +724,14 @@ cross-validation (§7).
 
 | held out | oat: predicted → realised | pea: predicted → realised |
 |---|---|---|
-| B4I_2025_IA | 12.4 → **1.5** | 17.3 → **0.7** |
-| B4I_2025_IL | 13.1 → **12.8** | 17.1 → **21.7** |
-| B4I_2025_ND | 12.0 → **16.9** | 18.0 → **30.2** |
-| B4I_2025_NY | 11.2 → **20.7** | 18.2 → **12.9** |
-| B4I_2026_IA | 13.4 → **18.0** | 23.7 → **48.7** |
-| B4I_2026_IL | 16.4 → **4.2** | 33.5 → **23.4** |
-| B4I_2026_ND | 17.3 → **−0.9** | 33.7 → **16.0** |
-| B4I_2026_NY | 17.0 → **4.3** | 27.3 → **22.2** |
+| B4I_2025_IA | 12.4 → **2.6** | 17.3 → **1.1** |
+| B4I_2025_IL | 13.7 → **11.9** | 19.1 → **24.0** |
+| B4I_2025_ND | 12.8 → **11.4** | 20.5 → **27.2** |
+| B4I_2025_NY | 12.1 → **21.1** | 20.9 → **14.0** |
+| B4I_2026_IA | 13.2 → **16.9** | 23.6 → **50.9** |
+| B4I_2026_IL | 15.7 → **4.7** | 33.7 → **25.8** |
+| B4I_2026_ND | 17.2 → **4.1** | 33.2 → **15.8** |
+| B4I_2026_NY | 17.0 → **4.5** | 26.7 → **15.7** |
 
 Read the two columns differently. **Pea delivers in seven of eight** folds, and
 in three of them by more than predicted. **Oat is split**: four folds deliver
@@ -601,10 +754,10 @@ Over the informative "same lines, new environment" folds:
 <!-- BEGIN GENERATED: lambda -->
 | | λ | across-fold spread (interaction_frac) | folds | accession-level *r* |
 |---|---|---|---|---|
-| oat | **0.77** | 0.73 | 8 | 0.18 |
-| oat | **0.02** | 0.81 | 8 | 0.18 |
-| pea | **0.75** | 0.54 | 8 | 0.21 |
-| pea | **0.01** | 0.37 | 8 | 0.21 |
+| oat | **0.76** | 0.74 | 8 | 0.17 |
+| oat | **0.02** | 0.80 | 8 | 0.17 |
+| pea | **0.78** | 0.50 | 8 | 0.21 |
+| pea | **0.01** | 0.33 | 8 | 0.21 |
 <!-- END GENERATED: lambda -->
 
 ### Absolute or proportional? The question §6 used to leave open
@@ -626,29 +779,29 @@ estimation noise, using the accession-clustered standard errors.
 
 | species | scale | folds | λ | λ in g/m² | SE of λ | interaction_frac | corrected |
 |---|---|---|---|---|---|---|---|
-| oat | raw | 8 | 0.773 | 0.77 | 0.199 | 0.728 | 0.624 |
-| oat | z | 8 | 0.022 | 0.77 | 0.006 | 0.811 | 0.731 |
-| pea | raw | 8 | 0.752 | 0.75 | 0.144 | 0.543 | 0.417 |
-| pea | z | 8 | 0.015 | 0.75 | 0.002 | 0.371 | 0.130 |
+| oat | raw | 8 | 0.759 | 0.76 | 0.198 | 0.737 | 0.622 |
+| oat | z | 8 | 0.022 | 0.76 | 0.006 | 0.802 | 0.716 |
+| pea | raw | 8 | 0.784 | 0.78 | 0.140 | 0.504 | 0.351 |
+| pea | z | 8 | 0.014 | 0.78 | 0.002 | 0.327 | 0.000 |
 
 By year, as a **diagnostic** — the global estimate over all folds is what
 the power table uses, and nothing in the chain re-sizes on a subset of folds.
 
 | species | year | folds | λ | SD |
 |---|---|---|---|---|
-| oat | 2025 | 4 | 0.940 | 0.685 |
-| oat | 2026 | 4 | 0.605 | 0.440 |
-| pea | 2025 | 4 | 0.709 | 0.361 |
-| pea | 2026 | 4 | 0.794 | 0.503 |
+| oat | 2025 | 4 | 0.900 | 0.670 |
+| oat | 2026 | 4 | 0.618 | 0.478 |
+| pea | 2025 | 4 | 0.784 | 0.370 |
+| pea | 2026 | 4 | 0.784 | 0.477 |
 <!-- END GENERATED: lambda_scales -->
 
 The answer differs by species, which is why it was worth asking. For **oat**,
-standardising makes the spread slightly *worse* (0.73 → 0.81), so oat's
+standardising makes the spread slightly *worse* (0.74 → 0.80), so oat's
 across-fold variation is genuine associate × environment interaction and not an
 artefact of trials differing in spread. For **pea**, standardising removes about
-a third of it (0.54 → 0.37), so a real part of pea's apparent interaction is
+a third of it (0.50 → 0.33), so a real part of pea's apparent interaction is
 scale heterogeneity. Removing fold-level estimation noise as well takes the raw
-figures to 0.62 and 0.42; neither floors at zero, so the interaction is real in
+figures to 0.62 and 0.35; neither floors at zero, so the interaction is real in
 both species, just smaller than the uncorrected numbers suggest.
 
 The trial is sized on the **raw** scale, because that is the scale it is sown
@@ -656,32 +809,37 @@ and harvested in.
 
 Two things follow.
 
-**The effects do transfer.** λ near 0.77 for both species, over eight folds,
-with the oat 95% interval 0.38–1.16 and pea's 0.47–1.03. Individual folds do
+**The effects do transfer.** λ is 0.76 (oat) and 0.78 (pea) over eight folds,
+with the oat 95% interval 0.37–1.15 and pea's 0.51–1.06. Individual folds do
 exceed 1, which would mean the realised contrast beats the predicted one and
 the BLUPs are over-shrunk; the *mean* does not, and it is the mean the trial is
 sized on.
 
 **But the fold-to-fold spread is larger than we assumed.** The across-fold SD
-of the slope is 0.57–0.69 of its mean, against the 0.5 used in the sensitivity.
+of the slope is 0.50 (pea) to 0.74 (oat) of its mean, against the 0.5 used in
+the sensitivity.
 Read as associate × environment interaction, it costs real power:
 
 | | power ignoring the spread | allowing for it | at the lower CI bound for λ |
 |---|---|---|---|
-| oat | 1.00 | **0.84** | 0.41 |
-| pea | 0.77 | **0.65** | 0.26 |
+| oat | 0.99 | **0.73** | 0.49 |
+| pea | 0.99 | **0.89** | 0.72 |
 
-So: **oat is adequately powered; pea is marginal**, and both depend on λ being
-near its point estimate rather than near the bottom of its interval.
+So: **pea is adequately powered and oat is the marginal one** — the reverse of
+what this table said two vintages ago, because oat's λ is the lower of the two
+and its across-fold spread the larger. Both depend on λ being near its point
+estimate rather than near the bottom of its interval, and oat's interval is the
+wider.
 
 ### What this rests on
 
 - λ comes from **eight** folds, one per trial the QC screen keeps, and its own
-  confidence interval is still wide — oat 0.38 to 1.16.
+  confidence interval is still wide — oat 0.37 to 1.15.
 - The across-fold spread is **no longer** treated as entirely genuine
   interaction. Each fold's slope now carries an accession-clustered standard
   error, and subtracting the mean squared error leaves the part that is real:
-  0.73 → 0.62 for oat, 0.54 → 0.42 for pea. Neither floors at zero.
+  0.74 → 0.62 for oat, 0.50 → 0.35 for pea. Neither floors at zero on the raw
+  scale the trial is sized in, though pea's does on the standardised one.
 - The **absolute-versus-proportional** question is answered above rather than
   deferred.
 - λ is no longer conditional on a fold-inclusion rule chosen by looking at λ.
@@ -797,10 +955,13 @@ When it finishes, read in this order:
 
 | file | what it tells you |
 |---|---|
-| `output/validation/<date>/pool_diff.csv` | **who entered and left each pool.** Read this first: it is the stability check |
-| `output/validation/<date>/pool_summary.csv` | the new pools |
-| `output/validation/<date>/power_grid.csv` | power at the new variance components |
+| `output/validation/<date>/pool_summary.csv` | **the pools, and at what constraint.** Read this first: `search_mode`, `round`, ΔAs, ΔPr, `regret`, `power_pr_adj` |
+| `output/validation/<date>/search_request.md` | what still has to be found in the seed store, if anything |
+| `output/validation/<date>/search_curve.csv` | what one more substitution would buy — the "is another round worth it?" column |
+| `output/validation/<date>/estimand_power.csv` | power for the three pre-registered estimands, on the adopted pools |
+| `output/validation/<date>/power_grid.csv` | power at the new variance components, across pool sizes |
 | `output/validation/<date>/field_book.csv` | the layout to hand to the stations |
+| `output/validation/<date>/pool_diff.csv` | who entered and left each pool since the previous vintage. **Reported because somebody ordering seed will want to know what moved — not a criterion**, and nothing in the chain gates on it (see above) |
 
 ---
 
@@ -953,11 +1114,11 @@ connected than a real accession. The largest has 59 partners against a median of
 | # | decision | status |
 |---|---|---|
 | 1 | Pea pool size: 30–40 (recommended) or p/4 for symmetry with oat | proposed at 30 |
-| 2 | Seed availability for 2n accessions per species at 5 locations | unknown — the real constraint on n |
-| 3 | Whether to proceed if λ < 0.5 | **moot**: λ is 0.77 (oat) and 0.75 (pea) over eight folds. The lower 95% bound, 0.38, puts oat at 0.53 — that is the scenario to decide about |
+| 2 | Seed availability for 2n accessions per species at 5 locations | **now tracked rather than guessed**: `data/seed_search_ledger.csv` and the round protocol (§2). Round 1 asks for 100 bags, all still `unsearched`; [POOL_SELECTION_HOWTO.md](POOL_SELECTION_HOWTO.md) is how it is run |
+| 3 | Whether to proceed if λ < 0.5 | **moot**: λ is 0.76 (oat) and 0.78 (pea) over eight folds. The lower 95% bound, 0.37, puts oat at 0.49 — that is the scenario to decide about |
 | 4 | Multiplicity position | **settled**: Holm over three primaries, §4 |
 | 5 | Monoculture checks (for land-equivalent ratio) | omitted; would need extra plots. Note total yield itself needs **none** — both yields are already on every plot, and it is a co-primary (§4) |
-| 6 | Whether the primary test estimates the interaction variance or takes it as measured | **recommend: as measured.** Re-estimating it from five locations gives four degrees of freedom and a test that rejects a true null at 0.062 (oat); taking the cross-validation's eight-fold estimate as known holds size at 0.032 and 0.044. The reported power already assumes the latter |
+| 6 | Whether the primary test estimates the interaction variance or takes it as measured | **recommend: as measured.** Re-estimating it from five locations gives four degrees of freedom and a test that rejects a true null at 0.064 (oat); taking the cross-validation's eight-fold estimate as known holds size at 0.028 and 0.034. The reported power already assumes the latter |
 | 7 | Extra plots replicating specific combinations, within and across locations | to argue at the field-design stage, via `n_anchor_per_cell`. Power here assumes the current one anchor per cell |
 
 ---

@@ -361,31 +361,11 @@ P_values <- plots_per_location * n_locations
 # about lambda, and averaging those in pulls the estimate toward noise.
 # ------------------------------------------------------------
 
-FALLBACK <- list(lambda = 0.8, interaction_frac = 0.5)
-
-crossval_estimates <- function(out_root, vintage,
-                               set_wanted = "informative folds only") {
-  dirs <- sort(list.dirs(out_root, recursive = FALSE))
-  here_first <- c(file.path(out_root, vintage),
-                  rev(setdiff(dirs, file.path(out_root, vintage))))
-  for (d in here_first) {
-    f <- file.path(d, "crossval_summary.csv")
-    if (!file.exists(f)) next
-    x <- readr::read_csv(f, show_col_types = FALSE)
-    x <- dplyr::filter(x, set == set_wanted)
-    if (nrow(x) == 0) next
-    # The RAW scale is what the trial is sized in; the standardised rows are
-    # reported by validate_crossval.R for the interaction comparison and are
-    # not a substitute here.
-    if ("scale" %in% names(x)) x <- dplyr::filter(x, scale == "raw")
-    return(list(est = dplyr::select(
-                  x, species, lambda = lambda_mean,
-                  lambda_se = lambda_se_of_mean,
-                  interaction_frac, interaction_frac_corrected, n_folds),
-                from = basename(d)))
-  }
-  NULL
-}
+# FALLBACK and crossval_estimates() now live in code/validation_functions.R,
+# because code/validate_pool_selection.R reports power beside its proposal
+# and so needs the same lambda from the same place.  They were already
+# declared in EVAL_GROUPS$val_power but unreachable from eval_defs() while
+# they sat in a driver script.
 
 cv_est <- crossval_estimates(out_root, vintage)
 if (is.null(cv_est)) {
@@ -726,10 +706,23 @@ cov_e     <- mean(vc_resid$cov_pea_oat)
 
 nm <- function(d, col) stats::setNames(d[[col]], d$acc)
 
+# THE ADOPTED POOLS, not re-derived ones. Since search-v3 the membership in
+# pools.csv is the pool SEARCH's answer, which build_pools() does not
+# reproduce exactly (it moves 3 of 40 oat members), so re-deriving here would
+# make estimand_power.csv and field_book.csv describe different accessions.
+# Everything numeric is still recomputed from `inputs`, so a stale pools.csv
+# cannot smuggle last vintage's effect sizes in; only the membership is read.
+#
+# power_grid() above deliberately keeps re-deriving, because it SWEEPS n and
+# the adopted pools exist at one n only: power_grid.csv answers "what would a
+# design of size n achieve", this section answers "what will the trial we are
+# about to sow achieve".
+built <- purrr::imap(inputs, \(inp, name)
+  pools_from_csv(inp, file.path(out_dir, "pools.csv"),
+                 n = validation_setting("n_per_pool")[[name]],
+                 pr_quantile = pr_quantile))
+
 estimand_power <- purrr::map(n_locations_swept, \(nl) {
-  built <- purrr::imap(inputs, \(inp, name)
-    build_pools(inp, validation_setting("n_per_pool")[[name]],
-                pr_quantile = pr_quantile))
   design <- make_validation_design(built$oat$pools, built$pea$pools,
                                    n_loc = nl, p_loc = plots_per_location_fixed,
                                    n_anchor = validation_setting("n_anchor_per_cell"),

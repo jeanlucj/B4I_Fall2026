@@ -62,10 +62,10 @@ STEPS <- tibble::tribble(
     "screens each trial for whether its data carry signal at all, and drops the ones that do not; B4I_2025_AL returned a full set of plots from a crop failure",
   "fit",       "BGLR_multi_trait_model.R",           FALSE,  TRUE,
     "the variance components and per-accession effects everything below depends on",
-  "validate",  "validate_pool_selection.R",          FALSE,  FALSE,
-    "rebuilds the As+/As- pools and diffs them against the previous vintage",
   "validate",  "validate_crossval.R",                FALSE,  TRUE,
-    "estimates lambda and the pool x location interaction by leave-one-trial-out; validate_power.R reads both, so this has to run first",
+    "estimates lambda and the pool x location interaction by leave-one-trial-out; validate_power.R reads both, and validate_pool_selection.R reports power at the same lambda, so this runs first",
+  "validate",  "validate_pool_selection.R",          FALSE,  FALSE,
+    "rebuilds the As+/As- pools, diffs them against the previous vintage, and writes the seed-search request; it reads crossval_summary.csv for the power it REPORTS, but the accessions it proposes do not depend on lambda",
   "validate",  "validate_power.R",                   FALSE,  TRUE,
     "recomputes power from the NEW variance components, at the lambda just measured",
   "validate",  "validate_design.R",                  FALSE,  FALSE,
@@ -221,9 +221,13 @@ if (dir.exists(vint_dir)) {
   if (length(vints) >= 2) {
     cat("\nThe pool churn between the last two vintages is in\n  ",
         file.path(vint_dir, utils::tail(vints, 1), "pool_diff.csv"), "\n",
-        "A pool retaining well under 70% of its members across one data",
-        " vintage is\na warning about the EFFECT ESTIMATES, not about the",
-        " design.\n", sep = "")
+        "It is reported so that whoever orders seed knows what moved. It is\n",
+        "NOT a criterion: churn is not a reason to postpone, and the year-3\n",
+        "trial is a validation trial regardless. While the method is still\n",
+        "being settled, churn between vintages largely measures changes to the\n",
+        "METHOD -- compare the pool_index stamp in pool_summary.csv before\n",
+        "reading a diff as instability. See VALIDATION_DESIGN.md section 7.\n",
+        sep = "")
   }
 }
 
